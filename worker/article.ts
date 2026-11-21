@@ -9,6 +9,11 @@ export const MAX_BYTES = 3_000_000
 // what is cut is usually page furniture after the story.
 export const MAX_TEXT_CHARS = 60_000
 const FETCH_TIMEOUT_MS = 10_000
+// The converter starts its text with the page's metadata, one `key: value` line
+// each (title, description, image), then a blank line. The description is the
+// site's own blurb, with its HTML entities left in, so it is not article text to
+// quote or cut a passage from.
+const METADATA_HEADER = /^(?:[a-z]+: [^\n]*\n)+\n/
 
 const TYPES: Record<string, string> = {
   'text/html': 'article.html',
@@ -55,7 +60,7 @@ export async function fetchArticle(env: Pick<Env, 'AI'>, url: string): Promise<A
       { conversionOptions: { output: { format: 'text' }, html: { hostname: new URL(res.url || url).hostname } } },
     ).catch((e: unknown) => ({ format: 'error' as const, error: String(e) }))
     if (converted.format === 'error') return { ok: false, unread: 'no_text', reason: `The page could not be turned into text (${converted.error.slice(0, 120)}).` }
-    text = converted.data
+    text = converted.data.trimStart().replace(METADATA_HEADER, '')
   }
 
   text = text.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim()

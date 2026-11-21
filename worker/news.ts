@@ -217,6 +217,45 @@ export async function dryRunArticle(env: Env, url: string, questionId: string, n
   return { ...result, model: MODEL, article, people: people.map((p) => p.name) }
 }
 
+// Runs the news search and records what came of it in `news_runs`. The
+// scheduled run first checks that the queue is attended, and records a skip
+// when it is not.
+export async function runNewsSearch(env: Env, tracker: Submitter, startedBy: 'cron' | 'editor', now: Date = new Date()): Promise<NewsReport | { skipped: string }> {
+  if (startedBy === 'cron' && !(await queueIsAttended(env.DB, now))) {
+    const skipped = await skipReason(env.DB)
+    await recordRun(env.DB, now, startedBy, 'skipped', skipped)
+    return { skipped }
+  }
+  try {
+    const report = await searchNews(env, tracker, now)
+    await recordRun(env.DB, now, startedBy, 'searched', JSON.stringify(report))
+    return report
+  } catch (e) {
+    await recordRun(env.DB, now, startedBy, 'failed', String(e))
+    throw e
+  }
+}
+
+async function skipReason(db: D1Database): Promise<string> {
+  const row = await db
+    .prepare(
+      `SELECT
+         (SELECT COUNT(*) FROM proposals WHERE status = 'pending' AND origin IN ('news_search', 'model')) AS waiting,
+         (SELECT MAX(reviewed_at) FROM proposals WHERE status = 'reviewed' AND origin IN ('news_search', 'model')) AS reviewed_at`,
+    )
+    .first<{ waiting: number; reviewed_at: string | null }>()
+  return `${row?.waiting ?? 0} automated proposals are waiting, and the last one reviewed was reviewed ${row?.reviewed_at ? `at ${row.reviewed_at}` : 'never'}.`
+}
+
+// A run that cannot be recorded still runs: the log has the same report.
+function recordRun(db: D1Database, now: Date, startedBy: 'cron' | 'editor', outcome: 'skipped' | 'searched' | 'failed', detail: string) {
+  return db
+    .prepare(`INSERT INTO news_runs (id, started_at, started_by, outcome, detail) VALUES (?, ?, ?, ?, ?)`)
+    .bind(crypto.randomUUID(), now.toISOString(), startedBy, outcome, detail.slice(0, 4000))
+    .run()
+    .catch((e: unknown) => console.error('could not record the news run', String(e)))
+}
+
 // Whether the scheduled search should run today: when nothing it queued earlier
 // is waiting, or when an editor has reviewed something it queued in the last
 // day. An unattended queue stops filling, and the first review starts it again
