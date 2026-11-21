@@ -1,5 +1,6 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
+import { Button } from '@ui-sdk/react/button'
 import type { Certainty } from '../../shared/schema.ts'
 import { FOOTING_HINT } from '../../shared/standing.ts'
 import { useTracker, useViewedBody, type Tenure } from '../lib/tracker.tsx'
@@ -145,9 +146,9 @@ function DeciderOnQuestion() {
         <section>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-xl font-semibold">The record</h2>
-            <button type="button" className="btn" onClick={() => setAdding(true)}>
+            <Button className="btn" onClick={() => setAdding(true)}>
               Add to the record
-            </button>
+            </Button>
           </div>
           {me.record.length === 0 ? (
             <p className="rounded-lg border border-dashed border-line p-6 text-center text-muted">

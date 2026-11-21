@@ -135,7 +135,8 @@ test('evidence a reader sends reaches the editor under its question and, once ap
   await dialog.getByLabel('Link to the source').fill(`https://example.com/harbor-ledger/sato-${Date.now()}`)
   await dialog.getByLabel('Source name').fill(sourceTitle)
   await dialog.getByLabel('Date it happened').fill('2026-11-12')
-  await dialog.getByLabel('What it shows').selectOption('support')
+  await dialog.getByRole('combobox', { name: 'What it shows' }).click()
+  await page.getByRole('option', { name: 'Support', exact: true }).click()
   await dialog.getByLabel('Anything the editor should know?').fill('Third paragraph.')
   await dialog.getByRole('button', { name: 'Send for review' }).click()
   await expect(dialog.getByText('Thank you. Your report is waiting for an editor.')).toBeVisible()
@@ -375,7 +376,7 @@ test('the list beside the open card pages through every waiting proposal', async
   await expect(pages).toContainText(`of ${waiting}`)
 
   // A card on a later page opens from there.
-  const last = list.last()
+  const last = list.filter({ hasText: `Paged ${stamp}` }).last()
   const lastTitle = (await last.textContent())!
   await last.getByRole('button').click()
   await expect(page.getByRole('article').getByRole('heading').first()).toContainText(lastTitle.match(/Paged \d+ no\. \d+/)![0])
