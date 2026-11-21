@@ -16,6 +16,7 @@ export const Route = createFileRoute('/editor/roles/$roleId')({ component: EditR
 function EditRole() {
   const { roleId } = Route.useParams()
   const { tracker, isReady } = useTracker()
+  const [ends, setEnds] = useState(0)
   if (!isReady) return <Syncing />
   const role = tracker.roles.find((r) => r.id === roleId)
   const seat = role && tracker.seatById.get(role.seat_id)
@@ -45,18 +46,20 @@ function EditRole() {
         )}
       </div>
 
-      <RoleForm key={role.ends_on ?? ''} seat={seat} person={decider} start={roleInputOf(role)} editing={role} />
-      <EndRole role={role} />
+      <RoleForm key={ends} seat={seat} person={decider} start={roleInputOf(role)} editing={role} />
+      <EndRole role={role} onEnded={() => setEnds((n) => n + 1)} />
       <DeleteRole role={role} personSlug={decider.slug} />
     </div>
   )
 }
 
-function EndRole({ role }: { role: Role }) {
+// `onEnded` resets the role form above, whose end date field would otherwise still show it empty.
+function EndRole({ role, onEnded }: { role: Role; onEnded: () => void }) {
   const [error, setError] = useState<string | null>(null)
   const save = (ends_on: string) => {
     setError(null)
     commit([endRole(role, ends_on)]).catch((err: unknown) => setError(notSaved(err)))
+    onEnded()
   }
   return (
     <section aria-labelledby="end-role" className="card space-y-3 p-4 sm:p-6">
@@ -94,21 +97,19 @@ function EndRole({ role }: { role: Role }) {
 function DeleteRole({ role, personSlug }: { role: Role; personSlug: string }) {
   const { tracker } = useTracker()
   const navigate = Route.useNavigate()
-  const [error, setError] = useState<string | null>(null)
   const threads = threadsFor(role, tracker)
   const proposalItems = useLiveQuery((q) => q.from({ row: db.proposal_items }))
   const proposalMentions = useLiveQuery((q) => q.from({ row: db.proposal_mentions }))
-  const comments = useLiveQuery({ query: (q) => q.from({ c: db.comments }).where(({ c }) => inArray(c.thread_id, threads)) })
-  const loaded = proposalItems.isReady && proposalMentions.isReady && comments.isReady
-  const dependents = loaded ? roleDependents(role, tracker, { proposalItems: proposalItems.data, proposalMentions: proposalMentions.data, comments: comments.data }) : []
+  // A body with no questions has no threads to load, and an empty `inArray` names no slice to wait on.
+  const comments = useLiveQuery({ query: (q) => (threads.length ? q.from({ c: db.comments }).where(({ c }) => inArray(c.thread_id, threads)) : undefined) })
+  const loaded = proposalItems.isReady && proposalMentions.isReady && (threads.length === 0 || comments.isReady)
+  const dependents = loaded ? roleDependents(role, tracker, { proposalItems: proposalItems.data, proposalMentions: proposalMentions.data, comments: comments.data ?? [] }) : []
 
   function remove() {
     if (!window.confirm('Delete this role? It is gone from every page, with no record that it was there.')) return
-    setError(null)
-    commit([{ on: 'roles', type: 'delete', id: role.id }]).then(
-      () => navigate({ to: '/editor/people/$slug', params: { slug: personSlug } }),
-      (err: unknown) => setError(notSaved(err)),
-    )
+    // The delete is optimistic, so this page would show the role as not found while the server confirms it.
+    commit([{ on: 'roles', type: 'delete', id: role.id }]).catch((err: unknown) => window.alert(`The role was not deleted. ${notSaved(err)}`))
+    navigate({ to: '/editor/people/$slug', params: { slug: personSlug } })
   }
 
   return (
@@ -130,7 +131,6 @@ function DeleteRole({ role, personSlug }: { role: Role; personSlug: string }) {
           </button>
         </>
       )}
-      {error && <p className="text-sm text-oppose">{error}</p>}
     </section>
   )
 }

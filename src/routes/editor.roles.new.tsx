@@ -65,7 +65,7 @@ function NewRole() {
         startHint={running ? runningHint(seat, body) : undefined}
         onSaved={(role, holder) => {
           const at = tracker.seatById.get(role.seat_id)
-          if (from && at) navigate({ to: '/q/$slug', params: { slug: from.slug }, search: (prev) => ({ ...prev, q: at.label }) })
+          if (from && at) navigate({ to: '/q/$slug', params: { slug: from.slug }, search: { q: at.label } })
           else navigate({ to: '/editor/people/$slug', params: { slug: holder.slug } })
         }}
       />
