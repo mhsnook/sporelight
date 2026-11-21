@@ -32,6 +32,20 @@ The first data set is the United States Congress and Medicare for All. Nothing i
 - **Signing in.** A reader can sign in with a code sent to their email address. Signing in is optional, and everything works signed out as before. The first name a signed-in person posts under becomes the name shown for them, and they can change it. Their email address is kept with their sign-in account and is never sent to a browser or shown on a page. What they send in records who sent it, and their comments are tied to them. A person's roles are stored one per row, each with where it holds, so the same person can later hold different roles for different organisations; nothing reads them yet.
 - **Muting.** An editor can mute someone who has signed in, from any of their comments. While they are muted, their waiting proposals are left out of `/latest` and their comments out of each thread. Editors still see the comments, marked as muted, and can unmute them there. Muting hides what is shown; the rows are still synced like the rest of the public tables. The review queue still lists their proposals.
 
+## Agents
+
+An agent working in a reader's browser can use the site's forms the way the reader does. The forms are built from [UI SDK](https://ui-sdk.dev) components, and `src/lib/agent.ts` creates its agent bridge, which lists the components on the page with their labels, values and actions, and changes them through the same callbacks a person's input goes through. In a browser that supports [WebMCP](https://webmachinelearning.github.io/webmcp/), the bridge registers three tools on `document.modelContext`:
+
+- `snapshot` lists the controls on the page and their values.
+- `query` finds a control, or the choices in a list.
+- `act` sets values and presses buttons, one step after another.
+
+"Add to the record" on a person's page works this way: an agent presses it, fills in the form by its labels and presses "Send for review". What it sends goes through `POST /api/proposals` like anything a reader sends: the same validation, the same limit per address, the same duplicate check, and the review queue. It is sent as the signed-in reader, if there is one. The result, and any field the Worker refused, is shown in parts of the page the bridge reads, so the agent can tell whether it worked.
+
+The bridge sees only UI SDK components. The form's hidden `website` field is a plain input inside `data-agent-hidden`, so an agent is neither offered it nor allowed to fill it in. A control marked `data-agent-confirm` waits for the person to press it.
+
+The other forms are still plain HTML, which an agent can use only by reading and clicking the page.
+
 ## Stack
 
 - Cloudflare Worker + D1, with a React SPA served as static assets

@@ -32,6 +32,8 @@
     "@tanstack/db": "^0.15.2",
     "@tanstack/react-db": "^0.5.12",
     "@tanstack/react-router": "^1.170.46",
+    "@ui-sdk/core": "0.1.0-beta.13",
+    "@ui-sdk/react": "0.1.0-beta.13",
     "better-auth": "^1.7.26",
     "party-db": "^0.1.0",
     "partyserver": "^0.5.10",
