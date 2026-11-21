@@ -14,7 +14,12 @@ import { Route as EditorRouteImport } from './routes/editor'
 import { Route as LatestRouteImport } from './routes/latest'
 import { Route as QuestionsRouteImport } from './routes/questions'
 import { Route as EditorIndexRouteImport } from './routes/editor.index'
+import { Route as EditorPeopleIndexRouteImport } from './routes/editor.people.index'
+import { Route as EditorPeopleSlugRouteImport } from './routes/editor.people.$slug'
+import { Route as EditorPeopleNewRouteImport } from './routes/editor.people.new'
 import { Route as EditorQuestionsNewRouteImport } from './routes/editor.questions.new'
+import { Route as EditorRolesRoleIdRouteImport } from './routes/editor.roles.$roleId'
+import { Route as EditorRolesNewRouteImport } from './routes/editor.roles.new'
 import { Route as QSlugIndexRouteImport } from './routes/q.$slug.index'
 import { Route as QSlugDeciderRouteImport } from './routes/q.$slug.$decider'
 import { Route as EditorQuestionsSlugEditRouteImport } from './routes/editor.questions.$slug.edit'
@@ -44,9 +49,34 @@ const EditorIndexRoute = EditorIndexRouteImport.update({
   path: '/',
   getParentRoute: () => EditorRoute,
 } as any)
+const EditorPeopleIndexRoute = EditorPeopleIndexRouteImport.update({
+  id: '/people/',
+  path: '/people/',
+  getParentRoute: () => EditorRoute,
+} as any)
+const EditorPeopleSlugRoute = EditorPeopleSlugRouteImport.update({
+  id: '/people/$slug',
+  path: '/people/$slug',
+  getParentRoute: () => EditorRoute,
+} as any)
+const EditorPeopleNewRoute = EditorPeopleNewRouteImport.update({
+  id: '/people/new',
+  path: '/people/new',
+  getParentRoute: () => EditorRoute,
+} as any)
 const EditorQuestionsNewRoute = EditorQuestionsNewRouteImport.update({
   id: '/questions/new',
   path: '/questions/new',
+  getParentRoute: () => EditorRoute,
+} as any)
+const EditorRolesRoleIdRoute = EditorRolesRoleIdRouteImport.update({
+  id: '/roles/$roleId',
+  path: '/roles/$roleId',
+  getParentRoute: () => EditorRoute,
+} as any)
+const EditorRolesNewRoute = EditorRolesNewRouteImport.update({
+  id: '/roles/new',
+  path: '/roles/new',
   getParentRoute: () => EditorRoute,
 } as any)
 const QSlugIndexRoute = QSlugIndexRouteImport.update({
@@ -71,8 +101,13 @@ export interface FileRoutesByFullPath {
   '/latest': typeof LatestRoute
   '/questions': typeof QuestionsRoute
   '/editor/': typeof EditorIndexRoute
+  '/editor/people/$slug': typeof EditorPeopleSlugRoute
+  '/editor/people/new': typeof EditorPeopleNewRoute
   '/editor/questions/new': typeof EditorQuestionsNewRoute
+  '/editor/roles/$roleId': typeof EditorRolesRoleIdRoute
+  '/editor/roles/new': typeof EditorRolesNewRoute
   '/q/$slug/$decider': typeof QSlugDeciderRoute
+  '/editor/people/': typeof EditorPeopleIndexRoute
   '/q/$slug/': typeof QSlugIndexRoute
   '/editor/questions/$slug/edit': typeof EditorQuestionsSlugEditRoute
 }
@@ -81,8 +116,13 @@ export interface FileRoutesByTo {
   '/latest': typeof LatestRoute
   '/questions': typeof QuestionsRoute
   '/editor': typeof EditorIndexRoute
+  '/editor/people/$slug': typeof EditorPeopleSlugRoute
+  '/editor/people/new': typeof EditorPeopleNewRoute
   '/editor/questions/new': typeof EditorQuestionsNewRoute
+  '/editor/roles/$roleId': typeof EditorRolesRoleIdRoute
+  '/editor/roles/new': typeof EditorRolesNewRoute
   '/q/$slug/$decider': typeof QSlugDeciderRoute
+  '/editor/people': typeof EditorPeopleIndexRoute
   '/q/$slug': typeof QSlugIndexRoute
   '/editor/questions/$slug/edit': typeof EditorQuestionsSlugEditRoute
 }
@@ -93,8 +133,13 @@ export interface FileRoutesById {
   '/latest': typeof LatestRoute
   '/questions': typeof QuestionsRoute
   '/editor/': typeof EditorIndexRoute
+  '/editor/people/$slug': typeof EditorPeopleSlugRoute
+  '/editor/people/new': typeof EditorPeopleNewRoute
   '/editor/questions/new': typeof EditorQuestionsNewRoute
+  '/editor/roles/$roleId': typeof EditorRolesRoleIdRoute
+  '/editor/roles/new': typeof EditorRolesNewRoute
   '/q/$slug/$decider': typeof QSlugDeciderRoute
+  '/editor/people/': typeof EditorPeopleIndexRoute
   '/q/$slug/': typeof QSlugIndexRoute
   '/editor/questions/$slug/edit': typeof EditorQuestionsSlugEditRoute
 }
@@ -106,8 +151,13 @@ export interface FileRouteTypes {
     | '/latest'
     | '/questions'
     | '/editor/'
+    | '/editor/people/$slug'
+    | '/editor/people/new'
     | '/editor/questions/new'
+    | '/editor/roles/$roleId'
+    | '/editor/roles/new'
     | '/q/$slug/$decider'
+    | '/editor/people/'
     | '/q/$slug/'
     | '/editor/questions/$slug/edit'
   fileRoutesByTo: FileRoutesByTo
@@ -116,8 +166,13 @@ export interface FileRouteTypes {
     | '/latest'
     | '/questions'
     | '/editor'
+    | '/editor/people/$slug'
+    | '/editor/people/new'
     | '/editor/questions/new'
+    | '/editor/roles/$roleId'
+    | '/editor/roles/new'
     | '/q/$slug/$decider'
+    | '/editor/people'
     | '/q/$slug'
     | '/editor/questions/$slug/edit'
   id:
@@ -127,8 +182,13 @@ export interface FileRouteTypes {
     | '/latest'
     | '/questions'
     | '/editor/'
+    | '/editor/people/$slug'
+    | '/editor/people/new'
     | '/editor/questions/new'
+    | '/editor/roles/$roleId'
+    | '/editor/roles/new'
     | '/q/$slug/$decider'
+    | '/editor/people/'
     | '/q/$slug/'
     | '/editor/questions/$slug/edit'
   fileRoutesById: FileRoutesById
@@ -179,11 +239,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EditorIndexRouteImport
       parentRoute: typeof EditorRoute
     }
+    '/editor/people/': {
+      id: '/editor/people/'
+      path: '/people'
+      fullPath: '/editor/people/'
+      preLoaderRoute: typeof EditorPeopleIndexRouteImport
+      parentRoute: typeof EditorRoute
+    }
+    '/editor/people/$slug': {
+      id: '/editor/people/$slug'
+      path: '/people/$slug'
+      fullPath: '/editor/people/$slug'
+      preLoaderRoute: typeof EditorPeopleSlugRouteImport
+      parentRoute: typeof EditorRoute
+    }
+    '/editor/people/new': {
+      id: '/editor/people/new'
+      path: '/people/new'
+      fullPath: '/editor/people/new'
+      preLoaderRoute: typeof EditorPeopleNewRouteImport
+      parentRoute: typeof EditorRoute
+    }
     '/editor/questions/new': {
       id: '/editor/questions/new'
       path: '/questions/new'
       fullPath: '/editor/questions/new'
       preLoaderRoute: typeof EditorQuestionsNewRouteImport
+      parentRoute: typeof EditorRoute
+    }
+    '/editor/roles/$roleId': {
+      id: '/editor/roles/$roleId'
+      path: '/roles/$roleId'
+      fullPath: '/editor/roles/$roleId'
+      preLoaderRoute: typeof EditorRolesRoleIdRouteImport
+      parentRoute: typeof EditorRoute
+    }
+    '/editor/roles/new': {
+      id: '/editor/roles/new'
+      path: '/roles/new'
+      fullPath: '/editor/roles/new'
+      preLoaderRoute: typeof EditorRolesNewRouteImport
       parentRoute: typeof EditorRoute
     }
     '/q/$slug/': {
@@ -212,13 +307,23 @@ declare module '@tanstack/react-router' {
 
 interface EditorRouteChildren {
   EditorIndexRoute: typeof EditorIndexRoute
+  EditorPeopleSlugRoute: typeof EditorPeopleSlugRoute
+  EditorPeopleNewRoute: typeof EditorPeopleNewRoute
   EditorQuestionsNewRoute: typeof EditorQuestionsNewRoute
+  EditorRolesRoleIdRoute: typeof EditorRolesRoleIdRoute
+  EditorRolesNewRoute: typeof EditorRolesNewRoute
+  EditorPeopleIndexRoute: typeof EditorPeopleIndexRoute
   EditorQuestionsSlugEditRoute: typeof EditorQuestionsSlugEditRoute
 }
 
 const EditorRouteChildren: EditorRouteChildren = {
   EditorIndexRoute: EditorIndexRoute,
+  EditorPeopleSlugRoute: EditorPeopleSlugRoute,
+  EditorPeopleNewRoute: EditorPeopleNewRoute,
   EditorQuestionsNewRoute: EditorQuestionsNewRoute,
+  EditorRolesRoleIdRoute: EditorRolesRoleIdRoute,
+  EditorRolesNewRoute: EditorRolesNewRoute,
+  EditorPeopleIndexRoute: EditorPeopleIndexRoute,
   EditorQuestionsSlugEditRoute: EditorQuestionsSlugEditRoute,
 }
 

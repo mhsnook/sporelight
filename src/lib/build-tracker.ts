@@ -104,7 +104,8 @@ export function buildTracker(c: TrackerData, asOf: string) {
   const rolesInEffect = c.roles.filter((r) => inEffect(r, asOf)).sort((a, b) => SURENESS[a.certainty] - SURENESS[b.certainty])
   const rolesBySeat = groupBy(rolesInEffect, (r) => r.seat_id)
   const upcomingBySeat = groupBy(
-    c.roles.filter((r) => r.starts_on !== null && r.starts_on > asOf).sort((a, b) => a.starts_on!.localeCompare(b.starts_on!) || SURENESS[a.certainty] - SURENESS[b.certainty]),
+    // A claim can end before it would start, as when a candidate withdraws.
+    c.roles.filter((r) => r.starts_on !== null && r.starts_on > asOf && (r.ends_on === null || r.ends_on > asOf)).sort((a, b) => a.starts_on!.localeCompare(b.starts_on!) || SURENESS[a.certainty] - SURENESS[b.certainty]),
     (r) => r.seat_id,
   )
   const rolesByDecider = groupBy(rolesInEffect, (r) => r.decider_id)

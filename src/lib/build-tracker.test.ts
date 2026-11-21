@@ -497,5 +497,13 @@ describe('one kind of claim on a seat', () => {
     expect(say(claim({ starts_on: '2027-01-03', certainty: 'possible', contest: 'runoff' }))).toEqual(['may take the seat Jan 3, 2027, runoff pending', 'runoff'])
     expect(say(claim({ starts_on: '2027-05-04', certainty: 'possible', contest: 'general' }))).toEqual(['running in the general election', 'general election'])
     expect(say(claim({ ends_on: '2027-01-03' }), '2027-02-01')[0]).toBe('held the seat until Jan 3, 2027')
+    expect(say(claim({ starts_on: '2027-05-04', ends_on: '2026-11-10', certainty: 'possible', contest: 'general' }))[0]).toBe('no longer in line for the seat since Nov 10, 2026')
+  })
+
+  it('lists a claim ended before its start only until the day it ended, and never as a holding', () => {
+    const withdrawn = { ...rows, roles: rows.roles.map((r) => (r.decider_id === 'running' ? { ...r, ends_on: '2026-11-10' } : r)) }
+    expect(seatOf(track(withdrawn, '2026-11-01'), 'open').upcoming.map((c) => c.decider.id)).toEqual(['running'])
+    expect(seatOf(track(withdrawn), 'open').upcoming).toEqual([])
+    expect(seatOf(track(withdrawn, '2027-06-01'), 'open').alternates).toEqual([])
   })
 })

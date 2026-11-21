@@ -473,6 +473,16 @@ describe('the seed', () => {
     expect(all(db, `SELECT decider_id FROM question_deciders WHERE question_id = 'm4a-s1506-markup'`)).toEqual([{ decider_id: 'W000779' }])
   })
 
+  it('keeps a person an editor added, and their role on a seeded seat, when the seed is replayed', () => {
+    const db = database()
+    db.exec(seed)
+    db.exec(`INSERT INTO deciders (id, slug, name, sort_name, external_id, url) VALUES ('9d2c4e1a-5b7f-4a60-8e3d-2f1b6c0a9e44', 'rosa-delgado-challenger', 'Rosa Delgado', 'Delgado, Rosa', NULL, NULL);
+      INSERT INTO roles (id, seat_id, decider_id, contest, affiliation, starts_on, ends_on, certainty) VALUES ('6a0e8f3b-1c2d-4e5f-9a7b-3c4d5e6f7a8b', 'us-congress:CA-12', '9d2c4e1a-5b7f-4a60-8e3d-2f1b6c0a9e44', 'general', 'Green', '2027-01-03', NULL, 'possible');`)
+    db.exec(seed)
+    expect(all(db, `SELECT r.seat_id, d.name FROM roles r JOIN deciders d ON d.id = r.decider_id WHERE r.id = '6a0e8f3b-1c2d-4e5f-9a7b-3c4d5e6f7a8b'`)).toEqual([{ seat_id: 'us-congress:CA-12', name: 'Rosa Delgado' }])
+    expect(all(db, `PRAGMA foreign_key_check`)).toEqual([])
+  })
+
   describe('members-elect', () => {
     // Whoever certainly or likely holds each seat on a day. Those who only may
     // hold it are left out, as on the pages.

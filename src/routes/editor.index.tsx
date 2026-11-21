@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { Link, createFileRoute } from '@tanstack/react-router'
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useLiveQuery } from '@tanstack/react-db'
 import { isUnreadLead, type Proposal, type ProposalContext, type ProposalItem, type ProposalMention, type ProposalNote, type Source } from '../../shared/schema.ts'
@@ -142,6 +142,9 @@ function Queue() {
         </p>
         <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto">
           <NewsSearchButton />
+          <Link to="/editor/people" className="btn btn-sm shadow-none">
+            People
+          </Link>
           <button type="button" className="btn btn-sm shadow-none" onClick={signOut}>
             Sign out
           </button>

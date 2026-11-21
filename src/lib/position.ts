@@ -113,7 +113,10 @@ const CONTEST: Record<NonNullable<Role['contest']>, string> = { primary: 'primar
 // claims; only the dates, the certainty and the contest differ.
 export function claimLabel(role: Claim, day: string): string {
   const pending = role.contest ? `, ${CONTEST[role.contest]} pending` : ', not settled'
-  if (role.ends_on !== null && role.ends_on <= day) return `held the seat until ${formatDate(role.ends_on)}`
+  if (role.ends_on !== null && role.ends_on <= day) {
+    const neverHeld = role.starts_on !== null && role.ends_on <= role.starts_on
+    return neverHeld ? `no longer in line for the seat since ${formatDate(role.ends_on)}` : `held the seat until ${formatDate(role.ends_on)}`
+  }
   if (role.starts_on !== null && role.starts_on > day) {
     const from = formatDate(role.starts_on)
     if (role.certainty === 'certain') return `takes the seat ${from}`

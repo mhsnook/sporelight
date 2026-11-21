@@ -3,6 +3,7 @@ import {
   pairId,
   type Act,
   type ActKind,
+  type Decider,
   type Direction,
   type Position,
   type Proposal,
@@ -15,12 +16,15 @@ import {
   type QuestionRelation,
   type Reading,
   type Report,
+  type Role,
   type SetPosition,
   type Source,
   type Weight,
 } from '../../shared/schema.ts'
 
 type Rows = {
+  deciders: Decider
+  roles: Role
   questions: Question
   question_bodies: QuestionBody
   question_deciders: QuestionDecider
