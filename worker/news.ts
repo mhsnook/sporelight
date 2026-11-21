@@ -217,19 +217,52 @@ export async function dryRunArticle(env: Env, url: string, questionId: string, n
   return { ...result, model: MODEL, article, people: people.map((p) => p.name) }
 }
 
+type RunStarter = 'cron' | 'editor'
+type RunOutcome = 'skipped' | 'searched' | 'stopped' | 'failed'
+
+// Runs the news search and records the run in `news_runs`.
+export async function runNewsSearch(env: Env, tracker: Submitter, startedBy: RunStarter, now: Date = new Date()): Promise<NewsReport | { skipped: string }> {
+  if (startedBy === 'cron') {
+    const queue = await queueState(env.DB, now)
+    if (!queue.attended) {
+      const skipped = `${queue.waiting} automated ${queue.waiting === 1 ? 'proposal is' : 'proposals are'} waiting, and ${queue.reviewedAt ? `the last was reviewed at ${queue.reviewedAt}` : 'none has been reviewed'}.`
+      await recordRun(env.DB, now, startedBy, 'skipped', skipped)
+      return { skipped }
+    }
+  }
+  try {
+    const report = await searchNews(env, tracker, now)
+    await recordRun(env.DB, now, startedBy, report.error ? 'stopped' : 'searched', JSON.stringify(report))
+    return report
+  } catch (e) {
+    await recordRun(env.DB, now, startedBy, 'failed', String(e))
+    throw e
+  }
+}
+
+// A run that cannot be recorded still runs: the log has the same report.
+function recordRun(db: D1Database, now: Date, startedBy: RunStarter, outcome: RunOutcome, detail: string) {
+  return db
+    .prepare(`INSERT INTO news_runs (id, started_at, started_by, outcome, detail) VALUES (?, ?, ?, ?, ?)`)
+    .bind(crypto.randomUUID(), now.toISOString(), startedBy, outcome, detail.slice(0, 4000))
+    .run()
+    .catch((e: unknown) => console.error('could not record the news run', String(e)))
+}
+
 // Whether the scheduled search should run today: when nothing it queued earlier
 // is waiting, or when an editor has reviewed something it queued in the last
 // day. An unattended queue stops filling, and the first review starts it again
 // at the next run.
-export async function queueIsAttended(db: D1Database, now: Date): Promise<boolean> {
+async function queueState(db: D1Database, now: Date): Promise<{ attended: boolean; waiting: number; reviewedAt: string | null }> {
   const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString()
-  const row = await db
+  const { waiting, reviewedAt } = (await db
     .prepare(
       `SELECT
-         NOT EXISTS (SELECT 1 FROM proposals WHERE status = 'pending' AND origin IN ('news_search', 'model')) AS empty,
-         EXISTS (SELECT 1 FROM proposals WHERE status = 'reviewed' AND origin IN ('news_search', 'model') AND reviewed_at > ?) AS reviewed`,
+         (SELECT COUNT(*) FROM proposals WHERE status = 'pending' AND origin IN ('news_search', 'model')) AS waiting,
+         (SELECT MAX(reviewed_at) FROM proposals WHERE status = 'reviewed' AND origin IN ('news_search', 'model')) AS reviewedAt`,
     )
-    .bind(dayAgo)
-    .first<{ empty: number; reviewed: number }>()
-  return Boolean(row?.empty || row?.reviewed)
+    .first<{ waiting: number; reviewedAt: string | null }>())!
+  return { attended: waiting === 0 || (reviewedAt !== null && reviewedAt > dayAgo), waiting, reviewedAt }
 }
+
+export const queueIsAttended = async (db: D1Database, now: Date) => (await queueState(db, now)).attended

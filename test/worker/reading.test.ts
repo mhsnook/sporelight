@@ -1,11 +1,11 @@
 import { createScheduledController } from 'cloudflare:test'
 import { env } from 'cloudflare:workers'
 import { getServerByName } from 'partyserver'
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fetchArticle, MAX_BYTES } from '../../worker/article.ts'
 import worker from '../../worker/index.ts'
 import type { SearchHit } from '../../worker/leads.ts'
-import { dryRunArticle, MAX_READS_PER_RUN, NEWS_CRON, queueIsAttended, searchNews } from '../../worker/news.ts'
+import { dryRunArticle, MAX_READS_PER_RUN, NEWS_CRON, queueIsAttended, runNewsSearch, searchNews } from '../../worker/news.ts'
 import { MODEL } from '../../worker/reader.ts'
 import type { Tracker } from '../../worker/tracker.ts'
 import { rows, seed } from './helpers.ts'
@@ -395,21 +395,52 @@ describe('queueIsAttended', () => {
 })
 
 describe('the scheduled run', () => {
-  const fire = () => worker.scheduled(createScheduledController({ scheduledTime: NOW, cron: NEWS_CRON }), env)
+  const runs = () => rows<{ started_by: string; outcome: string; detail: string }>(`SELECT started_by, outcome, detail FROM news_runs`)
+  beforeEach(() => env.DB.prepare(`DELETE FROM news_runs`).run())
+  const fire = (on: Env = env) => worker.scheduled(createScheduledController({ scheduledTime: NOW, cron: NEWS_CRON }), on)
+  const queueLead = async (url: string) =>
+    (await tracker()).propose({ source: { url, title: null }, note: null, items: [{ question_id: 'hot', decider_id: 'ann', kind: 'says', occurred_on: null, quote: 'A lead nobody has looked at.', reading: null }] }, 'news_search')
 
-  it('does not search while the queue is unattended', async () => {
+  it('does not search while the queue is unattended, and records the skip with how many proposals are waiting and when one was last reviewed', async () => {
     await resetQueue()
-    await (await tracker()).propose({ source: { url: 'https://news.example/scheduled-waiting', title: null }, note: null, items: [{ question_id: 'hot', decider_id: 'ann', kind: 'says', occurred_on: null, quote: 'A lead nobody has looked at.', reading: null }] }, 'news_search')
+    await queueLead('https://news.example/scheduled-waiting')
     const websearch = vi.spyOn(env.AI, 'websearch')
     await fire()
     expect(websearch).not.toHaveBeenCalled()
+    expect(await runs()).toEqual([{ started_by: 'cron', outcome: 'skipped', detail: '1 automated proposal is waiting, and the last was reviewed at 2026-01-01T00:00:00Z.' }])
   })
 
-  it('searches once the queue is attended', async () => {
+  it('searches once the queue is attended, and records the run with its report', async () => {
     await env.DB.prepare(`UPDATE proposals SET status = 'reviewed', reviewed_at = '2026-11-19T02:00:00Z' WHERE status = 'pending'`).run()
     const websearch = vi.spyOn(env.AI, 'websearch').mockImplementation(async () => Response.json({ items: [] }))
     await fire()
     expect(websearch).toHaveBeenCalled()
+    const [run] = await runs()
+    expect(run).toMatchObject({ started_by: 'cron', outcome: 'searched' })
+    expect(JSON.parse(run.detail)).toMatchObject({ deferred: 0, questions: expect.arrayContaining([expect.objectContaining({ question: 'Hot Topic', read: 0 })]) })
+  })
+
+  it('records a run whose search failed as stopped', async () => {
+    await resetQueue()
+    vi.spyOn(env.AI, 'websearch').mockImplementation(async () => new Response('quota', { status: 429 }))
+    await fire()
+    expect(await runs()).toEqual([expect.objectContaining({ started_by: 'cron', outcome: 'stopped', detail: expect.stringContaining('Web search failed (429: quota)') })])
+  })
+
+  it('records a run that threw, and still throws', async () => {
+    await resetQueue()
+    const broken = { ...env, DB: { prepare: (sql: string) => (sql.includes('q.is_hot = 1') ? { bind: () => ({ all: () => Promise.reject(new Error('D1 is down')) }) } : env.DB.prepare(sql)), batch: env.DB.batch.bind(env.DB) } } as unknown as Env
+    await expect(fire(broken)).rejects.toThrow('D1 is down')
+    expect(await runs()).toEqual([{ started_by: 'cron', outcome: 'failed', detail: 'Error: D1 is down' }])
+  })
+
+  it('records a run an editor started, which goes ahead whatever the queue', async () => {
+    await resetQueue()
+    await queueLead('https://news.example/editor-run-recorded')
+    const websearch = vi.spyOn(env.AI, 'websearch').mockImplementation(async () => Response.json({ items: [] }))
+    await runNewsSearch(env, await tracker(), 'editor', NOW)
+    expect(websearch).toHaveBeenCalled()
+    expect(await runs()).toEqual([expect.objectContaining({ started_by: 'editor', outcome: 'searched' })])
   })
 })
 
@@ -474,6 +505,30 @@ describe('fetchArticle', () => {
   it('says the page gave no text when what is left of it is a few words', async () => {
     serve(() => new Response('Subscribe to read this story.', { headers: { 'content-type': 'text/plain' } }))
     expect(await fetchArticle({ AI: ai() } as unknown as Env, 'https://news.example/a')).toMatchObject({ ok: false, unread: 'no_text' })
+  })
+
+  it('leaves out the metadata the converter puts before the page text', async () => {
+    serve(() => new Response(page('Words.'), { headers: { 'content-type': 'text/html' } }))
+    const story = `Sen. Ann Alpha, chair of the Health, Labor & Pensions committee, said she would vote for it.${FILLER}`
+    const converting = { toMarkdown: async () => ({ format: 'text', data: `title: Alpha backs the plan\ndescription: Health, Labor &amp; Pensions chair backs it\nimage: https://news.example/a.jpg\n\nAlpha backs the plan\n\n${story}` }) }
+    const article = await fetchArticle({ AI: converting } as unknown as Env, 'https://news.example/a')
+    expect(article).toMatchObject({ ok: true })
+    expect(article.ok && article.text).toBe(`Alpha backs the plan\n\n${story}`)
+  })
+
+  it('leaves out a metadata header with an empty value or a namespaced key', async () => {
+    serve(() => new Response(page('Words.'), { headers: { 'content-type': 'text/html' } }))
+    const story = `Ann Alpha said she would vote for it.${FILLER}`
+    const converting = { toMarkdown: async () => ({ format: 'text', data: `title: Alpha backs the plan\ndescription:\nog:image: https://news.example/a.jpg\n\n${story}` }) }
+    const article = await fetchArticle({ AI: converting } as unknown as Env, 'https://news.example/a')
+    expect(article.ok && article.text).toBe(story.replace(/[ \t]+/g, ' ').trim())
+  })
+
+  it('keeps an opening line that only looks like metadata when no blank line closes it', async () => {
+    serve(() => new Response(page('Words.'), { headers: { 'content-type': 'text/html' } }))
+    const data = `note: the vote was close.${FILLER}`
+    const converting = { toMarkdown: async () => ({ format: 'text', data }) }
+    expect(await fetchArticle({ AI: converting } as unknown as Env, 'https://news.example/a')).toMatchObject({ ok: true, text: data.replace(/[ \t]+/g, ' ').trim() })
   })
 
   it('reads a page of plain text without converting it', async () => {
