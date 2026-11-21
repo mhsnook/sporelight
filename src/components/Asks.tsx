@@ -1,8 +1,9 @@
 import { Link } from '@tanstack/react-router'
 import { useState, type FormEvent } from 'react'
-import type { Question } from '../../shared/schema.ts'
+import { isOpenOn, type Question } from '../../shared/schema.ts'
 import { db } from '../lib/db.ts'
 import { isEditor } from '../lib/editor.ts'
+import { nounOf } from '../lib/question-form.ts'
 import { formatDate } from '../lib/position.ts'
 import { today, useTracker, type KeyPerson } from '../lib/tracker.tsx'
 import { CertaintyTag, StandingPill } from './bits.tsx'
@@ -57,17 +58,19 @@ export function KeyPeople({ people }: { people: KeyPerson[] }) {
   )
 }
 
-// Editors only. An ask closes when it is met (resolved) or when it stops being
-// what anyone is asking for (lapsed).
-export function CloseAsk({ ask }: { ask: Question }) {
+// Editors only. A question closes when it is met (resolved) or when it stops
+// being what anyone is asking for (lapsed).
+export function CloseQuestion({ question }: { question: Question }) {
+  const { tracker } = useTracker()
   const [open, setOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   if (!isEditor()) return null
+  const noun = nounOf(question, tracker.isAsk(question))
 
   const save = (changes: Pick<Question, 'status' | 'closed_on' | 'closed_note'>) => {
     setError(null)
     db.questions
-      .update(ask.id, (q) => void Object.assign(q, changes))
+      .update(question.id, (q) => void Object.assign(q, changes))
       .isPersisted.promise.then(
         () => setOpen(false),
         (err: unknown) => setError(err instanceof Error ? err.message : String(err)),
@@ -80,11 +83,11 @@ export function CloseAsk({ ask }: { ask: Question }) {
     save({ status: f.get('status') as 'resolved' | 'lapsed', closed_on: f.get('closed_on') as string, closed_note: (f.get('closed_note') as string).trim() || null })
   }
 
-  if (ask.status !== 'open') {
+  if (question.status !== 'open') {
     return (
       <span className="flex items-center gap-2">
         <button type="button" className="btn" onClick={() => save({ status: 'open', closed_on: null, closed_note: null })}>
-          Reopen this ask
+          {isOpenOn(question, today()) ? 'Remove the closing date' : `Reopen this ${noun}`}
         </button>
         {error && <span className="text-sm text-oppose">Not saved: {error}</span>}
       </span>
@@ -94,9 +97,9 @@ export function CloseAsk({ ask }: { ask: Question }) {
   return (
     <>
       <button type="button" className="btn" onClick={() => setOpen(true)}>
-        Close this ask
+        Close this {noun}
       </button>
-      <Modal open={open} onClose={() => setOpen(false)} title="Close this ask" description={ask.title}>
+      <Modal open={open} onClose={() => setOpen(false)} title={`Close this ${noun}`} description={question.title}>
         <form onSubmit={onSubmit} className="space-y-4">
           <fieldset className="space-y-2 text-sm">
             <label className="flex items-start gap-2">
@@ -126,7 +129,7 @@ export function CloseAsk({ ask }: { ask: Question }) {
           </div>
           {error && <p className="text-sm text-oppose">Not saved: {error}</p>}
           <div className="flex gap-2">
-            <button className="btn btn-primary">Close the ask</button>
+            <button className="btn btn-primary">Close the {noun}</button>
             <button type="button" className="btn" onClick={() => setOpen(false)}>
               Cancel
             </button>
@@ -139,23 +142,23 @@ export function CloseAsk({ ask }: { ask: Question }) {
 
 // A question can be known to close on a day still ahead, as a bill dies when its
 // Congress ends. Until then it is open, with the date given.
-export function ClosedNote({ ask }: { ask: Question }) {
+export function ClosedNote({ question }: { question: Question }) {
   const { tracker } = useTracker()
-  if (ask.status === 'open') return null
-  if (tracker.isOpen(ask)) {
+  if (question.status === 'open') return null
+  if (tracker.isOpen(question)) {
     return (
       <p className="rounded-xl border-2 border-dashed border-line bg-paper p-3 text-sm">
-        <span className="font-semibold">Closes {ask.closed_on && formatDate(ask.closed_on)}.</span> {ask.closed_note}
+        <span className="font-semibold">Closes {question.closed_on && formatDate(question.closed_on)}.</span> {question.closed_note}
       </p>
     )
   }
   return (
     <p className="rounded-xl border-2 border-dashed border-line bg-paper p-3 text-sm">
       <span className="font-semibold">
-        {CLOSED_LABEL[ask.status]}
-        {ask.closed_on && ` ${formatDate(ask.closed_on)}`}.
+        {CLOSED_LABEL[question.status]}
+        {question.closed_on && ` ${formatDate(question.closed_on)}`}.
       </span>{' '}
-      {ask.closed_note ?? (ask.status === 'lapsed' ? 'This is no longer being asked.' : '')}
+      {question.closed_note ?? (question.status === 'lapsed' ? 'This is no longer being asked.' : '')}
     </p>
   )
 }

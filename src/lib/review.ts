@@ -1,6 +1,5 @@
 import { createTransaction, type Collection } from '@tanstack/db'
 import { db, persist } from './db.ts'
-import type { relatedQuestionRows } from './review-form.ts'
 import type { Write } from './review-plan.ts'
 
 // One transaction, so everything a plan publishes reaches every reader together
@@ -14,17 +13,6 @@ export function commit(writes: Write[]): Promise<unknown> {
       else if (w.type === 'update') collection.update(w.id, (draft) => void Object.assign(draft, w.changes))
       else collection.delete(w.id)
     }
-  })
-  return tx.isPersisted.promise
-}
-
-// Adds the question at once, for every card and page: an entry can only be read on a question that exists.
-export function addRelatedQuestion(rows: ReturnType<typeof relatedQuestionRows>): Promise<unknown> {
-  const tx = createTransaction({ mutationFn: persist })
-  tx.mutate(() => {
-    db.questions.insert(rows.question)
-    for (const link of rows.bodies) db.question_bodies.insert(link)
-    db.question_relations.insert(rows.relation)
   })
   return tx.isPersisted.promise
 }

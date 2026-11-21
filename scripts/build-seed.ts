@@ -302,7 +302,8 @@ congressAsks.asks.forEach((ask: any, i: number) => {
     sort: 100 + i,
   })
   // An ask that used to name people and now names offices must not keep both.
-  lines.push(`DELETE FROM question_deciders WHERE question_id = ${sql(ask.id)};`)
+  // Only the seed's own rows go: a person an editor added on the site has a random id and stays.
+  lines.push(`DELETE FROM question_deciders WHERE question_id = ${sql(ask.id)} AND instr(id, ${sql(`${ask.id}:`)}) = 1;`)
   for (const d of ask.deciders ?? []) {
     insert('question_deciders', { id: `${ask.id}:${member(d.bioguide, ask.id)}`, question_id: ask.id, decider_id: d.bioguide, role_label: d.role_label })
   }

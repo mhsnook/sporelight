@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { ACT_KINDS, isUnreadLead, DIRECTIONS, POSITIONS, WEIGHTS, type Direction, type Position, type Proposal, type Question, type Source } from '../../../shared/schema.ts'
 import { useTracker } from '../../lib/tracker.tsx'
-import { addRelatedQuestion } from '../../lib/review.ts'
-import { dateOffer, decisionStandings, missingFrom, outlook, relatedChoices, relatedQuestionRows, reportingAct, withWeight, type EntryDraft, type Outlook, type RelatedChoice } from '../../lib/review-form.ts'
+import { commit } from '../../lib/review.ts'
+import { questionInserts, relatedQuestionRows } from '../../lib/question-form.ts'
+import { dateOffer, decisionStandings, missingFrom, outlook, relatedChoices, reportingAct, withWeight, type EntryDraft, type Outlook, type RelatedChoice } from '../../lib/review-form.ts'
 import { DIRECTION_LABEL, KIND_CHOICE, KIND_LABEL, KIND_NOUN, STANDING_BG, WEIGHT_HINT, WEIGHT_LABEL, formatDate, hostOf, sourceLabel, standingLabel, type Standing } from '../../lib/position.ts'
 import { Token } from '../bits.tsx'
 import { Marked, RecordItem, splitPassage } from '../RecordItem.tsx'
@@ -746,13 +747,13 @@ function AddQuestion({ to, onAdded }: { to: Question; onAdded: (questionId: stri
     e.stopPropagation()
     const form = e.currentTarget
     const f = new FormData(form)
-    const rows = relatedQuestionRows(to, tracker.questionBodies, tracker.questionRelations, new Set(tracker.questions.map((q) => q.slug)), {
+    const rows = relatedQuestionRows(to, tracker.questionBodies, tracker, {
       short_title: f.get('short_title') as string,
       title: f.get('title') as string,
       kind: f.get('kind') === 'related' ? 'related' : 'smaller_step',
     })
     setError(null)
-    addRelatedQuestion(rows).then(
+    commit(questionInserts(rows)).then(
       () => form.reset(),
       (err: unknown) => setError(err instanceof Error ? err.message : String(err)),
     )

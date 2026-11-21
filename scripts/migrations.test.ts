@@ -459,10 +459,18 @@ describe('the seed', () => {
   it('moves an ask that named a person onto its office when the asks file is replayed alone', () => {
     const db = database()
     db.exec(seed)
-    db.exec(`INSERT INTO question_deciders (id, question_id, decider_id, role_label) VALUES ('old', 'm4a-s1506-markup', 'W000779', 'Ranking Member, Senate Finance Committee')`)
+    db.exec(`INSERT INTO question_deciders (id, question_id, decider_id, role_label) VALUES ('m4a-s1506-markup:W000779', 'm4a-s1506-markup', 'W000779', 'Ranking Member, Senate Finance Committee')`)
     db.exec(readFileSync(new URL('seed/out/us-congress-asks.sql', root), 'utf8'))
     expect(all(db, `SELECT COUNT(*) AS n FROM question_deciders WHERE question_id = 'm4a-s1506-markup'`)[0].n).toBe(0)
     expect(all(db, `PRAGMA foreign_key_check`)).toEqual([])
+  })
+
+  it('keeps a person an editor added to a seeded ask when the asks file is replayed', () => {
+    const db = database()
+    db.exec(seed)
+    db.exec(`INSERT INTO question_deciders (id, question_id, decider_id, role_label) VALUES ('3b1f0c9e-7a52-4d0e-9c41-5e2a8f6d1b77', 'm4a-s1506-markup', 'W000779', NULL)`)
+    db.exec(readFileSync(new URL('seed/out/us-congress-asks.sql', root), 'utf8'))
+    expect(all(db, `SELECT decider_id FROM question_deciders WHERE question_id = 'm4a-s1506-markup'`)).toEqual([{ decider_id: 'W000779' }])
   })
 
   describe('members-elect', () => {

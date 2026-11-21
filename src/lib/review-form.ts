@@ -1,4 +1,4 @@
-import { slugOf, type Act, type ActKind, type Direction, type Position, type Proposal, type ProposalContext, type ProposalItem, type Question, type QuestionBody, type QuestionRelation, type Source, type Weight } from '../../shared/schema.ts'
+import type { Act, ActKind, Direction, Position, Proposal, ProposalContext, ProposalItem, Question, Source, Weight } from '../../shared/schema.ts'
 import type { Listing, RelatedQuestion, Tracker } from './build-tracker.ts'
 import type { Standing } from './position.ts'
 import type { EntryVerdict, PositionDecision, Verdict } from './review-plan.ts'
@@ -253,46 +253,3 @@ export function decisionOf(entry: EntryDraft): PositionDecision {
 // the proposal was put forward. It is only ever offered, never filled in.
 export const dateOffer = (proposal: Pick<Proposal, 'created_at'>, source: Pick<Source, 'published_on'>): { date: string; from: 'source' | 'proposal' } =>
   source.published_on ? { date: source.published_on, from: 'source' } : { date: proposal.created_at.slice(0, 10), from: 'proposal' }
-
-// The rows for a new position question linked to `to`: a smaller step toward
-// it, or a neighbouring question. It is put to the same bodies. `taken` is
-// every slug in use, since a slug is the question's address.
-export function relatedQuestionRows(
-  to: Question,
-  alsoPutTo: QuestionBody[],
-  linked: QuestionRelation[],
-  taken: ReadonlySet<string>,
-  input: { short_title: string; title: string; kind: QuestionRelation['kind'] },
-  newId: () => string = () => crypto.randomUUID(),
-): { question: Question; bodies: QuestionBody[]; relation: QuestionRelation } {
-  const id = newId()
-  const base = slugOf(input.short_title) || 'question'
-  let slug = base
-  for (let n = 2; taken.has(slug); n++) slug = `${base}-${n}`
-  const question: Question = {
-    id,
-    slug,
-    body_id: to.body_id,
-    parent_id: null,
-    kind: 'position',
-    title: input.title.trim(),
-    short_title: input.short_title.trim(),
-    description: null,
-    reference_url: null,
-    chamber: to.chamber,
-    is_hot: false,
-    sort: to.sort,
-    threshold: null,
-    act_label: null,
-    status: 'open',
-    closed_on: null,
-    closed_note: null,
-    decides_on: null,
-    implies_on_parent: null,
-  }
-  return {
-    question,
-    bodies: alsoPutTo.filter((l) => l.question_id === to.id).map((l) => ({ id: newId(), question_id: id, body_id: l.body_id })),
-    relation: { id: newId(), question_id: to.id, related_id: id, kind: input.kind, sort: Math.max(-1, ...linked.filter((r) => r.question_id === to.id).map((r) => r.sort)) + 1 },
-  }
-}

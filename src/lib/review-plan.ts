@@ -9,6 +9,10 @@ import {
   type ProposalItem,
   type ProposalNote,
   type Question,
+  type QuestionBody,
+  type QuestionDecider,
+  type QuestionOffice,
+  type QuestionRelation,
   type Reading,
   type Report,
   type SetPosition,
@@ -17,6 +21,11 @@ import {
 } from '../../shared/schema.ts'
 
 type Rows = {
+  questions: Question
+  question_bodies: QuestionBody
+  question_deciders: QuestionDecider
+  question_offices: QuestionOffice
+  question_relations: QuestionRelation
   sources: Source
   acts: Act
   reports: Report

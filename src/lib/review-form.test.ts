@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PositionDecision } from './review-plan.ts'
-import { addedEntry, decisionOf, dateOffer, draftEntries, missingFrom, outlook, presumedEntry, relatedChoices, relatedQuestionRows, reportingAct, verdictOf, withWeight, type EntryDraft } from './review-form.ts'
+import { addedEntry, decisionOf, dateOffer, draftEntries, missingFrom, outlook, presumedEntry, relatedChoices, reportingAct, verdictOf, withWeight, type EntryDraft } from './review-form.ts'
 import { act, decider, item, link, proposal, question, reading, relation, role, seat, setPosition, source, track } from './fixtures.ts'
 
 
@@ -429,31 +429,6 @@ describe('presumedEntry', () => {
     const made = presumedEntry(first, 'bob', 'does not support it', () => 'new')
     expect(made).toMatchObject({ decider_id: 'bob', items: [], quote: 'does not support it', passage: null, reading: null, weight: 'presumed', kind: 'says', occurred_on: '2026-11-10', related: {} })
     expect(missingFrom(made)).toBe('both answers')
-  })
-})
-
-describe('relatedQuestionRows', () => {
-  const main = question('m4a', { body_id: 'congress', short_title: 'Medicare for All', sort: 3 })
-  const ids = () => {
-    let n = 0
-    return () => `new-${++n}`
-  }
-  const add = (taken: string[] = [], linked = [relation('m4a', 'kids', 'smaller_step', 4)]) =>
-    relatedQuestionRows(main, [{ id: 'l1', question_id: 'm4a', body_id: 'senate' }, { id: 'l2', question_id: 'other', body_id: 'board' }], linked, new Set(taken), { short_title: ' Medicare at 55 ', title: 'Do they support lowering the age to 55? ', kind: 'smaller_step' }, ids())
-
-  it('makes an open position question of its own in the same body, put to the same other bodies', () => {
-    const { question: made, bodies } = add()
-    expect(made).toMatchObject({ id: 'new-1', slug: 'medicare-at-55', body_id: 'congress', parent_id: null, kind: 'position', short_title: 'Medicare at 55', title: 'Do they support lowering the age to 55?', status: 'open' })
-    expect(bodies).toEqual([{ id: 'new-2', question_id: 'new-1', body_id: 'senate' }])
-  })
-
-  it('links it after the questions already linked', () => {
-    expect(add().relation).toEqual({ id: 'new-3', question_id: 'm4a', related_id: 'new-1', kind: 'smaller_step', sort: 5 })
-    expect(add([], []).relation.sort).toBe(0)
-  })
-
-  it('gives it an address no other question has', () => {
-    expect(add(['medicare-at-55', 'medicare-at-55-2']).question.slug).toBe('medicare-at-55-3')
   })
 })
 

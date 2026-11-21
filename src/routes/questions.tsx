@@ -1,4 +1,5 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { Link, createFileRoute } from '@tanstack/react-router'
+import { isEditor } from '../lib/editor.ts'
 import { useTracker } from '../lib/tracker.tsx'
 import { Syncing } from '../components/bits.tsx'
 import { QuestionCard } from '../components/QuestionCard.tsx'
@@ -12,7 +13,14 @@ function Questions() {
 
   return (
     <div className="space-y-12">
-      <h1 className="h-page">Questions</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="h-page">Questions</h1>
+        {isEditor() && (
+          <Link to="/editor/questions/new" className="btn">
+            Add a question
+          </Link>
+        )}
+      </div>
       {bodies.map((body) => {
         const questions = tracker.questionsIn(body.id)
         return (

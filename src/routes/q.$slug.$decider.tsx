@@ -9,7 +9,7 @@ import { RecordItem } from '../components/RecordItem.tsx'
 import { SubmitEvidence } from '../components/SubmitEvidence.tsx'
 import { Discussion } from '../components/Discussion.tsx'
 import { Modal } from '../components/Modal.tsx'
-import { AskStatus, CloseAsk, ClosedNote } from '../components/Asks.tsx'
+import { AskStatus, CloseQuestion, ClosedNote } from '../components/Asks.tsx'
 import { MergeAct, WithdrawAct } from '../components/MergeAct.tsx'
 import { isEditor } from '../lib/editor.ts'
 import { claimLabel, formatDate, standingLabel } from '../lib/position.ts'
@@ -108,8 +108,8 @@ function DeciderOnQuestion() {
 
         {(isAsk || question.status !== 'open') && (
           <div className="mt-4 space-y-3">
-            <ClosedNote ask={question} />
-            {isAsk && <CloseAsk ask={question} />}
+            <ClosedNote question={question} />
+            {isAsk && <CloseQuestion question={question} />}
           </div>
         )}
 

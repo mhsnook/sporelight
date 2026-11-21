@@ -508,3 +508,139 @@ test('choosing the next term shows the viewing-another-day strip, and its link r
   await expect(strip).toHaveCount(0)
   await expect(page).not.toHaveURL(/[?&]as=/)
 })
+
+async function signInAsEditor(page: Page) {
+  await page.goto('/editor')
+  await page.getByLabel('Editor token').fill(editorToken())
+  await page.getByRole('button', { name: 'Sign in' }).click()
+  await expect(page.getByRole('heading', { name: 'Review queue' })).toBeVisible()
+}
+
+test('an editor adds a question with a measure and an ask, sees it listed and on its own page, and edits it', async ({ page }) => {
+  const stamp = Date.now()
+  const title = `Should the pier reopen to cars? (${stamp})`
+  const shortName = `Pier cars ${stamp}`
+  await signInAsEditor(page)
+
+  await page.goto('/questions')
+  await page.getByRole('link', { name: 'Add a question' }).click()
+  await expect(page.getByRole('heading', { name: 'A new question' })).toBeVisible()
+  const form = page.getByRole('form', { name: 'The new question' })
+  await form.getByLabel('Body').selectOption({ label: 'Harbor City Council (demo)' })
+  await form.getByRole('button', { name: 'Add the question' }).click()
+  await expect(page.getByRole('alert')).toContainText('The question needs to be written out.')
+  await form.getByLabel('The question, as asked').fill(title)
+  await form.getByLabel('Short name').fill(shortName)
+  await form.getByLabel(/^Seats needed/).fill('6')
+  await form.getByRole('button', { name: 'Add the question' }).click()
+  await expect(page.getByRole('heading', { name: 'Edit this question' })).toBeVisible()
+
+  const slug = `pier-cars-${stamp}`
+  await expect(page).toHaveURL(new RegExp(`/editor/questions/${slug}/edit$`))
+  const [made] = query<{ id: string; body_id: string; threshold: number; parent_id: string | null }>(`SELECT id, body_id, threshold, parent_id FROM questions WHERE slug = '${slug}'`)
+  expect(made).toMatchObject({ body_id: 'harbor-city-council', threshold: 6, parent_id: null })
+  expect(made.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/)
+
+  await page.getByRole('link', { name: 'Add a measure' }).click()
+  await expect(page.getByRole('heading', { name: 'A new measure' })).toBeVisible()
+  await page.getByLabel('The question, as asked').fill('Have they signed on to Ordinance 27-001?')
+  await page.getByLabel('Short name').fill('Ordinance 27-001')
+  await page.getByRole('button', { name: 'Add the measure' }).click()
+  await expect(page.getByRole('heading', { name: 'Edit this question' })).toBeVisible()
+
+  await page.getByRole('link', { name: 'Add an ask' }).click()
+  await page.getByLabel('The question, as asked').fill('Will they bring the pier to a vote?')
+  await page.getByLabel('Short name').fill('Pier vote')
+  await page.getByRole('button', { name: 'Add the ask' }).click()
+  await expect(page.getByRole('alert')).toContainText('An ask needs at least one person or office')
+  await page.getByLabel('Person 1', { exact: true }).selectOption({ label: 'Bartholomew Sato' })
+  await page.getByLabel('Their role here').fill('Council president')
+  await page.getByRole('button', { name: 'Add the ask' }).click()
+  const subs = page.getByRole('region', { name: 'Measures and asks' })
+  await expect(subs.getByRole('listitem')).toHaveText([/Measure\s*Ordinance 27-001/, /Ask\s*Pier vote/])
+  expect(query(`SELECT q.kind, q.implies_on_parent, q.slug FROM questions q WHERE q.parent_id = '${made.id}' ORDER BY q.sort`)).toEqual([
+    { kind: 'formal_act', implies_on_parent: 'support', slug: `${slug}-ordinance-27-001` },
+    { kind: 'position', implies_on_parent: null, slug: `${slug}-pier-vote` },
+  ])
+
+  // Listed on the questions page, and on its own page with the measure's tab and the person the ask is put to.
+  await page.goto('/questions')
+  await page.getByRole('link', { name: new RegExp(title.replace(/[?()]/g, '\\$&')) }).click()
+  await expect(page.getByRole('heading', { level: 1, name: title })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Related questions' }).getByRole('link', { name: 'Ordinance 27-001' })).toBeVisible()
+  const keyPeople = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Key people' }) })
+  await expect(keyPeople.getByRole('link', { name: /Bartholomew Sato/ })).toContainText('Will they bring the pier to a vote?')
+  await expect(keyPeople).toContainText('Council president')
+
+  // Edited: the new title shows and the address stays.
+  await page.getByRole('link', { name: 'Edit this question' }).click()
+  const edited = `Should cars be allowed back on the pier? (${stamp})`
+  await page.getByLabel('The question, as asked').fill(edited)
+  await page.getByLabel('Short name').fill(`Cars on the pier ${stamp}`)
+  await page.getByRole('button', { name: 'Save changes' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Saved.' })).toBeVisible()
+  await expect.poll(() => query(`SELECT title, slug FROM questions WHERE id = '${made.id}'`)).toEqual([{ title: edited, slug }])
+  await page.goto(`/q/${slug}`)
+  await expect(page.getByRole('heading', { level: 1, name: edited })).toBeVisible()
+})
+
+test('a smaller step made from a question’s edit page is linked to it, and any question can be closed and reopened', async ({ page }) => {
+  const stamp = Date.now()
+  const shortName = `Free at night ${stamp}`
+  await signInAsEditor(page)
+
+  await page.goto('/q/free-ferry')
+  await page.getByRole('link', { name: 'Edit this question' }).click()
+  await page.getByRole('link', { name: 'Add a smaller step or related question' }).click()
+  await expect(page.getByRole('heading', { name: 'A new linked question' })).toBeVisible()
+  await expect(page.getByRole('radio', { name: /A smaller step toward/ })).toBeChecked()
+  await page.getByLabel('The question, as asked').fill('Should the ferry be free after 9 p.m.?')
+  await page.getByLabel('Short name').fill(shortName)
+  await page.getByRole('button', { name: 'Add the question' }).click()
+  await expect(page.getByRole('heading', { name: 'Edit this question' })).toBeVisible()
+  await expect
+    .poll(() => query(`SELECT r.kind, q.parent_id FROM question_relations r JOIN questions q ON q.id = r.related_id WHERE r.question_id = 'free-ferry' AND q.short_title = '${shortName}'`))
+    .toEqual([{ kind: 'smaller_step', parent_id: null }])
+
+  await page.goto('/editor/questions/free-ferry/edit')
+  await expect(page.getByRole('region', { name: 'Smaller steps and related questions' }).getByRole('listitem').filter({ hasText: shortName })).toContainText('Smaller step')
+  // The fare-free question has readings, so changing what it asks says what that does. Nothing is saved here.
+  await page.getByRole('radio', { name: /Whether someone did a specific thing/ }).check()
+  await expect(page.getByRole('note')).toContainText('on the record here. Changing what it asks changes how they are counted')
+
+  await page.goto(`/editor/questions/free-at-night-${stamp}/edit`)
+  await page.getByRole('button', { name: 'Close this question' }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('radio', { name: /Lapsed/ }).check()
+  await dialog.getByLabel('Date').fill(DAY)
+  await dialog.getByRole('button', { name: 'Close the question' }).click()
+  await expect(page.getByRole('button', { name: 'Reopen this question' })).toBeVisible()
+  await expect.poll(() => query(`SELECT status, closed_on FROM questions WHERE short_title = '${shortName}'`)).toEqual([{ status: 'lapsed', closed_on: DAY }])
+  await page.getByRole('button', { name: 'Reopen this question' }).click()
+  await expect(page.getByRole('button', { name: 'Close this question' })).toBeVisible()
+  await expect.poll(() => query(`SELECT status, closed_on FROM questions WHERE short_title = '${shortName}'`)).toEqual([{ status: 'open', closed_on: null }])
+})
+
+test('a question with a closing date still ahead offers to remove the date, not to reopen it', async ({ page }) => {
+  const stamp = Date.now()
+  const shortName = `Night fares ${stamp}`
+  const later = new Date(TODAY.getTime() + 30 * 86_400_000).toISOString().slice(0, 10)
+  await signInAsEditor(page)
+
+  await page.goto('/editor/questions/new?linkTo=free-ferry')
+  await page.getByLabel('The question, as asked').fill('Should night fares be cut?')
+  await page.getByLabel('Short name').fill(shortName)
+  await page.getByRole('button', { name: 'Add the question' }).click()
+  await expect(page.getByRole('heading', { name: 'Edit this question' })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Close this question' }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('radio', { name: /Lapsed/ }).check()
+  await dialog.getByLabel('Date').fill(later)
+  await dialog.getByRole('button', { name: 'Close the question' }).click()
+  await expect(page.getByText(/^Closes /)).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Reopen this question' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Remove the closing date' }).click()
+  await expect(page.getByRole('button', { name: 'Close this question' })).toBeVisible()
+  await expect.poll(() => query(`SELECT status, closed_on FROM questions WHERE short_title = '${shortName}'`)).toEqual([{ status: 'open', closed_on: null }])
+})
