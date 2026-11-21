@@ -1,20 +1,29 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useLiveQuery } from '@tanstack/react-db'
-import { isUnreadLead, type Proposal, type ProposalContext, type ProposalItem, type ProposalMention, type ProposalNote, type Source } from '../../shared/schema.ts'
+import { isUnreadLead, type Proposal, type ProposalContext, type ProposalItem, type ProposalMention, type ProposalNote, type Question, type Source } from '../../shared/schema.ts'
 import { db } from '../lib/db.ts'
 import { editorFetch, signOut } from '../lib/editor.ts'
 import { commit } from '../lib/review.ts'
 import { planReview, type Write } from '../lib/review-plan.ts'
 import { groupBy } from '../lib/build-tracker.ts'
 import { decisionOf, draftEntries, outlook, proposalIsAcross, verdictOf, type EntryDraft } from '../lib/review-form.ts'
+import { narrowQueue, tallyQueue, type QuestionTally } from '../lib/queue-filter.ts'
 import { useTracker } from '../lib/tracker.tsx'
 import { sourceLabel } from '../lib/position.ts'
 import { Syncing, Token } from '../components/bits.tsx'
 import { Reveal } from '../components/review/Reveal.tsx'
 import { ReviewCard, people } from '../components/review/ReviewCard.tsx'
 
-export const Route = createFileRoute('/editor/')({ component: Queue })
+type QueueSearch = { question?: string }
+
+export const Route = createFileRoute('/editor/')({
+  component: Queue,
+  validateSearch: (s: Record<string, unknown>): QueueSearch => ({ question: typeof s.question === 'string' && s.question ? s.question : undefined }),
+})
+
+// How many questions the row above the waiting list shows before "more".
+const BUSIEST = 6
 
 // How many proposals one page of the list beside the open card holds.
 const UP_NEXT = 12
@@ -27,7 +36,10 @@ type Work = { drafts: EntryDraft[]; reviewNote: string }
 type Finish = { writes: Write[]; how: 'publishing' | 'dismissing'; message: string; work: Work }
 
 function Queue() {
+  const search = Route.useSearch()
+  const navigate = Route.useNavigate()
   const { tracker, isReady } = useTracker()
+  const question = search.question ? tracker.questionBySlug.get(search.question) : undefined
   const proposals = useLiveQuery((q) => q.from({ row: db.proposals }))
   const allItems = useLiveQuery((q) => q.from({ row: db.proposal_items }))
   const allNotes = useLiveQuery((q) => q.from({ row: db.proposal_notes }))
@@ -60,7 +72,13 @@ function Queue() {
       reviewed: proposals.data.filter((p) => p.status !== 'pending').sort((a, b) => (b.reviewed_at ?? '').localeCompare(a.reviewed_at ?? '')),
     }
   }, [proposals.data, itemsByProposal, tracker])
-  const list = tab === 'pending' ? pending : reviewed
+  const tallies = useMemo(() => tallyQueue(tracker, pending, (id) => itemsByProposal.get(id) ?? [], new Date()), [tracker, pending, itemsByProposal])
+  const unfiltered = tab === 'pending' ? pending : reviewed
+  const list = useMemo(
+    () => (!search.question ? unfiltered : question ? narrowQueue(tracker, unfiltered, (id) => itemsByProposal.get(id) ?? [], question.id) : []),
+    [unfiltered, search.question, question, tracker, itemsByProposal],
+  )
+  const chooseQuestion = (slug: string | undefined) => navigate({ search: { question: slug }, replace: true })
   const selected = list.find((p) => p.id === selectedId) ?? list[0]
   const selectedAt = list.findIndex((p) => p.id === selected?.id)
   const selectedSource = selected && tracker.sourceById.get(selected.source_id)
@@ -87,7 +105,7 @@ function Queue() {
   // The list turns to the page the open card is on, so J and K can be followed down it.
   useEffect(() => {
     if (selectedAt !== -1) setListPage(Math.floor(selectedAt / UP_NEXT))
-  }, [selected?.id, tab])
+  }, [selected?.id, tab, search.question])
 
   if (!isReady || !proposals.isReady || !allItems.isReady || !allNotes.isReady || !allContexts.isReady || !allMentions.isReady) return <Syncing />
 
@@ -157,7 +175,18 @@ function Queue() {
       </Reveal>
       {error && <p className="mt-5 rounded-xl border-2 border-ink bg-oppose/15 px-3.5 py-2.5 font-bold">Not saved: {error}</p>}
 
-      {!selected || !selectedSource ? (
+      {!selected && search.question ? (
+        <div className="mt-7 grid grid-cols-[minmax(0,1fr)] items-start gap-9 lg:grid-cols-[minmax(0,1fr)_340px]">
+          <div className="card card-lg bg-mint px-5 py-7 text-center sm:p-12">
+            <h2 className="text-2xl font-black sm:text-[32px]">
+              {!question ? `No question has the address “${search.question}”.` : tab === 'pending' ? `Nothing is waiting on ${question.short_title}.` : `Nothing on ${question.short_title} has been reviewed.`}
+            </h2>
+          </div>
+          <aside className="flex flex-col gap-2.5">
+            <QuestionFilter tallies={tallies} chosen={question} chosenSlug={search.question} onChoose={chooseQuestion} />
+          </aside>
+        </div>
+      ) : !selected || !selectedSource ? (
         <div className="card card-lg mt-10 bg-mint px-5 py-7 text-center sm:mt-12 sm:p-12">
           <h2 className="text-2xl font-black sm:text-[32px]">{!selected ? (tab === 'pending' ? 'The queue is empty.' : 'Nothing reviewed yet.') : 'This proposal points at a source that no longer exists.'}</h2>
           {!selected && tab === 'pending' && <p className="mt-2 text-[15px] sm:text-[17px]">Every lead has been reviewed. The news search runs once a day.</p>}
@@ -177,6 +206,7 @@ function Queue() {
           leaving={leaving?.id === selected.id ? leaving.how : null}
           onFinish={(done) => finish(selected.id, done)}
         >
+          <QuestionFilter tallies={tallies} chosen={question} chosenSlug={search.question} onChoose={chooseQuestion} />
           {list.length > 1 && (
             <>
               <h2 className="text-base font-black sm:text-lg">{tab === 'pending' ? 'Waiting' : 'Reviewed'}</h2>
@@ -235,6 +265,60 @@ function Queue() {
             <br />A publish · R dismiss all
           </p>
         </Desk>
+      )}
+    </div>
+  )
+}
+
+// The questions with proposals waiting, busiest first. Choosing one narrows the queue to it and what is under it.
+function QuestionFilter({
+  tallies,
+  chosen,
+  chosenSlug,
+  onChoose,
+}: {
+  tallies: QuestionTally[]
+  chosen: Question | undefined
+  chosenSlug: string | undefined
+  onChoose: (slug: string | undefined) => void
+}) {
+  const [showAll, setShowAll] = useState(false)
+  if (!tallies.length && !chosenSlug) return null
+  const shown = showAll ? tallies : tallies.filter((t, i) => i < BUSIEST || t.question.id === chosen?.id)
+  return (
+    <div role="group" aria-label="Questions with proposals waiting" className="mb-2 flex flex-col gap-2">
+      <h2 className="text-base font-black sm:text-lg">By question</h2>
+      <div className="flex flex-wrap gap-1.5">
+        {shown.map(({ question, waiting, lastDay }) => {
+          const on = question.id === chosen?.id
+          return (
+            <button
+              key={question.id}
+              type="button"
+              aria-pressed={on}
+              onClick={() => onChoose(on ? undefined : question.slug)}
+              className={`cursor-pointer rounded-[10px] border-2 border-ink px-2.5 py-1 text-left text-sm leading-tight hover:shadow-hard-md ${on ? 'bg-mint shadow-hard-md' : 'bg-surface'}`}
+            >
+              <span className="block font-bold">{question.short_title}</span>
+              <span className="block text-xs text-muted tabular-nums">
+                {waiting} waiting{lastDay ? `, ${lastDay} in the last day` : ''}
+              </span>
+            </button>
+          )
+        })}
+        {tallies.length > shown.length && (
+          <button type="button" className="link cursor-pointer text-sm font-semibold" onClick={() => setShowAll(true)}>
+            {tallies.length - shown.length} more
+          </button>
+        )}
+      </div>
+      {chosenSlug && (
+        <p className="text-sm">
+          Showing {chosen ? <b>{chosen.short_title}</b> : 'one question'} only.{' '}
+          <button type="button" className="link cursor-pointer font-semibold" onClick={() => onChoose(undefined)}>
+            Show every question
+          </button>
+        </p>
       )}
     </div>
   )
