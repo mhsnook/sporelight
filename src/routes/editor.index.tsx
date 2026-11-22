@@ -11,6 +11,7 @@ import { decisionOf, draftEntries, outlook, proposalIsAcross, verdictOf, type En
 import { useTracker } from '../lib/tracker.tsx'
 import { sourceLabel } from '../lib/position.ts'
 import { Syncing, Token } from '../components/bits.tsx'
+import { NewsSearchButton, NewsTraceView, useNewsSearch } from '../components/NewsSearch.tsx'
 import { Reveal } from '../components/review/Reveal.tsx'
 import { ReviewCard, people } from '../components/review/ReviewCard.tsx'
 
@@ -41,6 +42,7 @@ function Queue() {
   const [error, setError] = useState<string | null>(null)
   const [started, setStarted] = useState<Record<string, Work>>({})
   const [attempts, setAttempts] = useState(0)
+  const news = useNewsSearch()
   const timers = useRef<ReturnType<typeof setTimeout>[]>([])
   useEffect(() => () => timers.current.forEach(clearTimeout), [])
 
@@ -141,12 +143,14 @@ function Queue() {
           </button>
         </p>
         <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto">
-          <NewsSearchButton />
+          <NewsSearchButton running={news.running} onStart={news.start} />
           <button type="button" className="btn btn-sm shadow-none" onClick={signOut}>
             Sign out
           </button>
         </div>
       </div>
+
+      {news.trace && <NewsTraceView trace={news.trace} onDismiss={news.dismiss} />}
 
       <ReadArticleTrial />
 
@@ -337,28 +341,6 @@ function Desk({
       />
       <aside className="flex flex-col gap-2.5 lg:sticky lg:top-4">{children}</aside>
     </div>
-  )
-}
-
-function NewsSearchButton() {
-  const [state, setState] = useState<'idle' | 'running' | string>('idle')
-  async function run() {
-    setState('running')
-    try {
-      const res = await editorFetch('/api/editor/news-search', { method: 'POST' })
-      const report = (await res.json()) as { error?: string; questions: { queued: number }[] }
-      setState(report.error ?? `${report.questions.reduce((n, q) => n + q.queued, 0)} new leads queued`)
-    } catch {
-      setState('News search failed')
-    }
-  }
-  return (
-    <>
-      {state !== 'idle' && state !== 'running' && <span className="text-sm font-semibold">{state}</span>}
-      <button type="button" className="btn btn-sm" onClick={run} disabled={state === 'running'} title="Searches the news for questions marked as in the news">
-        {state === 'running' ? 'Searching…' : 'Search the news now'}
-      </button>
-    </>
   )
 }
 

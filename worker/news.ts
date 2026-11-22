@@ -2,6 +2,7 @@ import { fetchArticle } from './article.ts'
 import { hitDate, leadFromHit, peopleInHit, rosterMatcher, type RosterEntry, type SearchHit } from './leads.ts'
 import { draftFromReading, MODEL, readArticle, readingContext, type Dropped, type ModelAct, type ReadingContext } from './reader.ts'
 import { sourceUrl, type Proposal, type ProposalDraft, type UnreadReason } from '../shared/schema.ts'
+import type { NewsReport, NewsStep } from '../shared/news-run.ts'
 import type { SubmitResult } from './tracker.ts'
 
 const PROVIDER = 'exa'
@@ -17,13 +18,7 @@ export const NEWS_CRON = '17 14 * * *'
 
 type HotQuestion = { id: string; short_title: string; body_id: string; body_name: string }
 
-export type NewsReport = {
-  error?: string
-  questions: { question: string; hits: number; read: number; queued: number }[]
-  // Hits that name someone and were neither read nor recorded, because the run
-  // reached MAX_READS_PER_RUN or a model call failed.
-  deferred: number
-}
+export type { NewsReport, NewsStep }
 
 type Submitter = { propose(draft: ProposalDraft, origin: Proposal['origin']): Promise<SubmitResult> }
 
@@ -106,7 +101,7 @@ const droppedDetail = (dropped: Dropped[]) => (dropped.length ? dropped.map((d) 
 // An article the model finds nothing in queues nothing. One that cannot be
 // fetched or read falls back to a lead with the search excerpt. Nothing here
 // is published without review.
-export async function searchNews(env: Env, tracker: Submitter, now: Date = new Date()): Promise<NewsReport> {
+export async function searchNews(env: Env, tracker: Submitter, now: Date = new Date(), onStep: (step: NewsStep) => void = () => {}): Promise<NewsReport> {
   const today = now.toISOString().slice(0, 10)
   const hot = await env.DB.prepare(
     `SELECT q.id, q.short_title, q.body_id, b.name AS body_name
@@ -117,6 +112,7 @@ export async function searchNews(env: Env, tracker: Submitter, now: Date = new D
     .all<HotQuestion>()
 
   const report: NewsReport = { questions: [], deferred: 0 }
+  onStep({ kind: 'plan', questions: hot.results.map((q) => q.short_title), queriesPerQuestion: hot.results.length ? queriesFor(hot.results[0], now).length : 0, maxReads: MAX_READS_PER_RUN })
   let reads = 0
   let modelDown = false
   // Every query of a question returns many of the same hits. A hit tried this
@@ -127,10 +123,11 @@ export async function searchNews(env: Env, tracker: Submitter, now: Date = new D
     const members = (await roster(env.DB, question)).results
     const byId = new Map(members.map((m) => [m.id, m]))
     const match = rosterMatcher(members)
-    const tally = { question: question.short_title, hits: 0, read: 0, queued: 0 }
+    const tally = { question: question.short_title, hits: 0, read: 0, queued: 0, failed: 0 }
     const stop = (error: string) => {
       report.error = error
       report.questions.push(tally)
+      onStep({ kind: 'stopped', reason: error })
       return report
     }
 
@@ -142,6 +139,7 @@ export async function searchNews(env: Env, tracker: Submitter, now: Date = new D
       }
       const { items } = (await response.json()) as { items: SearchHit[] }
       tally.hits += items.length
+      onStep({ kind: 'searched', question: question.short_title, query, hits: items.length, named: items.filter((h) => peopleInHit(h, match).length > 0).length })
       for (const hit of items) {
         const people = peopleInHit(hit, match)
         if (people.length === 0) continue
@@ -158,6 +156,9 @@ export async function searchNews(env: Env, tracker: Submitter, now: Date = new D
         tried.add(key)
 
         const article = { url, title: hit.title || null, date: hitDate(hit) }
+        const finished = (outcome: Extract<NewsStep, { kind: 'read' }>['outcome'], queued: number, detail: string | null) =>
+          onStep({ kind: 'read', question: question.short_title, url, title: article.title, outcome, queued, detail })
+        onStep({ kind: 'reading', question: question.short_title, url, title: article.title })
         const result = await readOneArticle(env, article, question.id, people.map((id) => byId.get(id)!), today, query)
         let draft: ProposalDraft | null
         let origin: Proposal['origin']
@@ -166,27 +167,40 @@ export async function searchNews(env: Env, tracker: Submitter, now: Date = new D
           origin = 'model'
         } else if (result.outcome === 'no_acts') {
           await recordRead(env.DB, url, question.id, now, 'no_acts', MODEL, droppedDetail(result.dropped))
+          finished('nothing', 0, null)
           continue
         } else {
           if (result.modelCallFailed) {
             modelDown = true
             report.error = `Stopped reading articles: ${result.reason}`
+            onStep({ kind: 'stopped', reason: report.error })
           }
           draft = leadFromHit(hit, question.id, query, match, { unread: result.unread, why: `The article was not read: ${result.reason}` })
           origin = 'news_search'
         }
-        if (!draft) continue
+        if (!draft) {
+          finished('nothing', 0, result.outcome === 'not_read' ? result.reason : null)
+          continue
+        }
         const submitted = await tracker.propose(draft, origin).catch((e: unknown): SubmitResult => ({ ok: false, status: 500, error: String(e).slice(0, 200) }))
         if (!submitted.ok && submitted.status === 429) return stop(submitted.error)
         // Not recorded, so the next run reads it again.
         if (!submitted.ok) {
-          report.error = `Could not queue ${url}: ${submitted.error}`
+          tally.failed++
+          finished('failed', 0, submitted.error)
           continue
         }
         tally.queued += submitted.queued
-        if (result.outcome !== 'acts') await recordRead(env.DB, url, question.id, now, 'not_read', null, result.reason)
-        else if (submitted.queued > 0) await recordRead(env.DB, url, question.id, now, 'queued', MODEL, droppedDetail(result.dropped))
-        else await recordRead(env.DB, url, question.id, now, 'no_acts', MODEL, 'Every act found was already proposed from this source.')
+        if (result.outcome !== 'acts') {
+          await recordRead(env.DB, url, question.id, now, 'not_read', null, result.reason)
+          finished('lead', submitted.queued, result.reason)
+        } else if (submitted.queued > 0) {
+          await recordRead(env.DB, url, question.id, now, 'queued', MODEL, droppedDetail(result.dropped))
+          finished('queued', submitted.queued, null)
+        } else {
+          await recordRead(env.DB, url, question.id, now, 'no_acts', MODEL, 'Every act found was already proposed from this source.')
+          finished('nothing', 0, 'Every act found was already proposed from this source.')
+        }
       }
     }
     report.questions.push(tally)
@@ -221,7 +235,13 @@ type RunStarter = 'cron' | 'editor'
 type RunOutcome = 'skipped' | 'searched' | 'stopped' | 'failed'
 
 // Runs the news search and records the run in `news_runs`.
-export async function runNewsSearch(env: Env, tracker: Submitter, startedBy: RunStarter, now: Date = new Date()): Promise<NewsReport | { skipped: string }> {
+export async function runNewsSearch(
+  env: Env,
+  tracker: Submitter,
+  startedBy: RunStarter,
+  now: Date = new Date(),
+  onStep?: (step: NewsStep) => void,
+): Promise<NewsReport | { skipped: string }> {
   if (startedBy === 'cron') {
     const queue = await queueState(env.DB, now)
     if (!queue.attended) {
@@ -231,7 +251,7 @@ export async function runNewsSearch(env: Env, tracker: Submitter, startedBy: Run
     }
   }
   try {
-    const report = await searchNews(env, tracker, now)
+    const report = await searchNews(env, tracker, now, onStep)
     await recordRun(env.DB, now, startedBy, report.error ? 'stopped' : 'searched', JSON.stringify(report))
     return report
   } catch (e) {

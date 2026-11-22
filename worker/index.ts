@@ -1,6 +1,7 @@
 import { getServerByName, routePartykitRequest } from 'partyserver'
 import { ARCHIVE_CRON, archiveNow, archiveSources } from './archive.ts'
-import { commentInputSchema, displayNameSchema, proposalInputSchema } from '../shared/schema.ts'
+import { commentInputSchema, displayNameSchema, proposalInputSchema, type Proposal, type ProposalDraft } from '../shared/schema.ts'
+import type { NewsStep } from '../shared/news-run.ts'
 import { auth, signedInPerson } from './auth.ts'
 import { isEditorRequest } from './editor.ts'
 import { atomResponse } from './feed.ts'
@@ -12,6 +13,31 @@ export { Tracker } from './tracker.ts'
 export const ROOM = 'main'
 
 const tracker = (env: Env) => getServerByName<Env, Tracker>(env.Tracker, ROOM)
+
+// For runs that last minutes. The room hibernates while they read, and a call
+// on a stub taken before that wakes it without running onStart, so its write
+// path is not set up. getServerByName runs onStart first, so each write asks
+// for the room afresh.
+const roomForLongRun = (env: Env) => ({
+  propose: async (draft: ProposalDraft, origin: Proposal['origin']) => (await tracker(env)).propose(draft, origin),
+  setArchiveUrl: async (sourceId: string, archiveUrl: string) => (await tracker(env)).setArchiveUrl(sourceId, archiveUrl),
+})
+
+// Streams a run's steps to the editor who started it, one JSON object a line,
+// ending with the report.
+function streamNewsSearch(env: Env, ctx: ExecutionContext): Response {
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>()
+  const writer = writable.getWriter()
+  const encoder = new TextEncoder()
+  // A write fails once the editor has left the page. The run carries on without them.
+  const send = (step: NewsStep) => void writer.write(encoder.encode(`${JSON.stringify(step)}\n`)).catch(() => {})
+  const run = runNewsSearch(env, roomForLongRun(env), 'editor', new Date(), send)
+    .then((report) => send({ kind: 'done', report }))
+    .catch((e: unknown) => send({ kind: 'crashed', error: String(e).slice(0, 500) }))
+    .finally(() => writer.close().catch(() => {}))
+  ctx.waitUntil(run)
+  return new Response(readable, { headers: { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store' } })
+}
 
 const tooMany = () => Response.json({ error: 'That is a lot of posts in a short time. Give it a minute.' }, { status: 429 })
 const overLimit = async (req: Request, env: Env) => !(await env.POST_LIMITER.limit({ key: req.headers.get('cf-connecting-ip') ?? 'unknown' })).success
@@ -81,7 +107,7 @@ export default {
     }
     if (url.pathname === '/api/editor/news-search' && req.method === 'POST') {
       if (!(await isEditorRequest(req, env))) return new Response('unauthorized', { status: 401 })
-      return Response.json(await runNewsSearch(env, await tracker(env), 'editor'))
+      return streamNewsSearch(env, ctx)
     }
     if (url.pathname === '/api/editor/read-article' && req.method === 'POST') {
       if (!(await isEditorRequest(req, env))) return new Response('unauthorized', { status: 401 })
@@ -95,7 +121,7 @@ export default {
       if (!(await isEditorRequest(req, env))) return new Response('unauthorized', { status: 401 })
       const body = (await req.json().catch(() => null)) as { source_id?: unknown } | null
       if (typeof body?.source_id !== 'string') return Response.json({ error: 'Expected a source_id.' }, { status: 400 })
-      const result = await archiveNow(env, await tracker(env), body.source_id)
+      const result = await archiveNow(env, roomForLongRun(env), body.source_id)
       return 'error' in result ? Response.json({ error: result.error }, { status: result.status }) : Response.json(result)
     }
     return (await routePartykitRequest(req, env)) ?? new Response('not found', { status: 404 })
@@ -106,8 +132,8 @@ export default {
   // handler returns. Each cron in wrangler.jsonc runs one of the two passes.
   async scheduled(controller, env) {
     const now = new Date(controller.scheduledTime)
-    if (controller.cron === ARCHIVE_CRON) return console.log('archiving', await archiveSources(env, await tracker(env), now))
+    if (controller.cron === ARCHIVE_CRON) return console.log('archiving', await archiveSources(env, roomForLongRun(env), now))
     if (controller.cron !== NEWS_CRON) return console.error(`no pass runs on the cron "${controller.cron}"`)
-    console.log('news search', await runNewsSearch(env, await tracker(env), 'cron', now))
+    console.log('news search', await runNewsSearch(env, roomForLongRun(env), 'cron', now))
   },
 } satisfies ExportedHandler<Env>

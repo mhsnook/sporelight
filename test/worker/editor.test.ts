@@ -23,7 +23,13 @@ describe.each([
     const res = await call(path, method, EDITOR_TOKEN)
     expect(res.status).toBe(200)
     // This file seeds no questions, so the news search runs without searching.
-    expect(await res.json()).toEqual(path.endsWith('session') ? { ok: true } : { questions: [], deferred: 0 })
+    if (path.endsWith('session')) return expect(await res.json()).toEqual({ ok: true })
+    expect(res.headers.get('content-type')).toMatch(/^application\/x-ndjson/)
+    const steps = (await res.text()).trim().split('\n').map((line) => JSON.parse(line))
+    expect(steps).toEqual([
+      { kind: 'plan', questions: [], queriesPerQuestion: 0, maxReads: expect.any(Number) },
+      { kind: 'done', report: { questions: [], deferred: 0 } },
+    ])
   })
 })
 
