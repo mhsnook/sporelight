@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ProposalItem } from '../../shared/schema.ts'
-import { narrowQueue, tallyQueue, topQuestionOf } from './queue-filter.ts'
+import { narrowQueue, tallyQueue } from './queue-filter.ts'
 import { item, proposal, question, track } from './fixtures.ts'
 
 const NOW = new Date('2026-11-17T12:00:00.000Z')
@@ -8,24 +8,12 @@ const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 3600_000).toISOStri
 
 const policy = question('policy', { sort: 0 })
 const bill = question('bill', { parent_id: 'policy', kind: 'formal_act', sort: 1 })
-const markup = question('markup', { parent_id: 'bill', sort: 2 })
+const markup = question('markup', { parent_id: 'policy', sort: 2 })
 const ferry = question('ferry', { sort: 3 })
 const harbor = question('harbor', { sort: 4 })
 const tracker = track({ questions: [policy, bill, markup, ferry, harbor] })
 
 const byProposal = (items: ProposalItem[]) => (id: string) => items.filter((i) => i.proposal_id === id)
-
-describe('topQuestionOf', () => {
-  it('walks up through sub-questions of sub-questions', () => {
-    expect(topQuestionOf(tracker, markup).id).toBe('policy')
-    expect(topQuestionOf(tracker, policy).id).toBe('policy')
-  })
-
-  it('stops at a parent that is not on file', () => {
-    const orphan = question('orphan', { parent_id: 'gone' })
-    expect(topQuestionOf(track({ questions: [orphan] }), orphan).id).toBe('orphan')
-  })
-})
 
 describe('tallyQueue', () => {
   it('counts sub-question items under their top-level question, once per proposal', () => {
@@ -95,8 +83,8 @@ describe('narrowQueue', () => {
     expect(narrowQueue(tracker, pending, byProposal(items), 'policy').map((p) => p.id)).toEqual(['across', 'p-bill', 'p-markup'])
   })
 
-  it('on a sub-question, keeps only that sub-question and what is under it', () => {
-    expect(narrowQueue(tracker, pending, byProposal(items), 'bill').map((p) => p.id)).toEqual(['p-bill', 'p-markup'])
+  it('on a sub-question, keeps only that sub-question', () => {
+    expect(narrowQueue(tracker, pending, byProposal(items), 'bill').map((p) => p.id)).toEqual(['p-bill'])
   })
 
   it('keeps a proposal on two questions under either one', () => {

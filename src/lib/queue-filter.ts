@@ -7,29 +7,16 @@ const DAY_MS = 24 * 60 * 60 * 1000
 // How many waiting proposals have an item on a top-level question or anything under it.
 export type QuestionTally = { question: Question; waiting: number; lastDay: number }
 
-// The top-level question a question sits under, at any depth.
-export function topQuestionOf(tracker: Pick<Tracker, 'questionById'>, question: Question): Question {
-  const seen = new Set<string>()
-  let top = question
-  while (top.parent_id && !seen.has(top.id)) {
-    seen.add(top.id)
-    const parent = tracker.questionById.get(top.parent_id)
-    if (!parent) break
-    top = parent
-  }
-  return top
-}
-
 // The questions with something waiting, busiest first. A proposal counts once
 // per top-level question, however many of its items fall under it.
-export function tallyQueue(tracker: Pick<Tracker, 'questionById'>, pending: Proposal[], itemsOf: (proposalId: string) => ProposalItem[], now: Date): QuestionTally[] {
+export function tallyQueue(tracker: Pick<Tracker, 'questionById' | 'rootOf'>, pending: Proposal[], itemsOf: (proposalId: string) => ProposalItem[], now: Date): QuestionTally[] {
   const since = now.getTime() - DAY_MS
   const tallies = new Map<string, QuestionTally>()
   for (const proposal of pending) {
     const tops = new Set<Question>()
     for (const item of itemsOf(proposal.id)) {
       const question = tracker.questionById.get(item.question_id)
-      if (question) tops.add(topQuestionOf(tracker, question))
+      if (question) tops.add(tracker.rootOf(question))
     }
     const recent = Date.parse(proposal.created_at) >= since
     for (const question of tops) {

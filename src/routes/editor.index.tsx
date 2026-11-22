@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { Link, createFileRoute } from '@tanstack/react-router'
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useLiveQuery } from '@tanstack/react-db'
 import { isUnreadLead, type Proposal, type ProposalContext, type ProposalItem, type ProposalMention, type ProposalNote, type Question, type Source } from '../../shared/schema.ts'
@@ -11,7 +11,7 @@ import { decisionOf, draftEntries, outlook, proposalIsAcross, verdictOf, type En
 import { narrowQueue, tallyQueue, type QuestionTally } from '../lib/queue-filter.ts'
 import { useTracker } from '../lib/tracker.tsx'
 import { sourceLabel } from '../lib/position.ts'
-import { Syncing, Token } from '../components/bits.tsx'
+import { NotFound, Syncing, Token } from '../components/bits.tsx'
 import { Reveal } from '../components/review/Reveal.tsx'
 import { ReviewCard, people } from '../components/review/ReviewCard.tsx'
 
@@ -72,12 +72,10 @@ function Queue() {
       reviewed: proposals.data.filter((p) => p.status !== 'pending').sort((a, b) => (b.reviewed_at ?? '').localeCompare(a.reviewed_at ?? '')),
     }
   }, [proposals.data, itemsByProposal, tracker])
-  const tallies = useMemo(() => tallyQueue(tracker, pending, (id) => itemsByProposal.get(id) ?? [], new Date()), [tracker, pending, itemsByProposal])
-  const unfiltered = tab === 'pending' ? pending : reviewed
-  const list = useMemo(
-    () => (!search.question ? unfiltered : question ? narrowQueue(tracker, unfiltered, (id) => itemsByProposal.get(id) ?? [], question.id) : []),
-    [unfiltered, search.question, question, tracker, itemsByProposal],
-  )
+  const tallies = useMemo(() => tallyQueue(tracker, pending, itemsOf, new Date()), [tracker, pending, itemsByProposal])
+  // The question filter narrows only what is waiting.
+  const narrowed = useMemo(() => (question ? narrowQueue(tracker, pending, itemsOf, question.id) : pending), [tracker, pending, itemsByProposal, question])
+  const list = tab === 'pending' ? narrowed : reviewed
   const chooseQuestion = (slug: string | undefined) => navigate({ search: { question: slug }, replace: true })
   const selected = list.find((p) => p.id === selectedId) ?? list[0]
   const selectedAt = list.findIndex((p) => p.id === selected?.id)
@@ -105,9 +103,19 @@ function Queue() {
   // The list turns to the page the open card is on, so J and K can be followed down it.
   useEffect(() => {
     if (selectedAt !== -1) setListPage(Math.floor(selectedAt / UP_NEXT))
-  }, [selected?.id, tab, search.question])
+  }, [selected?.id, tab, question])
 
   if (!isReady || !proposals.isReady || !allItems.isReady || !allNotes.isReady || !allContexts.isReady || !allMentions.isReady) return <Syncing />
+  if (search.question && !question) {
+    return (
+      <div className="pb-16 text-center">
+        <NotFound what="question" />
+        <Link to="/editor" search={{}} className="link">
+          See the whole queue
+        </Link>
+      </div>
+    )
+  }
 
   // The card leaves first. The writes go in once it is gone, which brings the next card up from the stack.
   function finish(proposalId: string, { writes, how, message, work }: Finish) {
@@ -175,21 +183,17 @@ function Queue() {
       </Reveal>
       {error && <p className="mt-5 rounded-xl border-2 border-ink bg-oppose/15 px-3.5 py-2.5 font-bold">Not saved: {error}</p>}
 
-      {!selected && search.question ? (
-        <div className="mt-7 grid grid-cols-[minmax(0,1fr)] items-start gap-9 lg:grid-cols-[minmax(0,1fr)_340px]">
-          <div className="card card-lg bg-mint px-5 py-7 text-center sm:p-12">
-            <h2 className="text-2xl font-black sm:text-[32px]">
-              {!question ? `No question has the address “${search.question}”.` : tab === 'pending' ? `Nothing is waiting on ${question.short_title}.` : `Nothing on ${question.short_title} has been reviewed.`}
-            </h2>
-          </div>
-          <aside className="flex flex-col gap-2.5">
-            <QuestionFilter tallies={tallies} chosen={question} chosenSlug={search.question} onChoose={chooseQuestion} />
-          </aside>
-        </div>
-      ) : !selected || !selectedSource ? (
+      {!selected || !selectedSource ? (
         <div className="card card-lg mt-10 bg-mint px-5 py-7 text-center sm:mt-12 sm:p-12">
-          <h2 className="text-2xl font-black sm:text-[32px]">{!selected ? (tab === 'pending' ? 'The queue is empty.' : 'Nothing reviewed yet.') : 'This proposal points at a source that no longer exists.'}</h2>
-          {!selected && tab === 'pending' && <p className="mt-2 text-[15px] sm:text-[17px]">Every lead has been reviewed. The news search runs once a day.</p>}
+          <h2 className="text-2xl font-black sm:text-[32px]">
+            {selected ? 'This proposal points at a source that no longer exists.' : tab === 'reviewed' ? 'Nothing reviewed yet.' : question ? `Nothing is waiting on ${question.short_title}.` : 'The queue is empty.'}
+          </h2>
+          {!selected && tab === 'pending' && !question && <p className="mt-2 text-[15px] sm:text-[17px]">Every lead has been reviewed. The news search runs once a day.</p>}
+          {question && (
+            <button type="button" className="link mt-3 cursor-pointer font-semibold" onClick={() => chooseQuestion(undefined)}>
+              Show every question
+            </button>
+          )}
         </div>
       ) : (
         <Desk
@@ -206,7 +210,7 @@ function Queue() {
           leaving={leaving?.id === selected.id ? leaving.how : null}
           onFinish={(done) => finish(selected.id, done)}
         >
-          <QuestionFilter tallies={tallies} chosen={question} chosenSlug={search.question} onChoose={chooseQuestion} />
+          {tab === 'pending' && <QuestionFilter tallies={tallies} chosen={question} onChoose={chooseQuestion} />}
           {list.length > 1 && (
             <>
               <h2 className="text-base font-black sm:text-lg">{tab === 'pending' ? 'Waiting' : 'Reviewed'}</h2>
@@ -274,16 +278,14 @@ function Queue() {
 function QuestionFilter({
   tallies,
   chosen,
-  chosenSlug,
   onChoose,
 }: {
   tallies: QuestionTally[]
   chosen: Question | undefined
-  chosenSlug: string | undefined
   onChoose: (slug: string | undefined) => void
 }) {
   const [showAll, setShowAll] = useState(false)
-  if (!tallies.length && !chosenSlug) return null
+  if (!tallies.length) return null
   const shown = showAll ? tallies : tallies.filter((t, i) => i < BUSIEST || t.question.id === chosen?.id)
   return (
     <div role="group" aria-label="Questions with proposals waiting" className="mb-2 flex flex-col gap-2">
@@ -312,9 +314,9 @@ function QuestionFilter({
           </button>
         )}
       </div>
-      {chosenSlug && (
+      {chosen && (
         <p className="text-sm">
-          Showing {chosen ? <b>{chosen.short_title}</b> : 'one question'} only.{' '}
+          Showing <b>{chosen.short_title}</b> only.{' '}
           <button type="button" className="link cursor-pointer font-semibold" onClick={() => onChoose(undefined)}>
             Show every question
           </button>
