@@ -4,7 +4,7 @@ import { commentInputSchema, displayNameSchema, proposalInputSchema } from '../s
 import { auth, signedInPerson } from './auth.ts'
 import { isEditorRequest } from './editor.ts'
 import { atomResponse } from './feed.ts'
-import { dryRunArticle, NEWS_CRON, queueIsAttended, searchNews } from './news.ts'
+import { dryRunArticle, NEWS_CRON, runNewsSearch } from './news.ts'
 import type { Tracker } from './tracker.ts'
 
 export { Tracker } from './tracker.ts'
@@ -81,7 +81,7 @@ export default {
     }
     if (url.pathname === '/api/editor/news-search' && req.method === 'POST') {
       if (!(await isEditorRequest(req, env))) return new Response('unauthorized', { status: 401 })
-      return Response.json(await searchNews(env, await tracker(env)))
+      return Response.json(await runNewsSearch(env, await tracker(env), 'editor'))
     }
     if (url.pathname === '/api/editor/read-article' && req.method === 'POST') {
       if (!(await isEditorRequest(req, env))) return new Response('unauthorized', { status: 401 })
@@ -108,7 +108,6 @@ export default {
     const now = new Date(controller.scheduledTime)
     if (controller.cron === ARCHIVE_CRON) return console.log('archiving', await archiveSources(env, await tracker(env), now))
     if (controller.cron !== NEWS_CRON) return console.error(`no pass runs on the cron "${controller.cron}"`)
-    if (!(await queueIsAttended(env.DB, now))) return console.log('news search skipped: earlier leads are waiting and none was reviewed in the last day')
-    console.log('news search', await searchNews(env, await tracker(env), now))
+    console.log('news search', await runNewsSearch(env, await tracker(env), 'cron', now))
   },
 } satisfies ExportedHandler<Env>
