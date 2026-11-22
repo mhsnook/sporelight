@@ -183,6 +183,8 @@ function Queue() {
       </Reveal>
       {error && <p className="mt-5 rounded-xl border-2 border-ink bg-oppose/15 px-3.5 py-2.5 font-bold">Not saved: {error}</p>}
 
+      {tab === 'pending' && <QuestionFilter tallies={tallies} chosen={question} onChoose={chooseQuestion} />}
+
       {!selected || !selectedSource ? (
         <div className="card card-lg mt-10 bg-mint px-5 py-7 text-center sm:mt-12 sm:p-12">
           <h2 className="text-2xl font-black sm:text-[32px]">
@@ -210,7 +212,6 @@ function Queue() {
           leaving={leaving?.id === selected.id ? leaving.how : null}
           onFinish={(done) => finish(selected.id, done)}
         >
-          {tab === 'pending' && <QuestionFilter tallies={tallies} chosen={question} onChoose={chooseQuestion} />}
           {list.length > 1 && (
             <>
               <h2 className="text-base font-black sm:text-lg">{tab === 'pending' ? 'Waiting' : 'Reviewed'}</h2>
@@ -288,7 +289,7 @@ function QuestionFilter({
   if (!tallies.length) return null
   const shown = showAll ? tallies : tallies.filter((t, i) => i < BUSIEST || t.question.id === chosen?.id)
   return (
-    <div role="group" aria-label="Questions with proposals waiting" className="mb-2 flex flex-col gap-2">
+    <div role="group" aria-label="Questions with proposals waiting" className="mt-6 flex flex-col gap-2">
       <h2 className="text-base font-black sm:text-lg">By question</h2>
       <div className="flex flex-wrap gap-1.5">
         {shown.map(({ question, waiting, lastDay }) => {
@@ -303,7 +304,8 @@ function QuestionFilter({
             >
               <span className="block font-bold">{question.short_title}</span>
               <span className="block text-xs text-muted tabular-nums">
-                {waiting} waiting{lastDay ? `, ${lastDay} in the last day` : ''}
+                {waiting ? `${waiting} waiting` : 'nothing waiting'}
+                {lastDay ? `, ${lastDay} in the last day` : ''}
               </span>
             </button>
           )

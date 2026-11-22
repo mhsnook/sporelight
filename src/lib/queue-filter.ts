@@ -7,11 +7,15 @@ const DAY_MS = 24 * 60 * 60 * 1000
 // How many waiting proposals have an item on a top-level question or anything under it.
 export type QuestionTally = { question: Question; waiting: number; lastDay: number }
 
-// The questions with something waiting, busiest first. A proposal counts once
+// The questions with something waiting, busiest first, then the top-level
+// questions marked as in the news with nothing waiting. A proposal counts once
 // per top-level question, however many of its items fall under it.
 export function tallyQueue(tracker: Pick<Tracker, 'questionById' | 'rootOf'>, pending: Proposal[], itemsOf: (proposalId: string) => ProposalItem[], now: Date): QuestionTally[] {
   const since = now.getTime() - DAY_MS
   const tallies = new Map<string, QuestionTally>()
+  for (const question of tracker.questionById.values()) {
+    if (question.is_hot && !question.parent_id) tallies.set(question.id, { question, waiting: 0, lastDay: 0 })
+  }
   for (const proposal of pending) {
     const tops = new Set<Question>()
     for (const item of itemsOf(proposal.id)) {

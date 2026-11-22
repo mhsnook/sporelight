@@ -64,6 +64,15 @@ describe('tallyQueue', () => {
     ])
   })
 
+  it('lists top-level questions in the news with nothing waiting after the busy ones', () => {
+    const inNews = track({ questions: [policy, question('quiet', { is_hot: true, sort: 9 }), question('quiet-measure', { parent_id: 'policy', is_hot: true }), ferry] })
+    const items = [item('a', 'p1', 'ann', 'ferry')]
+    expect(tallyQueue(inNews, [proposal('p1', 's')], byProposal(items), NOW).map((t) => [t.question.id, t.waiting])).toEqual([
+      ['ferry', 1],
+      ['quiet', 0],
+    ])
+  })
+
   it('leaves out items on a question that is not on file', () => {
     expect(tallyQueue(tracker, [proposal('p1', 's')], byProposal([item('a', 'p1', 'ann', 'gone')]), NOW)).toEqual([])
   })
