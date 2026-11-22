@@ -190,7 +190,7 @@ test('evidence a reader sends reaches the editor under its question and, once ap
 
 // The rows a news search run queues for a model-read article, written through
 // the editor's party endpoint since no model runs in tests.
-async function queueModelRead(request: APIRequestContext, item: { decider_id: string; quote: string; passage: string; reading: string; weight: string; kind: string }, sourceTitle: string) {
+async function queueModelRead(request: APIRequestContext, item: { decider_id: string; quote: string; passage: string; reading: string; weight: string; kind: string; question_id?: string }, sourceTitle: string) {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
   const now = TODAY.toISOString()
   const ids = { source: `src-${stamp}`, proposal: `prop-${stamp}`, item: `item-${stamp}` }
@@ -379,6 +379,63 @@ test('the list beside the open card pages through every waiting proposal', async
   const lastTitle = (await last.textContent())!
   await last.getByRole('button').click()
   await expect(page.getByRole('article').getByRole('heading').first()).toContainText(lastTitle.match(/Paged \d+ no\. \d+/)![0])
+})
+
+test('the queue narrows to one question and what is under it, kept in the URL, and clearing it brings back every proposal', async ({ page, request }) => {
+  const stamp = Date.now()
+  const lead = (n: number, question_id: string) =>
+    queueModelRead(request, { decider_id: 'demo-bartholomew-sato', quote: `Words for narrowing ${stamp} ${n}.`, passage: `Words for narrowing ${stamp} ${n}.`, reading: 'support', weight: 'passing', kind: 'says', question_id }, `Narrowed ${stamp} no. ${n}`)
+  await Promise.all([lead(1, 'berth-fee'), lead(2, 'berth-fee'), lead(3, 'free-ferry-fiscal-note')])
+
+  // Waiting proposals with an item on a question or one under it, read in one query since each one starts wrangler.
+  const waitingOn = (id: string) =>
+    `(SELECT COUNT(DISTINCT p.id) FROM proposals p JOIN proposal_items i ON i.proposal_id = p.id JOIN questions q ON q.id = i.question_id
+      WHERE p.status = 'pending' AND (q.id = '${id}' OR q.parent_id = '${id}'))`
+  const [counts] = query<{ berthFee: number; freeFerry: number; everything: number }>(
+    `SELECT ${waitingOn('berth-fee')} AS berthFee, ${waitingOn('free-ferry')} AS freeFerry, (SELECT COUNT(*) FROM proposals WHERE status = 'pending') AS everything`,
+  )
+
+  await signInAsEditor(page)
+  const byQuestion = page.getByRole('group', { name: 'Questions with proposals waiting' })
+  const berth = byQuestion.getByRole('button', { name: /^Cruise ship berth fee/ })
+  await expect(berth).toContainText(`${counts.berthFee} waiting`)
+  const ferry = byQuestion.getByRole('button', { name: /^Fare-free ferry/ })
+  await expect(ferry).toContainText(`${counts.freeFerry} waiting`)
+  await expect(byQuestion.getByRole('button', { name: /^Fiscal note/ })).toHaveCount(0)
+
+  await berth.click()
+  await expect(page).toHaveURL(/[?&]question=berth-fee/)
+  await expect(berth).toHaveAttribute('aria-pressed', 'true')
+  const aside = page.getByRole('complementary')
+  const waiting = aside.getByRole('listitem')
+  const pages = page.getByRole('navigation', { name: 'Pages of what is waiting' })
+  // How many proposals the list holds: its own count once it runs to pages, or its rows.
+  const shownCount = async () => ((await pages.count()) ? Number((await pages.textContent())!.match(/of (\d+)/)![1]) : waiting.count())
+  await expect(waiting).toHaveCount(counts.berthFee)
+  for (const text of await waiting.allTextContents()) expect(text).not.toContain('Narrowed ' + stamp + ' no. 3')
+  await expect(aside.getByRole('button').filter({ hasText: `Narrowed ${stamp} no. 1` })).toBeVisible()
+
+  // J and K stay inside the question.
+  const isOpen = (row: Locator) => expect(row.getByRole('button')).toHaveAttribute('aria-current', 'true')
+  await isOpen(waiting.first())
+  for (let n = 1; n < counts.berthFee; n++) await page.keyboard.press('j')
+  await isOpen(waiting.last())
+  await page.keyboard.press('j')
+  await isOpen(waiting.last())
+  for (let n = 1; n < counts.berthFee; n++) await page.keyboard.press('k')
+  await isOpen(waiting.first())
+
+  // A top-level question takes in what is waiting on its sub-questions, and the choice survives a reload.
+  await page.goto('/editor?question=free-ferry')
+  await expect(ferry).toHaveAttribute('aria-pressed', 'true')
+  await expect(waiting.first()).toBeVisible()
+  expect(await shownCount()).toBe(counts.freeFerry)
+
+  await page.getByRole('button', { name: 'Show every question' }).click()
+  await expect(page).not.toHaveURL(/question=/)
+  await expect(ferry).toHaveAttribute('aria-pressed', 'false')
+  await expect(page.getByText('Showing Fare-free ferry only.')).toHaveCount(0)
+  expect(await shownCount()).toBe(counts.everything)
 })
 
 test('work on a card is kept while another card is open, and a question added from a card can be read on at once', async ({ page, request }) => {
