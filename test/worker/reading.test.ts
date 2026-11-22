@@ -452,6 +452,9 @@ describe('the scheduled run', () => {
     const [run] = await runs()
     expect(run).toMatchObject({ started_by: 'cron', outcome: 'searched' })
     expect(JSON.parse(run.detail)).toMatchObject({ deferred: 0, questions: expect.arrayContaining([expect.objectContaining({ question: 'Hot Topic', read: 0 })]) })
+    // Its steps are recorded in order, starting with the plan.
+    const steps = await rows<{ step: string }>(`SELECT s.step FROM news_run_steps s JOIN news_runs r ON r.id = s.run_id WHERE r.started_by = 'cron' ORDER BY s.seq`)
+    expect(steps.map((r) => JSON.parse(r.step).kind)).toEqual(['plan', ...Array(websearch.mock.calls.length).fill('searched')])
   })
 
   it('records a run whose search failed as stopped', async () => {

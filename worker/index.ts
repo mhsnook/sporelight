@@ -1,11 +1,11 @@
 import { getServerByName, routePartykitRequest } from 'partyserver'
-import { ARCHIVE_CRON, archiveNow, archiveSources } from './archive.ts'
-import { commentInputSchema, displayNameSchema, proposalInputSchema, type Proposal, type ProposalDraft } from '../shared/schema.ts'
-import type { NewsStep } from '../shared/news-run.ts'
+import { ARCHIVE_CRON, archiveNow, archiveSources, type Archiver } from './archive.ts'
+import { commentInputSchema, displayNameSchema, proposalInputSchema } from '../shared/schema.ts'
+import { RUN_ID } from '../shared/news-run.ts'
 import { auth, signedInPerson } from './auth.ts'
 import { isEditorRequest } from './editor.ts'
 import { atomResponse } from './feed.ts'
-import { dryRunArticle, NEWS_CRON, runNewsSearch } from './news.ts'
+import { dryRunArticle, listRuns, NEWS_CRON, runNewsSearch, runWithSteps, type Submitter } from './news.ts'
 import type { Tracker } from './tracker.ts'
 
 export { Tracker } from './tracker.ts'
@@ -14,29 +14,24 @@ export const ROOM = 'main'
 
 const tracker = (env: Env) => getServerByName<Env, Tracker>(env.Tracker, ROOM)
 
-// For runs that last minutes. The room hibernates while they read, and a call
-// on a stub taken before that wakes it without running onStart, so its write
-// path is not set up. getServerByName runs onStart first, so each write asks
-// for the room afresh.
-const roomForLongRun = (env: Env) => ({
-  propose: async (draft: ProposalDraft, origin: Proposal['origin']) => (await tracker(env)).propose(draft, origin),
-  setArchiveUrl: async (sourceId: string, archiveUrl: string) => (await tracker(env)).setArchiveUrl(sourceId, archiveUrl),
+// For runs that last minutes. The room is evicted from memory while they read,
+// and a call on a stub taken before that reaches a fresh instance without
+// running onStart, so its write path is not set up. getServerByName runs
+// onStart first, so each write asks for the room afresh.
+const roomForLongRun = (env: Env): Submitter & Archiver => ({
+  propose: async (...args) => (await tracker(env)).propose(...args),
+  setArchiveUrl: async (...args) => (await tracker(env)).setArchiveUrl(...args),
 })
 
-// Streams a run's steps to the editor who started it, one JSON object a line,
-// ending with the report.
-function streamNewsSearch(env: Env, ctx: ExecutionContext): Response {
-  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>()
-  const writer = writable.getWriter()
-  const encoder = new TextEncoder()
-  // A write fails once the editor has left the page. The run carries on without them.
-  const send = (step: NewsStep) => void writer.write(encoder.encode(`${JSON.stringify(step)}\n`)).catch(() => {})
-  const run = runNewsSearch(env, roomForLongRun(env), 'editor', new Date(), send)
-    .then((report) => send({ kind: 'done', report }))
-    .catch((e: unknown) => send({ kind: 'crashed', error: String(e).slice(0, 500) }))
-    .finally(() => writer.close().catch(() => {}))
-  ctx.waitUntil(run)
-  return new Response(readable, { headers: { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store' } })
+// The editor's browser names the run, so it can follow the run's steps while
+// this request stays open. The request is what keeps the Worker running.
+async function startNewsSearch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const body = (await req.json().catch(() => null)) as { run_id?: unknown } | null
+  const runId = body?.run_id
+  if (runId !== undefined && (typeof runId !== 'string' || !RUN_ID.test(runId))) return Response.json({ error: 'Expected a run_id that is a UUID.' }, { status: 400 })
+  const run = runNewsSearch(env, roomForLongRun(env), 'editor', new Date(), runId)
+  ctx.waitUntil(run.catch(() => {}))
+  return Response.json(await run)
 }
 
 const tooMany = () => Response.json({ error: 'That is a lot of posts in a short time. Give it a minute.' }, { status: 429 })
@@ -107,7 +102,17 @@ export default {
     }
     if (url.pathname === '/api/editor/news-search' && req.method === 'POST') {
       if (!(await isEditorRequest(req, env))) return new Response('unauthorized', { status: 401 })
-      return streamNewsSearch(env, ctx)
+      return startNewsSearch(req, env, ctx)
+    }
+    if (url.pathname === '/api/editor/news-runs' && req.method === 'GET') {
+      if (!(await isEditorRequest(req, env))) return new Response('unauthorized', { status: 401 })
+      return Response.json({ runs: await listRuns(env.DB) })
+    }
+    const runPath = url.pathname.match(/^\/api\/editor\/news-runs\/([^/]+)$/)
+    if (runPath && req.method === 'GET') {
+      if (!(await isEditorRequest(req, env))) return new Response('unauthorized', { status: 401 })
+      const found = await runWithSteps(env.DB, runPath[1])
+      return found ? Response.json(found) : Response.json({ error: 'No run has that id yet.' }, { status: 404 })
     }
     if (url.pathname === '/api/editor/read-article' && req.method === 'POST') {
       if (!(await isEditorRequest(req, env))) return new Response('unauthorized', { status: 401 })

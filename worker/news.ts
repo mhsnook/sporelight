@@ -2,7 +2,7 @@ import { fetchArticle } from './article.ts'
 import { hitDate, leadFromHit, peopleInHit, rosterMatcher, type RosterEntry, type SearchHit } from './leads.ts'
 import { draftFromReading, MODEL, readArticle, readingContext, type Dropped, type ModelAct, type ReadingContext } from './reader.ts'
 import { sourceUrl, type Proposal, type ProposalDraft, type UnreadReason } from '../shared/schema.ts'
-import type { NewsReport, NewsStep } from '../shared/news-run.ts'
+import type { NewsReport, NewsRun, NewsStep, ReadOutcome, RunOutcome, RunStarter } from '../shared/news-run.ts'
 import type { SubmitResult } from './tracker.ts'
 
 const PROVIDER = 'exa'
@@ -18,9 +18,7 @@ export const NEWS_CRON = '17 14 * * *'
 
 type HotQuestion = { id: string; short_title: string; body_id: string; body_name: string }
 
-export type { NewsReport, NewsStep }
-
-type Submitter = { propose(draft: ProposalDraft, origin: Proposal['origin']): Promise<SubmitResult> }
+export type Submitter = { propose(draft: ProposalDraft, origin: Proposal['origin']): Promise<SubmitResult> }
 
 function queriesFor(question: HotQuestion, now: Date): string[] {
   const month = now.toLocaleString('en', { month: 'long', year: 'numeric', timeZone: 'UTC' })
@@ -139,10 +137,9 @@ export async function searchNews(env: Env, tracker: Submitter, now: Date = new D
       }
       const { items } = (await response.json()) as { items: SearchHit[] }
       tally.hits += items.length
-      onStep({ kind: 'searched', question: question.short_title, query, hits: items.length, named: items.filter((h) => peopleInHit(h, match).length > 0).length })
-      for (const hit of items) {
-        const people = peopleInHit(hit, match)
-        if (people.length === 0) continue
+      const named = items.map((hit) => ({ hit, people: peopleInHit(hit, match) })).filter((h) => h.people.length > 0)
+      onStep({ kind: 'searched', question: question.short_title, query, hits: items.length, named: named.length })
+      for (const { hit, people } of named) {
         const url = sourceUrl(hit.url)
         const key = `${url} ${question.id}`
         if (tried.has(key) || (await alreadyHandled(env.DB, url, question.id))) continue
@@ -156,7 +153,7 @@ export async function searchNews(env: Env, tracker: Submitter, now: Date = new D
         tried.add(key)
 
         const article = { url, title: hit.title || null, date: hitDate(hit) }
-        const finished = (outcome: Extract<NewsStep, { kind: 'read' }>['outcome'], queued: number, detail: string | null) =>
+        const finished = (outcome: ReadOutcome, queued: number, detail: string | null) =>
           onStep({ kind: 'read', question: question.short_title, url, title: article.title, outcome, queued, detail })
         onStep({ kind: 'reading', question: question.short_title, url, title: article.title })
         const result = await readOneArticle(env, article, question.id, people.map((id) => byId.get(id)!), today, query)
@@ -173,7 +170,7 @@ export async function searchNews(env: Env, tracker: Submitter, now: Date = new D
           if (result.modelCallFailed) {
             modelDown = true
             report.error = `Stopped reading articles: ${result.reason}`
-            onStep({ kind: 'stopped', reason: report.error })
+            onStep({ kind: 'stopped_reading', reason: result.reason })
           }
           draft = leadFromHit(hit, question.id, query, match, { unread: result.unread, why: `The article was not read: ${result.reason}` })
           origin = 'news_search'
@@ -198,8 +195,9 @@ export async function searchNews(env: Env, tracker: Submitter, now: Date = new D
           await recordRead(env.DB, url, question.id, now, 'queued', MODEL, droppedDetail(result.dropped))
           finished('queued', submitted.queued, null)
         } else {
-          await recordRead(env.DB, url, question.id, now, 'no_acts', MODEL, 'Every act found was already proposed from this source.')
-          finished('nothing', 0, 'Every act found was already proposed from this source.')
+          const alreadyProposed = 'Every act found was already proposed from this source.'
+          await recordRead(env.DB, url, question.id, now, 'no_acts', MODEL, alreadyProposed)
+          finished('nothing', 0, alreadyProposed)
         }
       }
     }
@@ -231,42 +229,61 @@ export async function dryRunArticle(env: Env, url: string, questionId: string, n
   return { ...result, model: MODEL, article, people: people.map((p) => p.name) }
 }
 
-type RunStarter = 'cron' | 'editor'
-type RunOutcome = 'skipped' | 'searched' | 'stopped' | 'failed'
-
-// Runs the news search and records the run in `news_runs`.
-export async function runNewsSearch(
-  env: Env,
-  tracker: Submitter,
-  startedBy: RunStarter,
-  now: Date = new Date(),
-  onStep?: (step: NewsStep) => void,
-): Promise<NewsReport | { skipped: string }> {
+// Runs the news search and records it in `news_runs`, with each step in `news_run_steps` as it goes.
+export async function runNewsSearch(env: Env, tracker: Submitter, startedBy: RunStarter, now: Date = new Date(), runId: string = crypto.randomUUID()): Promise<NewsReport | { skipped: string }> {
+  const log = runLog(env.DB, runId, now, startedBy)
   if (startedBy === 'cron') {
     const queue = await queueState(env.DB, now)
     if (!queue.attended) {
       const skipped = `${queue.waiting} automated ${queue.waiting === 1 ? 'proposal is' : 'proposals are'} waiting, and ${queue.reviewedAt ? `the last was reviewed at ${queue.reviewedAt}` : 'none has been reviewed'}.`
-      await recordRun(env.DB, now, startedBy, 'skipped', skipped)
+      await log.finish('skipped', skipped)
       return { skipped }
     }
   }
   try {
-    const report = await searchNews(env, tracker, now, onStep)
-    await recordRun(env.DB, now, startedBy, report.error ? 'stopped' : 'searched', JSON.stringify(report))
+    const report = await searchNews(env, tracker, now, log.step)
+    await log.finish(report.error ? 'stopped' : 'searched', JSON.stringify(report))
     return report
   } catch (e) {
-    await recordRun(env.DB, now, startedBy, 'failed', String(e))
+    await log.finish('failed', String(e))
     throw e
   }
 }
 
-// A run that cannot be recorded still runs: the log has the same report.
-function recordRun(db: D1Database, now: Date, startedBy: RunStarter, outcome: RunOutcome, detail: string) {
-  return db
-    .prepare(`INSERT INTO news_runs (id, started_at, started_by, outcome, detail) VALUES (?, ?, ?, ?, ?)`)
-    .bind(crypto.randomUUID(), now.toISOString(), startedBy, outcome, detail.slice(0, 4000))
-    .run()
-    .catch((e: unknown) => console.error('could not record the news run', String(e)))
+// Writes the run's row when it starts, each step as it comes, and the outcome
+// at the end. The writes go one after another in the background, so a step
+// never waits on the database. A run that cannot be recorded still runs: the
+// log has the same report.
+function runLog(db: D1Database, runId: string, now: Date, startedBy: RunStarter) {
+  let seq = 0
+  let writes: Promise<unknown> = Promise.resolve()
+  const write = (statement: D1PreparedStatement) => {
+    writes = writes.then(() => statement.run()).catch((e: unknown) => console.error('could not record the news run', String(e)))
+  }
+  write(db.prepare(`INSERT INTO news_runs (id, started_at, started_by, outcome) VALUES (?, ?, ?, 'running')`).bind(runId, now.toISOString(), startedBy))
+  return {
+    step: (step: NewsStep) => write(db.prepare(`INSERT INTO news_run_steps (run_id, seq, at, step) VALUES (?, ?, ?, ?)`).bind(runId, seq++, new Date().toISOString(), JSON.stringify(step))),
+    finish: async (outcome: Exclude<RunOutcome, 'running'>, detail: string) => {
+      write(db.prepare(`UPDATE news_runs SET outcome = ?, finished_at = ?, detail = ? WHERE id = ?`).bind(outcome, new Date().toISOString(), detail, runId))
+      await writes
+    },
+  }
+}
+
+const RUNS_LISTED = 60
+
+// The latest runs, newest first, for the editor's page of runs.
+export async function listRuns(db: D1Database): Promise<NewsRun[]> {
+  return (await db.prepare(`SELECT id, started_at, started_by, outcome, finished_at, detail FROM news_runs ORDER BY started_at DESC LIMIT ?`).bind(RUNS_LISTED).all<NewsRun>()).results
+}
+
+export async function runWithSteps(db: D1Database, runId: string): Promise<{ run: NewsRun; steps: NewsStep[] } | null> {
+  const [run, steps] = await db.batch([
+    db.prepare(`SELECT id, started_at, started_by, outcome, finished_at, detail FROM news_runs WHERE id = ?`).bind(runId),
+    db.prepare(`SELECT step FROM news_run_steps WHERE run_id = ? ORDER BY seq`).bind(runId),
+  ])
+  const found = run.results[0] as NewsRun | undefined
+  return found ? { run: found, steps: (steps.results as { step: string }[]).map((r) => JSON.parse(r.step) as NewsStep) } : null
 }
 
 // Whether the scheduled search should run today: when nothing it queued earlier

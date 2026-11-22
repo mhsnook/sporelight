@@ -10,8 +10,8 @@ import { groupBy } from '../lib/build-tracker.ts'
 import { decisionOf, draftEntries, outlook, proposalIsAcross, verdictOf, type EntryDraft } from '../lib/review-form.ts'
 import { useTracker } from '../lib/tracker.tsx'
 import { sourceLabel } from '../lib/position.ts'
-import { Syncing, Token } from '../components/bits.tsx'
-import { NewsSearchButton, NewsTraceView, useNewsSearch } from '../components/NewsSearch.tsx'
+import { ProgressBar, Syncing, Token } from '../components/bits.tsx'
+import { NewsSearch } from '../components/NewsSearch.tsx'
 import { Reveal } from '../components/review/Reveal.tsx'
 import { ReviewCard, people } from '../components/review/ReviewCard.tsx'
 
@@ -42,7 +42,6 @@ function Queue() {
   const [error, setError] = useState<string | null>(null)
   const [started, setStarted] = useState<Record<string, Work>>({})
   const [attempts, setAttempts] = useState(0)
-  const news = useNewsSearch()
   const timers = useRef<ReturnType<typeof setTimeout>[]>([])
   useEffect(() => () => timers.current.forEach(clearTimeout), [])
 
@@ -123,16 +122,7 @@ function Queue() {
     <div>
       <div className="flex flex-wrap items-center gap-x-5 gap-y-4">
         <h1 className="h-page">Review queue</h1>
-        <div
-          className="h-3.5 min-w-[200px] flex-1 overflow-hidden rounded-full border-2 border-ink bg-surface sm:h-[18px]"
-          role="progressbar"
-          aria-label="Reviewed"
-          aria-valuemin={0}
-          aria-valuemax={total}
-          aria-valuenow={reviewed.length}
-        >
-          <div className="h-full bg-support transition-[width] duration-[400ms]" style={{ width: `${total ? (reviewed.length / total) * 100 : 0}%` }} />
-        </div>
+        <ProgressBar label="Reviewed" done={reviewed.length} total={total} className="h-3.5 min-w-[200px] flex-1 sm:h-[18px]" />
         <p className="tabular-nums">
           <button type="button" aria-pressed={tab === 'reviewed'} className={tabClass('reviewed')} onClick={() => (setTab('reviewed'), setListPage(0))}>
             {reviewed.length} reviewed
@@ -142,15 +132,12 @@ function Queue() {
             {pending.length} to go
           </button>
         </p>
-        <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto">
-          <NewsSearchButton running={news.running} onStart={news.start} />
+        <NewsSearch>
           <button type="button" className="btn btn-sm shadow-none" onClick={signOut}>
             Sign out
           </button>
-        </div>
+        </NewsSearch>
       </div>
-
-      {news.trace && <NewsTraceView trace={news.trace} onDismiss={news.dismiss} />}
 
       <ReadArticleTrial />
 

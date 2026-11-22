@@ -14,6 +14,7 @@ import { Route as EditorRouteImport } from './routes/editor'
 import { Route as LatestRouteImport } from './routes/latest'
 import { Route as QuestionsRouteImport } from './routes/questions'
 import { Route as EditorIndexRouteImport } from './routes/editor.index'
+import { Route as EditorNewsRunsRouteImport } from './routes/editor.news-runs'
 import { Route as EditorQuestionsNewRouteImport } from './routes/editor.questions.new'
 import { Route as QSlugIndexRouteImport } from './routes/q.$slug.index'
 import { Route as QSlugDeciderRouteImport } from './routes/q.$slug.$decider'
@@ -44,6 +45,11 @@ const EditorIndexRoute = EditorIndexRouteImport.update({
   path: '/',
   getParentRoute: () => EditorRoute,
 } as any)
+const EditorNewsRunsRoute = EditorNewsRunsRouteImport.update({
+  id: '/news-runs',
+  path: '/news-runs',
+  getParentRoute: () => EditorRoute,
+} as any)
 const EditorQuestionsNewRoute = EditorQuestionsNewRouteImport.update({
   id: '/questions/new',
   path: '/questions/new',
@@ -70,6 +76,7 @@ export interface FileRoutesByFullPath {
   '/editor': typeof EditorRouteWithChildren
   '/latest': typeof LatestRoute
   '/questions': typeof QuestionsRoute
+  '/editor/news-runs': typeof EditorNewsRunsRoute
   '/editor/': typeof EditorIndexRoute
   '/editor/questions/new': typeof EditorQuestionsNewRoute
   '/q/$slug/$decider': typeof QSlugDeciderRoute
@@ -80,6 +87,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/latest': typeof LatestRoute
   '/questions': typeof QuestionsRoute
+  '/editor/news-runs': typeof EditorNewsRunsRoute
   '/editor': typeof EditorIndexRoute
   '/editor/questions/new': typeof EditorQuestionsNewRoute
   '/q/$slug/$decider': typeof QSlugDeciderRoute
@@ -92,6 +100,7 @@ export interface FileRoutesById {
   '/editor': typeof EditorRouteWithChildren
   '/latest': typeof LatestRoute
   '/questions': typeof QuestionsRoute
+  '/editor/news-runs': typeof EditorNewsRunsRoute
   '/editor/': typeof EditorIndexRoute
   '/editor/questions/new': typeof EditorQuestionsNewRoute
   '/q/$slug/$decider': typeof QSlugDeciderRoute
@@ -105,6 +114,7 @@ export interface FileRouteTypes {
     | '/editor'
     | '/latest'
     | '/questions'
+    | '/editor/news-runs'
     | '/editor/'
     | '/editor/questions/new'
     | '/q/$slug/$decider'
@@ -115,6 +125,7 @@ export interface FileRouteTypes {
     | '/'
     | '/latest'
     | '/questions'
+    | '/editor/news-runs'
     | '/editor'
     | '/editor/questions/new'
     | '/q/$slug/$decider'
@@ -126,6 +137,7 @@ export interface FileRouteTypes {
     | '/editor'
     | '/latest'
     | '/questions'
+    | '/editor/news-runs'
     | '/editor/'
     | '/editor/questions/new'
     | '/q/$slug/$decider'
@@ -179,6 +191,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EditorIndexRouteImport
       parentRoute: typeof EditorRoute
     }
+    '/editor/news-runs': {
+      id: '/editor/news-runs'
+      path: '/news-runs'
+      fullPath: '/editor/news-runs'
+      preLoaderRoute: typeof EditorNewsRunsRouteImport
+      parentRoute: typeof EditorRoute
+    }
     '/editor/questions/new': {
       id: '/editor/questions/new'
       path: '/questions/new'
@@ -211,12 +230,14 @@ declare module '@tanstack/react-router' {
 }
 
 interface EditorRouteChildren {
+  EditorNewsRunsRoute: typeof EditorNewsRunsRoute
   EditorIndexRoute: typeof EditorIndexRoute
   EditorQuestionsNewRoute: typeof EditorQuestionsNewRoute
   EditorQuestionsSlugEditRoute: typeof EditorQuestionsSlugEditRoute
 }
 
 const EditorRouteChildren: EditorRouteChildren = {
+  EditorNewsRunsRoute: EditorNewsRunsRoute,
   EditorIndexRoute: EditorIndexRoute,
   EditorQuestionsNewRoute: EditorQuestionsNewRoute,
   EditorQuestionsSlugEditRoute: EditorQuestionsSlugEditRoute,

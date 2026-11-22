@@ -449,7 +449,7 @@ test('someone the article only describes can be recorded as presumed, and their 
 })
 
 test('a news search shows each search and article as a step, with what became of each, and carries on past one that could not be queued', async ({ page }) => {
-  // No model or search runs in tests, so the run's steps are the ones the worker would stream.
+  // No model or search runs in tests, so the run's recorded steps are the ones the worker would write.
   const steps = [
     { kind: 'plan', questions: ['Fare-free ferry'], queriesPerQuestion: 2, maxReads: 15 },
     { kind: 'searched', question: 'Fare-free ferry', query: '"Fare-free ferry" Harbor Council statement', hits: 10, named: 3 },
@@ -460,9 +460,14 @@ test('a news search shows each search and article as a step, with what became of
     { kind: 'reading', question: 'Fare-free ferry', url: 'https://example.com/c', title: 'Fares stay for now' },
     { kind: 'read', question: 'Fare-free ferry', url: 'https://example.com/c', title: 'Fares stay for now', outcome: 'lead', queued: 1, detail: 'The site answered 403.' },
     { kind: 'searched', question: 'Fare-free ferry', query: '"Fare-free ferry" Harbor Council opposes', hits: 4, named: 0 },
-    { kind: 'done', report: { questions: [{ question: 'Fare-free ferry', hits: 14, read: 3, queued: 3, failed: 1 }], deferred: 0 } },
   ]
-  await page.route('**/api/editor/news-search', (route) => route.fulfill({ contentType: 'application/x-ndjson', body: steps.map((s) => JSON.stringify(s)).join('\n') + '\n' }))
+  const report = { questions: [{ question: 'Fare-free ferry', hits: 14, read: 3, queued: 3, failed: 1 }], deferred: 0 }
+  await page.route('**/api/editor/news-search', (route) => route.fulfill({ json: report }))
+  await page.route('**/api/editor/news-runs/*', (route) => {
+    const id = new URL(route.request().url()).pathname.split('/').pop()
+    const run = { id, started_at: TODAY.toISOString(), started_by: 'editor', outcome: 'searched', finished_at: TODAY.toISOString(), detail: JSON.stringify(report) }
+    return route.fulfill({ json: { run, steps } })
+  })
   await signInAsEditor(page)
   await page.getByRole('button', { name: 'Search the news now' }).click()
 
@@ -479,6 +484,23 @@ test('a news search shows each search and article as a step, with what became of
 
   await run.getByRole('button', { name: 'Close' }).click()
   await expect(run).toHaveCount(0)
+})
+
+test('a news search run is recorded with its steps, and the page of runs shows it', async ({ page }) => {
+  // No search can be made in tests, so the run stops at its first search and records why.
+  await signInAsEditor(page)
+  await page.getByRole('button', { name: 'Search the news now' }).click()
+  const run = page.getByRole('region', { name: 'News search' })
+  await expect(run.getByRole('heading', { name: 'The news search stopped early' })).toBeVisible({ timeout: 20_000 })
+  await expect(run.getByRole('list', { name: 'Steps' }).getByRole('listitem').last()).toContainText(/Stopped\s*Web search failed/)
+  const [recorded] = query<{ id: string; outcome: string; steps: number }>(`SELECT r.id, r.outcome, (SELECT COUNT(*) FROM news_run_steps s WHERE s.run_id = r.id) AS steps FROM news_runs r ORDER BY r.started_at DESC LIMIT 1`)
+  expect(recorded).toMatchObject({ outcome: 'stopped', steps: 2 })
+
+  await run.getByRole('link', { name: 'Every run' }).click()
+  await expect(page).toHaveURL(new RegExp(`/editor/news-runs\\?run=${recorded.id}$`))
+  await expect(page.getByRole('heading', { name: 'News search runs' })).toBeVisible()
+  await expect(page.getByRole('list', { name: 'Runs' }).getByRole('link').first()).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('region', { name: 'News search' }).getByRole('heading', { name: 'The news search stopped early' })).toBeVisible()
 })
 
 test('a lead whose article was not read says so, starts empty, and cannot be published until the words, both answers and a date are in', async ({ page, request }) => {
