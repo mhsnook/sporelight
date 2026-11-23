@@ -10,7 +10,8 @@ import { groupBy } from '../lib/build-tracker.ts'
 import { decisionOf, draftEntries, outlook, proposalIsAcross, verdictOf, type EntryDraft } from '../lib/review-form.ts'
 import { narrowQueue, tallyQueue, type QuestionTally } from '../lib/queue-filter.ts'
 import { useTracker } from '../lib/tracker.tsx'
-import { DIRECTION_LABEL, timeAgo, formatDate, KIND_LABEL, publishedLine, sourceLabel, WEIGHT_LABEL } from '../lib/position.ts'
+import { DIRECTION_LABEL, formatDate, KIND_LABEL, sourceLabel, WEIGHT_LABEL } from '../lib/position.ts'
+import { Published } from '../components/Story.tsx'
 import { trialView, type TrialResponse, type TrialView } from '../lib/reader-trial.ts'
 import { Marked, splitPassage } from '../components/RecordItem.tsx'
 import { NotFound, ProgressBar, Syncing, Token } from '../components/bits.tsx'
@@ -238,12 +239,7 @@ function Queue() {
                             {across ? 'Contradicts our recorded position · ' : unread ? 'Not read · ' : ''}
                             {names.join(', ')}
                           </span>
-                          {source && (
-                            <span className="mt-0.5 block text-xs leading-snug text-muted">
-                              {publishedLine(source)}
-                              {timeAgo(source.published_on) && <b className="text-ink"> · {timeAgo(source.published_on)}</b>}
-                            </span>
-                          )}
+                          {source && <Published source={source} className="mt-0.5 block text-xs leading-snug" />}
                         </span>
                       </button>
                     </li>

@@ -1,7 +1,7 @@
 // Fetching an article and turning it into plain text for the model to read and
 // for the quote check to search.
 
-import type { UnreadReason } from '../shared/schema.ts'
+import type { FoundPublishedOn, UnreadReason } from '../shared/schema.ts'
 import { publishedOnPage } from './publish-date.ts'
 
 // Bytes read from the response before giving up on it as too large.
@@ -24,10 +24,9 @@ const TYPES: Record<string, string> = {
   'text/plain': 'article.txt',
 }
 
-// `publishedOn` is the day the page itself says it was published, when it says.
 export type Article =
-  | { ok: true; text: string; truncated: boolean; publishedOn: string | null }
-  | { ok: false; reason: string; unread: UnreadReason; publishedOn?: string | null }
+  | { ok: true; text: string; truncated: boolean; published: FoundPublishedOn | null }
+  | { ok: false; reason: string; unread: UnreadReason; published?: FoundPublishedOn | null }
 
 type Page = { ok: true; body: Uint8Array; type: string; name: string; finalUrl: string } | { ok: false; reason: string; unread: UnreadReason }
 
@@ -60,33 +59,41 @@ async function fetchPage(url: string): Promise<Page> {
 }
 
 // A PDF is not dated: the converter's documented metadata for a PDF has no creation or publish date.
-const pageDate = (page: Extract<Page, { ok: true }>, today: string) => (page.name === 'article.html' ? publishedOnPage(page.body, today) : Promise.resolve(null))
+async function pageDate(page: Extract<Page, { ok: true }>, today: string): Promise<FoundPublishedOn | null> {
+  const on = page.name === 'article.html' ? await publishedOnPage(page.body, today) : null
+  return on ? { on, from: 'page' } : null
+}
 
 export async function fetchArticle(env: Pick<Env, 'AI'>, url: string, today: string): Promise<Article> {
   const page = await fetchPage(url)
   if (!page.ok) return page
   const { body, type, name } = page
-  const publishedOn = await pageDate(page, today)
 
   let text: string
+  let published: FoundPublishedOn | null
   if (name === 'article.txt') {
     text = new TextDecoder().decode(body)
+    published = null
   } else {
-    const converted = await env.AI.toMarkdown(
-      { name, blob: new Blob([body], { type }) },
-      { conversionOptions: { output: { format: 'text' }, html: { hostname: new URL(page.finalUrl).hostname }, pdf: { metadata: false } } },
-    ).catch((e: unknown) => ({ format: 'error' as const, error: String(e) }))
-    if (converted.format === 'error') return { ok: false, unread: 'no_text', reason: `The page could not be turned into text (${converted.error.slice(0, 120)}).`, publishedOn }
+    const [converted, dated] = await Promise.all([
+      env.AI.toMarkdown(
+        { name, blob: new Blob([body], { type }) },
+        { conversionOptions: { output: { format: 'text' }, html: { hostname: new URL(page.finalUrl).hostname }, pdf: { metadata: false } } },
+      ).catch((e: unknown) => ({ format: 'error' as const, error: String(e) })),
+      pageDate(page, today),
+    ])
+    published = dated
+    if (converted.format === 'error') return { ok: false, unread: 'no_text', reason: `The page could not be turned into text (${converted.error.slice(0, 120)}).`, published }
     text = converted.data.trimStart().replace(METADATA_HEADER, '')
   }
 
   text = text.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim()
-  if (text.length < 200) return { ok: false, unread: 'no_text', reason: 'The page has almost no text, which usually means a paywall or a page built by script.', publishedOn }
-  return { ok: true, text: text.slice(0, MAX_TEXT_CHARS), truncated: text.length > MAX_TEXT_CHARS, publishedOn }
+  if (text.length < 200) return { ok: false, unread: 'no_text', reason: 'The page has almost no text, which usually means a paywall or a page built by script.', published }
+  return { ok: true, text: text.slice(0, MAX_TEXT_CHARS), truncated: text.length > MAX_TEXT_CHARS, published }
 }
 
 // Only the publish date, for a page sent in by a reader: no conversion, no model.
-export async function fetchPublishedOn(url: string, today: string): Promise<string | null> {
+export async function fetchPublishedOn(url: string, today: string): Promise<FoundPublishedOn | null> {
   const page = await fetchPage(url)
   return page.ok ? pageDate(page, today) : null
 }

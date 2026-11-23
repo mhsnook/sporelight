@@ -149,9 +149,9 @@ export async function partySocket(token?: string, cookie?: string) {
   }
 }
 
-export async function until(check: () => boolean, ms = 2000) {
+export async function until(check: () => boolean | Promise<boolean>, ms = 2000) {
   const end = Date.now() + ms
-  while (!check()) {
+  while (!(await check())) {
     if (Date.now() > end) throw new Error('timed out waiting')
     await new Promise((r) => setTimeout(r, 10))
   }

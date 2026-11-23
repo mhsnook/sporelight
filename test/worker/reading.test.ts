@@ -10,7 +10,7 @@ import { MODEL } from '../../worker/reader.ts'
 import type { Tracker } from '../../worker/tracker.ts'
 import type { NewsStep } from '../../shared/news-run.ts'
 import type { Proposal, ProposalDraft } from '../../shared/schema.ts'
-import { post, proposal, rows, seed } from './helpers.ts'
+import { post, proposal, rows, seed, until } from './helpers.ts'
 
 const NOW = new Date('2026-11-19T12:00:00Z')
 const TODAY = NOW.toISOString().slice(0, 10)
@@ -104,7 +104,7 @@ const contextsFor = (url: string) =>
   )
 const mentionsFor = (url: string) =>
   rows<{ decider_id: string; words: string }>(`SELECT m.decider_id, m.words FROM proposal_mentions m JOIN proposals p ON p.id = m.proposal_id JOIN sources s ON s.id = p.source_id WHERE s.url = ? ORDER BY m.decider_id`, url)
-const readsOf = (url: string) => rows<{ question_id: string; outcome: string; model: string | null; detail: string | null }>(`SELECT question_id, outcome, model, detail FROM article_reads WHERE url = ?`, url)
+const readsOf = (url: string) => rows<{ question_id: string; outcome: string; model: string | null; detail: string | null }>(`SELECT r.question_id, r.outcome, r.model, r.detail FROM article_reads r JOIN sources s ON s.id = r.source_id WHERE s.url = ?`, url)
 
 describe('reading articles', () => {
   it('queues one proposal per article with an item per act whose words are in the article', async () => {
@@ -325,6 +325,15 @@ describe('the publish date', () => {
     expect(promptOf(s)).toContain('Dated 2026-11-17 by the search results, which may be when the page last changed')
   })
 
+  it('keeps an article the model found nothing in as a source, with its title and date, and points the read at it', async () => {
+    const url = 'https://news.example/date-nothing-found'
+    const s = stubbed({ hits: [hit(url, 'Ann Alpha on something else')], pages: { [url]: page(said, PUBLISHED) }, answer: () => ({ acts: [] }) })
+    await searchNews(s.env, await tracker(), NOW)
+    expect(await proposalsFor(url)).toEqual([])
+    expect(await rows(`SELECT title, published_on, published_on_from FROM sources WHERE url = ?`, url)).toEqual([{ title: 'Ann Alpha on something else', published_on: '2018-07-19', published_on_from: 'page' }])
+    expect(await readsOf(url)).toEqual([expect.objectContaining({ question_id: 'hot', outcome: 'no_acts' })])
+  })
+
   it('tells the model when no date is known', async () => {
     const url = 'https://news.example/date-none'
     const s = stubbed({ hits: [{ ...hit(url), lastModifiedDate: undefined }], pages: { [url]: page(said) }, answer: () => ({ acts: [act()] }) })
@@ -377,7 +386,7 @@ describe('the publish date', () => {
     const res = await post('/api/proposals', proposal({ source_url: url, quote: 'I will vote for this bill when it reaches the floor.' }))
     expect(res.status).toBe(200)
     // The date is read in waitUntil, after the answer.
-    for (let i = 0; i < 100 && (await sourceOf(url))?.published_on_from !== 'page'; i++) await new Promise((r) => setTimeout(r, 20))
+    await until(async () => (await sourceOf(url))?.published_on_from === 'page')
     expect(await sourceOf(url)).toEqual({ published_on: '2018-07-19', published_on_from: 'page' })
     expect(fetcher).toHaveBeenCalledWith(url, expect.anything())
   })
@@ -413,7 +422,8 @@ describe('when queueing fails', () => {
   it('does not record the read, so the next run tries again', async () => {
     const url = 'https://news.example/queue-fails'
     const s = stubbed({ hits: [hit(url)], pages: { [url]: page('Ann Alpha said: “I will vote for this bill when it reaches the floor.”') }, answer: () => ({ acts: [act()] }) })
-    const failing = { propose: async () => ({ ok: false as const, status: 400, error: 'Unknown question or decider.' }) }
+    const room = await tracker()
+    const failing = { propose: async () => ({ ok: false as const, status: 400, error: 'Unknown question or decider.' }), catalogue: (source: ProposalDraft['source']) => room.catalogue(source) }
     const steps: NewsStep[] = []
     const report = await searchNews(s.env, failing, NOW, (step) => steps.push(step))
     expect(report.questions[0]).toMatchObject({ read: 1, queued: 0, failed: 1 })
@@ -426,7 +436,7 @@ describe('when queueing fails', () => {
     const s = stubbed({ hits: urls.map((u) => hit(u)), pages: Object.fromEntries(urls.map((u) => [u, page('Ann Alpha said: “I will vote for this bill when it reaches the floor.”')])), answer: () => ({ acts: [act()] }) })
     const room = await tracker()
     const propose = vi.fn(async (draft: ProposalDraft, origin: Proposal['origin']) => (propose.mock.calls.length === 1 ? Promise.reject(new Error('D1 is down')) : room.propose(draft, origin)))
-    const report = await searchNews(s.env, { propose }, NOW)
+    const report = await searchNews(s.env, { propose, catalogue: (source) => room.catalogue(source) }, NOW)
     expect(propose).toHaveBeenCalledTimes(2)
     expect(report.error).toBeUndefined()
     expect(report.questions[0]).toMatchObject({ read: 2, queued: 1, failed: 1 })
@@ -437,7 +447,9 @@ describe('when queueing fails', () => {
   it('records an article whose every act was already proposed as having nothing new', async () => {
     const url = 'https://news.example/queue-nothing-new'
     const s = stubbed({ hits: [hit(url)], pages: { [url]: page('Ann Alpha said: “I will vote for this bill when it reaches the floor.”') }, answer: () => ({ acts: [act()] }) })
-    await searchNews(s.env, { propose: async () => ({ ok: true as const, queued: 0, proposal_id: null }) }, NOW)
+    const room = await tracker()
+    const nothingNew = { propose: async (draft: ProposalDraft) => ({ ok: true as const, queued: 0, proposal_id: null, source_id: await room.catalogue(draft.source), undated: false }), catalogue: (source: ProposalDraft['source']) => room.catalogue(source) }
+    await searchNews(s.env, nothingNew, NOW)
     expect(await readsOf(url)).toEqual([expect.objectContaining({ outcome: 'no_acts' })])
   })
 })
@@ -654,14 +666,14 @@ describe('fetchArticle', () => {
 
   it('gives the date an HTML page states, and none for plain text', async () => {
     serve(() => new Response(page('Ann Alpha said she would vote for it.', '<meta property="article:published_time" content="2018-07-19" />'), { headers: { 'content-type': 'text/html' } }))
-    expect(await fetchArticle({ AI: ai() } as unknown as Env, 'https://news.example/a', TODAY)).toMatchObject({ ok: true, publishedOn: '2018-07-19' })
+    expect(await fetchArticle({ AI: ai() } as unknown as Env, 'https://news.example/a', TODAY)).toMatchObject({ ok: true, published: { on: '2018-07-19', from: 'page' } })
   })
 
   it('reads a page of plain text without converting it', async () => {
     const text = `Ann Alpha said she would vote for it.\n${FILLER.trim()}`
     serve(() => new Response(text, { headers: { 'content-type': 'text/plain; charset=utf-8' } }))
     const AI = ai()
-    expect(await fetchArticle({ AI } as unknown as Env, 'https://news.example/a', TODAY)).toEqual({ ok: true, text, truncated: false, publishedOn: null })
+    expect(await fetchArticle({ AI } as unknown as Env, 'https://news.example/a', TODAY)).toEqual({ ok: true, text, truncated: false, published: null })
     expect(AI.toMarkdown).not.toHaveBeenCalled()
   })
 })

@@ -96,17 +96,16 @@ export const formatDate = (iso: string) => dateFmt.format(new Date(iso))
 
 // The first date shown for a source. A date from the search results is not
 // called a publish date: it may be when the page last changed.
-export function publishedLine(source: Pick<Source, 'published_on' | 'published_on_from'>): string {
+export function publishedLine(source: Pick<Source, 'published_on' | 'published_on_from'>, formatDay: (day: string) => string = formatDate): string {
   if (!source.published_on) return 'Publish date not known'
-  return `${source.published_on_from === 'search' ? 'Search result dated' : 'Published'} ${formatDate(source.published_on)}`
+  return `${source.published_on_from === 'search' ? 'Search result dated' : 'Published'} ${formatDay(source.published_on)}`
 }
 
 // A source published at least this long ago says how long ago.
-export const OLD_SOURCE_DAYS = 30
+const OLD_SOURCE_DAYS = 30
 const DAY_MS = 24 * 60 * 60 * 1000
 
-// "8 years ago" or "3 months ago", or null when the date is not known or is
-// less than OLD_SOURCE_DAYS ago.
+// "8 years ago", or null under OLD_SOURCE_DAYS.
 export function timeAgo(publishedOn: string | null, now: Date = new Date()): string | null {
   if (!publishedOn) return null
   const days = Math.floor((Date.parse(now.toISOString().slice(0, 10)) - Date.parse(publishedOn)) / DAY_MS)

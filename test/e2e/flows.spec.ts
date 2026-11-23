@@ -653,7 +653,7 @@ test('a lead whose article was not read says so, starts empty, and cannot be pub
   await weight.getByRole('radio', { name: 'Clear' }).click()
   // The lead came with no date, and none is assumed. The search result's date is offered, named as such.
   await expect(publish).toHaveText(/Publish needs the date/)
-  await expect(page.getByTestId('published')).toHaveText('Search result dated Nov 12, 2026')
+  await expect(page.getByRole('article', { name: sourceTitle }).getByTestId('published')).toHaveText('Search result dated Nov 12, 2026')
   await entry.getByRole('button', { name: 'Use Nov 12, 2026, the search result’s date' }).click()
   await expect(publish).toBeEnabled()
   await expect(publish).toHaveText(/Publish 1 person/)

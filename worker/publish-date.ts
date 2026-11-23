@@ -1,8 +1,6 @@
 // The day a page says it was published, read from its HTML with HTMLRewriter.
 
-import { EARLIEST_PUBLISHED } from '../shared/schema.ts'
-
-export { EARLIEST_PUBLISHED }
+import { isPublishDay } from '../shared/schema.ts'
 
 // Meta tags that name a publish date, most trusted first. Matched against a
 // tag's `property`, `name` or `itemprop`, ignoring case. Modified dates are
@@ -55,11 +53,7 @@ export function dayOf(value: string | null | undefined, today: string): string |
     const parsed = Date.parse(text)
     if (!Number.isNaN(parsed)) day = new Date(parsed).toISOString().slice(0, 10)
   }
-  if (!day) return null
-  const [y, m, d] = day.split('-').map(Number)
-  const check = new Date(Date.UTC(y, m - 1, d))
-  if (check.getUTCFullYear() !== y || check.getUTCMonth() !== m - 1 || check.getUTCDate() !== d) return null
-  return day >= EARLIEST_PUBLISHED && day <= today ? day : null
+  return day && isPublishDay(day, today) ? day : null
 }
 
 // Every datePublished in a JSON-LD value, with whether the object holding it

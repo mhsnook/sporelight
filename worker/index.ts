@@ -1,6 +1,6 @@
 import { getServerByName, routePartykitRequest } from 'partyserver'
 import { ARCHIVE_CRON, archiveNow, archiveSources, type Archiver } from './archive.ts'
-import { commentInputSchema, displayNameSchema, proposalInputSchema, sourceUrl } from '../shared/schema.ts'
+import { commentInputSchema, displayNameSchema, proposalInputSchema } from '../shared/schema.ts'
 import { RUN_ID } from '../shared/news-run.ts'
 import { fetchPublishedOn } from './article.ts'
 import { auth, signedInPerson } from './auth.ts'
@@ -21,6 +21,7 @@ const tracker = (env: Env) => getServerByName<Env, Tracker>(env.Tracker, ROOM)
 // onStart first, so each write asks for the room afresh.
 const roomForLongRun = (env: Env): Submitter & Archiver => ({
   propose: async (...args) => (await tracker(env)).propose(...args),
+  catalogue: async (source) => (await tracker(env)).catalogue(source),
   setArchiveUrl: async (...args) => (await tracker(env)).setArchiveUrl(...args),
 })
 
@@ -71,18 +72,15 @@ async function handleProposal(req: Request, env: Env, ctx: ExecutionContext): Pr
   const { source_url, source_title, submitter_note, ...item } = parsed.data
   const person = await signedInPerson(req, env)
   const result = await (await tracker(env)).propose({ source: { url: source_url, title: source_title }, note: submitter_note, items: [item] }, 'reader', person?.id ?? null)
-  if (result.ok) ctx.waitUntil(dateReaderSource(env, source_url))
+  if (result.ok && result.undated) ctx.waitUntil(dateReaderSource(env, source_url))
   return result.ok
     ? Response.json({ ok: true, duplicate: result.queued === 0, proposal_id: result.proposal_id })
     : Response.json({ error: result.error }, { status: result.status })
 }
 
-// The reader is not kept waiting for their page to be fetched.
 async function dateReaderSource(env: Env, url: string) {
-  const known = await env.DB.prepare(`SELECT published_on_from FROM sources WHERE url = ?`).bind(sourceUrl(url)).first<{ published_on_from: string | null }>()
-  if (known?.published_on_from === 'page' || known?.published_on_from === 'editor') return
-  const publishedOn = await fetchPublishedOn(url, new Date().toISOString().slice(0, 10)).catch(() => null)
-  if (publishedOn) await (await tracker(env)).notePublishedOn(url, publishedOn)
+  const published = await fetchPublishedOn(url, new Date().toISOString().slice(0, 10)).catch(() => null)
+  if (published) await (await tracker(env)).notePublishedOn(url, published)
 }
 
 async function handleDisplayName(req: Request, env: Env): Promise<Response> {

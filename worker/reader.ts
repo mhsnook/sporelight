@@ -1,11 +1,11 @@
 import { z } from 'zod'
-import { ACT_KINDS, DIRECTIONS, OWN_WEIGHTS, type ProposalDraft, type PublishedOnFrom } from '../shared/schema.ts'
+import { ACT_KINDS, DIRECTIONS, OWN_WEIGHTS, type FoundPublishedOn, type ProposalDraft } from '../shared/schema.ts'
 
 // An article as the reader is given it. `published` is the page's own date when
 // it has one, or else the date the search result came with.
-export type ArticleRef = { url: string; title: string | null; published: { on: string; from: Exclude<PublishedOnFrom, 'editor'> } | null }
+export type ArticleRef = { url: string; title: string | null; published: FoundPublishedOn | null }
 
-const DATE_LINE: Record<Exclude<PublishedOnFrom, 'editor'>, (day: string) => string> = {
+const DATE_LINE: Record<FoundPublishedOn['from'], (day: string) => string> = {
   page: (day) => `Published ${day}, according to the page`,
   search: (day) => `Dated ${day} by the search results, which may be when the page last changed rather than when it was published`,
 }

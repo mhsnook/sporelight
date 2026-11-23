@@ -214,15 +214,18 @@ export type SetPosition = z.infer<typeof setPositionSchema>
 // provider's date for the result, the page's own metadata, or an editor.
 export const PUBLISHED_ON_FROM = ['search', 'page', 'editor'] as const
 export type PublishedOnFrom = (typeof PUBLISHED_ON_FROM)[number]
+// A date found for an article, before any editor has seen it.
+export type FoundPublishedOn = { on: string; from: Exclude<PublishedOnFrom, 'editor'> }
 
 // Before this, a page's metadata date is a placeholder, not when the page was
 // published, and an editor's date is a typing mistake.
 export const EARLIEST_PUBLISHED = '1991-01-01'
+export const isPublishDay = (day: string, today: string) => z.iso.date().safeParse(day).success && day >= EARLIEST_PUBLISHED && day <= today
 
 // Whether a date from `next` should replace what a source has. An editor's
-// word, a date or an empty one, is never replaced by an automated one.
+// word, a date or an empty one, ranks above any automated one.
 export const replacesPublishedOn = (next: PublishedOnFrom, current: Pick<Source, 'published_on_from'>) =>
-  current.published_on_from === null || (current.published_on_from !== 'editor' && PUBLISHED_ON_FROM.indexOf(next) > PUBLISHED_ON_FROM.indexOf(current.published_on_from))
+  PUBLISHED_ON_FROM.indexOf(next) > (current.published_on_from === null ? -1 : PUBLISHED_ON_FROM.indexOf(current.published_on_from))
 
 export const sourceSchema = z.object({
   id: z.string(),
@@ -377,7 +380,7 @@ export type ProposalInput = z.infer<typeof proposalInputSchema>
 // What the Worker turns into a proposal. Each item is a separate act. An item's
 // note is kept in proposal_notes, where only editors read it.
 export type ProposalDraft = {
-  source: { url: string; title: string | null; published?: { on: string; from: Exclude<PublishedOnFrom, 'editor'> } | null }
+  source: { url: string; title: string | null; published?: FoundPublishedOn | null }
   note: string | null
   unread?: UnreadReason
   items: (Pick<ProposalItem, 'question_id' | 'decider_id' | 'kind' | 'occurred_on' | 'quote' | 'reading'> &

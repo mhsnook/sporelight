@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { dayOf, EARLIEST_PUBLISHED, publishedOnPage } from '../../worker/publish-date.ts'
+import { EARLIEST_PUBLISHED } from '../../shared/schema.ts'
+import { dayOf, publishedOnPage } from '../../worker/publish-date.ts'
 
 // HTMLRewriter exists only in workerd, so these run with the worker tests.
 

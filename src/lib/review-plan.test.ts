@@ -342,6 +342,7 @@ describe('planReview and the source’s publish date', () => {
   it('refuses a date ahead of today or before the web, and writes nothing', () => {
     expect(() => plan({ ...verdict([publish([ann()])]), published_on: '2062-07-19' })).toThrow('The publish date has to be a day from 1991-01-01 to today.')
     expect(() => plan({ ...verdict([publish([ann()])]), published_on: '0201-07-19' })).toThrow()
+    expect(() => plan({ ...verdict([publish([ann()])]), published_on: '2018-02-30' })).toThrow()
   })
 
   it('confirms a page date the editor kept as their own, and writes nothing for a date they did not touch', () => {

@@ -101,7 +101,7 @@ function Folded<T>({ items, render }: { items: T[]; render: (item: T) => ReactNo
 }
 
 // The source's publish date, the first date on a story, and how long ago that was.
-function Published({ source, className = '' }: { source: Pick<Source, 'published_on' | 'published_on_from'>; className?: string }) {
+export function Published({ source, className = '' }: { source: Pick<Source, 'published_on' | 'published_on_from'>; className?: string }) {
   const age = timeAgo(source.published_on)
   return (
     <span className={className} data-testid="published">
