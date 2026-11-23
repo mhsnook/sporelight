@@ -13,13 +13,27 @@ export function usePeople() {
   return useMemo(() => new Map<string, Person>(data.map((p) => [p.id, p])), [data])
 }
 
+// Whether someone is signed in in this browser, without loading anyone's row.
+export function useSession() {
+  const session = authClient.useSession()
+  return { id: session.data?.user.id, isPending: session.isPending }
+}
+
 // The person signed in in this browser. Their row arrives through the sync
 // room a moment after they first sign in, so `person` can lag `signedIn`.
 export function useSignedIn() {
-  const session = authClient.useSession()
+  const { id, isPending } = useSession()
   const byId = usePeople()
-  const id = session.data?.user.id
-  return { signedIn: id !== undefined, person: id ? byId.get(id) : undefined, isPending: session.isPending, refetchSession: session.refetch }
+  return { signedIn: id !== undefined, person: id ? byId.get(id) : undefined, isPending }
+}
+
+// A post only a signed-in person may make. A 401 means the session ended
+// elsewhere, so Better Auth is told to fetch it again and the forms show the
+// sign-in prompt.
+export async function postAsReader(path: string, body: unknown): Promise<Response> {
+  const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+  if (res.status === 401) authClient.$store.notify('$sessionSignal')
+  return res
 }
 
 export async function setDisplayName(name: string): Promise<string | null> {

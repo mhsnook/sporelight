@@ -97,12 +97,12 @@ export async function signIn(mail: ReturnType<typeof mailbox>, email: string): P
 }
 
 // A person signed in with a display name, ready to post proposals and comments.
-export async function reader(email: string, displayName = 'A Reader'): Promise<{ cookie: string; personId: string }> {
+export async function reader(email: string, displayName = 'A Reader') {
   const cookie = await signIn(mailbox(), email)
   const named = await post('/api/me/name', { display_name: displayName }, undefined, undefined, cookie)
   if (!named.ok) throw new Error(`not named: ${named.status} ${await named.text()}`)
   const [row] = await rows<{ id: string }>(`SELECT id FROM auth_users WHERE email = ?`, email)
-  return { cookie, personId: row.id }
+  return { cookie, personId: row.id, send: postAs(cookie) }
 }
 
 // `post` with a signed-in person's cookie.

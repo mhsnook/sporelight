@@ -17,7 +17,7 @@ let send: ReturnType<typeof postAs>
 
 beforeAll(async () => {
   await seed()
-  send = postAs((await reader('feed@reader.test')).cookie)
+  send = (await reader('feed@reader.test')).send
   await env.DB.batch(
     [
       `INSERT INTO questions (id, slug, body_id, parent_id, kind, title, short_title, is_hot, status, implies_on_parent) VALUES

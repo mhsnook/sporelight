@@ -38,7 +38,7 @@ let send: ReturnType<typeof postAs>
 
 beforeAll(async () => {
   await seed()
-  send = postAs((await reader('proposer@reader.test')).cookie)
+  send = (await reader('proposer@reader.test')).send
   // One proposal with a submitter note and one read from an article, so each
   // editor-only table has a row to withhold.
   const res = await send('/api/proposals', proposal({ submitter_note: 'Only editors should read this.' }))

@@ -10,7 +10,7 @@ let personId = ''
 beforeAll(async () => {
   await seed()
   const signedIn = await reader('commenter@reader.test', 'Reader One')
-  send = postAs(signedIn.cookie)
+  send = signedIn.send
   personId = signedIn.personId
 })
 
@@ -20,14 +20,13 @@ describe('POST /api/comments', () => {
     const signedOut = await post('/api/comments', comment({ body: 'Signed out.' }))
     expect(signedOut.status).toBe(401)
     expect(await signedOut.json()).toEqual({ error: 'Sign in to post.' })
-    expect((await post('/api/comments', comment({ body: 'Forged cookie.' }), undefined, undefined, 'better-auth.session_token=not-a-real-session')).status).toBe(401)
+    expect((await postAs('better-auth.session_token=not-a-real-session')('/api/comments', comment({ body: 'Forged cookie.' }))).status).toBe(401)
     expect(await count()).toBe(before)
   })
 
   it('refuses a comment from a signed-in person who has not chosen a display name', async () => {
     const before = await count()
-    const cookie = await signIn(mailbox(), 'unnamed@reader.test')
-    const res = await post('/api/comments', comment({ body: 'No name yet.' }), undefined, undefined, cookie)
+    const res = await postAs(await signIn(mailbox(), 'unnamed@reader.test'))('/api/comments', comment({ body: 'No name yet.' }))
     expect(res.status).toBe(400)
     expect(await res.json()).toEqual({ error: 'Choose a display name before you comment.' })
     expect(await count()).toBe(before)

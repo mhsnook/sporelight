@@ -23,7 +23,7 @@ let personId = ''
 beforeAll(async () => {
   await seed()
   const signedIn = await reader('proposer@reader.test')
-  send = postAs(signedIn.cookie)
+  send = signedIn.send
   personId = signedIn.personId
 })
 

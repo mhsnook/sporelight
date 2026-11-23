@@ -1,7 +1,7 @@
 import { useState, useSyncExternalStore, type FormEvent, type ReactNode } from 'react'
 import { useMatches } from '@tanstack/react-router'
 import { SIGN_IN_CODE_MINUTES } from '../../shared/schema.ts'
-import { authClient, useSignedIn } from '../lib/auth.ts'
+import { authClient, useSession, useSignedIn } from '../lib/auth.ts'
 import { Modal } from './Modal.tsx'
 
 type Step = { at: 'email' } | { at: 'code'; email: string }
@@ -39,11 +39,14 @@ export function SignIn({ className }: { className: string }) {
   )
 }
 
-// Shown in place of a form a signed-out reader cannot use.
-export function SignInPrompt({ children }: { children: ReactNode }) {
+// A form only a signed-in person can use, with a prompt to sign in in its place.
+export function SignedInOnly({ prompt, children }: { prompt: string; children: ReactNode }) {
+  const { id, isPending } = useSession()
+  if (isPending) return null
+  if (id !== undefined) return children
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border-2 border-dashed border-line p-4 text-sm">
-      <p className="min-w-0 flex-1">{children}</p>
+      <p className="min-w-0 flex-1">{prompt}</p>
       <button type="button" className="btn btn-primary" onClick={openSignIn}>
         Sign in
       </button>
