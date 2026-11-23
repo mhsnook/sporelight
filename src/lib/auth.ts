@@ -19,7 +19,7 @@ export function useSignedIn() {
   const session = authClient.useSession()
   const byId = usePeople()
   const id = session.data?.user.id
-  return { signedIn: id !== undefined, person: id ? byId.get(id) : undefined, isPending: session.isPending }
+  return { signedIn: id !== undefined, person: id ? byId.get(id) : undefined, isPending: session.isPending, refetchSession: session.refetch }
 }
 
 export async function setDisplayName(name: string): Promise<string | null> {

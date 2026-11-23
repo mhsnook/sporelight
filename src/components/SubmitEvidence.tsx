@@ -12,7 +12,7 @@ export function SubmitEvidence({ question, decider, onDone }: { question: Questi
   const [state, setState] = useState<State>({ status: 'idle' })
   const [copied, setCopied] = useState<'no' | 'yes' | 'refused'>('no')
   const { tracker } = useTracker()
-  const { signedIn, isPending } = useSignedIn()
+  const { signedIn, isPending, refetchSession } = useSignedIn()
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -37,6 +37,8 @@ export function SubmitEvidence({ question, decider, onDone }: { question: Questi
           website: text('website'),
         }),
       })
+      // The session ended elsewhere, so the form gives way to the sign-in prompt.
+      if (res.status === 401) void refetchSession()
       const body = (await res.json()) as { error?: string; duplicate?: boolean; proposal_id?: string | null }
       if (!res.ok) return setState({ status: 'error', message: body.error ?? 'Something went wrong.' })
       const reading = f.get('reading') as Direction

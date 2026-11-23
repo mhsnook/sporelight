@@ -1,6 +1,4 @@
--- Only signed-in people comment, and a comment is shown under its person's
--- display_name, so the typed name goes and every comment has a person.
--- Comments posted while signed out are deleted.
+-- Every comment has a person, and shows that person's display_name.
 DELETE FROM comments WHERE person_id IS NULL;
 CREATE TABLE comments_next (
   id TEXT PRIMARY KEY,
@@ -17,5 +15,4 @@ ALTER TABLE comments_next RENAME TO comments;
 CREATE INDEX comments_thread ON comments(thread_id, created_at);
 CREATE INDEX comments_person ON comments(person_id);
 
--- Muting is gone.
 ALTER TABLE people DROP COLUMN muted_at;

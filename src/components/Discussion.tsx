@@ -28,13 +28,15 @@ export function Discussion({ question, decider }: { question: Question; decider:
     [threadId],
   )
   const people = usePeople()
-  const { signedIn, person, isPending } = useSignedIn()
+  const { signedIn, person, isPending, refetchSession } = useSignedIn()
   const formRef = useRef<HTMLFormElement>(null)
   const name = person?.display_name ?? null
   // 'post' means a comment is waiting on the person's first name: save it, then send.
   const [asking, setAsking] = useState<'post' | 'rename' | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [nameError, setNameError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
+  const [savingName, setSavingName] = useState(false)
 
   async function post() {
     const form = formRef.current!
@@ -52,6 +54,8 @@ export function Discussion({ question, decider }: { question: Question; decider:
           website: (form.elements.namedItem('website') as HTMLInputElement).value,
         }),
       })
+      // The session ended elsewhere, so the form gives way to the sign-in prompt.
+      if (res.status === 401) void refetchSession()
       if (!res.ok) return setError(((await res.json()) as { error?: string }).error ?? 'Something went wrong.')
       body.value = ''
     } catch {
@@ -70,11 +74,19 @@ export function Discussion({ question, decider }: { question: Question; decider:
   async function onName(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const chosen = (new FormData(e.currentTarget).get('display_name') as string).trim()
-    if (!chosen) return
+    if (!chosen || savingName) return
+    setNameError(null)
+    setSavingName(true)
     const failed = await setDisplayName(chosen)
-    if (failed) return setError(failed)
+    setSavingName(false)
+    if (failed) return setNameError(failed)
     if (asking === 'post') post()
+    closeNaming()
+  }
+
+  function closeNaming() {
     setAsking(null)
+    setNameError(null)
   }
 
   return (
@@ -135,7 +147,7 @@ export function Discussion({ question, decider }: { question: Question; decider:
 
       <Modal
         open={asking !== null}
-        onClose={() => setAsking(null)}
+        onClose={closeNaming}
         title={asking === 'rename' ? 'Change your name' : 'Choose a name to post'}
         description="It shows next to your comments, in place of your email address. You can change it any time."
       >
@@ -146,11 +158,12 @@ export function Discussion({ question, decider }: { question: Question; decider:
             </label>
             <input id="display-name" name="display_name" required maxLength={60} defaultValue={name ?? ''} autoComplete="nickname" className="field" />
           </div>
+          {nameError && <p className="text-sm text-oppose">{nameError}</p>}
           <div className="flex gap-2">
-            <button type="submit" className="btn btn-primary">
+            <button type="submit" className="btn btn-primary" disabled={savingName}>
               {asking === 'rename' ? 'Save' : 'Save and post'}
             </button>
-            <button type="button" className="btn" onClick={() => setAsking(null)}>
+            <button type="button" className="btn" onClick={closeNaming}>
               Cancel
             </button>
           </div>
