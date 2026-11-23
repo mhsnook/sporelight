@@ -1,6 +1,6 @@
 import { env, exports } from 'cloudflare:workers'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { type Frame, partySocket, postAs, proposal, reader, rows, seed, until } from './helpers.ts'
+import { type Frame, partySocket, postAs, proposal, reader, rows, seed, until, noOutsidePages } from './helpers.ts'
 
 const rowsOn = (frames: Frame[], channel: string) => frames.filter((f) => f.channel === channel).flatMap((f) => f.ops.map((op) => op.value))
 const storyIds = (xml: string) => [...xml.matchAll(/<id>urn:sporelight:story:([^:<]+):[^<]+<\/id>/g)].map((m) => m[1])
@@ -16,6 +16,7 @@ const REJECTED = 'A claim an editor turned down after reading the source.'
 let send: ReturnType<typeof postAs>
 
 beforeAll(async () => {
+  noOutsidePages()
   await seed()
   send = (await reader('feed@reader.test')).send
   await env.DB.batch(
@@ -97,9 +98,21 @@ describe('GET /feed.xml', () => {
     // An earlier test's response is still in the five-minute cache.
     await caches.default.delete(new Request('http://sporelight.test/feed.xml'))
     const xml = await (await feed()).text()
-    expect(xml).toContain('Source: news.example (archived: https://web.archive.org/web/20261111000000/https://news.example/b)')
-    expect(xml).toContain('Source: Ann &lt;signs&gt; on https://news.example/a?x=1&amp;y=2</content>')
+    expect(xml).toContain('Source: news.example (Publish date not known) (archived: https://web.archive.org/web/20261111000000/https://news.example/b)')
+    expect(xml).toContain('Source: Ann &lt;signs&gt; on https://news.example/a?x=1&amp;y=2 (Publish date not known)</content>')
     await env.DB.prepare(`UPDATE sources SET archive_url = NULL WHERE id = 'src-2'`).run()
+    await caches.default.delete(new Request('http://sporelight.test/feed.xml'))
+  })
+
+  it('gives the source’s publish date in the title and beside the source', async () => {
+    await env.DB.prepare(`UPDATE sources SET published_on = '2018-07-19', published_on_from = 'page' WHERE id = 'src-1'`).run()
+    await caches.default.delete(new Request('http://sporelight.test/feed.xml'))
+    const xml = await (await feed()).text()
+    expect(xml).toContain('<title>Ann &lt;signs&gt; on (Published 2018-07-19; 2 people)</title>')
+    expect(xml).toContain('Source: Ann &lt;signs&gt; on https://news.example/a?x=1&amp;y=2 (Published 2018-07-19)')
+    // The entry's own times stay the day it entered the record.
+    expect(xml).toContain('<published>2026-11-10T09:00:00.000Z</published>')
+    await env.DB.prepare(`UPDATE sources SET published_on = NULL, published_on_from = NULL WHERE id = 'src-1'`).run()
     await caches.default.delete(new Request('http://sporelight.test/feed.xml'))
   })
 

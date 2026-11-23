@@ -407,7 +407,7 @@ describe('the seed', () => {
         INSERT INTO proposal_contexts (id, proposal_id, proposal_item_id, before, after) VALUES ('x-demo', 'p-demo', 'i-demo', 'Before.', 'After.');
         INSERT INTO proposal_mentions (id, proposal_id, decider_id, words) VALUES ('m-demo', 'p-demo', 'demo-bartholomew-sato', 'Named.');
         INSERT INTO comments (id, thread_id, person_id, body, created_at) VALUES ('c-demo', 'free-ferry:demo-bartholomew-sato', 'u', 'B', '2026-11-01');
-        INSERT INTO article_reads (url, question_id, read_at, outcome) VALUES ('https://example.com/a', 'free-ferry', '2026-11-01', 'no_acts');
+        INSERT INTO article_reads (source_id, question_id, read_at, outcome) VALUES ('src-reader', 'free-ferry', '2026-11-01', 'no_acts');
         INSERT INTO archive_attempts (source_id, tried_at, outcome) VALUES ((SELECT id FROM sources WHERE url = 'https://example.com/harbor-city/1'), '2026-11-01', 'gave_up');
         INSERT INTO reports (id, source_id, act_id, created_at) VALUES ('rep-shared', '${sharedSource}', 'demo-e1', '2026-11-01');
       `)
@@ -475,6 +475,16 @@ describe('the seed', () => {
     db.exec(`INSERT INTO question_deciders (id, question_id, decider_id, role_label) VALUES ('3b1f0c9e-7a52-4d0e-9c41-5e2a8f6d1b77', 'm4a-s1506-markup', 'W000779', NULL)`)
     db.exec(readFileSync(new URL('seed/out/us-congress-asks.sql', root), 'utf8'))
     expect(all(db, `SELECT decider_id FROM question_deciders WHERE question_id = 'm4a-s1506-markup'`)).toEqual([{ decider_id: 'W000779' }])
+  })
+
+  it('keeps a person an editor added, and their role on a seeded seat, when the seed is replayed', () => {
+    const db = database()
+    db.exec(seed)
+    db.exec(`INSERT INTO deciders (id, slug, name, sort_name, external_id, url) VALUES ('9d2c4e1a-5b7f-4a60-8e3d-2f1b6c0a9e44', 'rosa-delgado-challenger', 'Rosa Delgado', 'Delgado, Rosa', NULL, NULL);
+      INSERT INTO roles (id, seat_id, decider_id, contest, affiliation, starts_on, ends_on, certainty) VALUES ('6a0e8f3b-1c2d-4e5f-9a7b-3c4d5e6f7a8b', 'us-congress:CA-12', '9d2c4e1a-5b7f-4a60-8e3d-2f1b6c0a9e44', 'general', 'Green', '2027-01-03', NULL, 'possible');`)
+    db.exec(seed)
+    expect(all(db, `SELECT r.seat_id, d.name FROM roles r JOIN deciders d ON d.id = r.decider_id WHERE r.id = '6a0e8f3b-1c2d-4e5f-9a7b-3c4d5e6f7a8b'`)).toEqual([{ seat_id: 'us-congress:CA-12', name: 'Rosa Delgado' }])
+    expect(all(db, `PRAGMA foreign_key_check`)).toEqual([])
   })
 
   describe('members-elect', () => {
@@ -591,8 +601,65 @@ describe('0013_presumed_weight', () => {
   })
 })
 
-describe('0017_signed_in_contributors', () => {
+describe('0017_source_published_from', () => {
   const db = database('0017')
+  db.exec(`
+    INSERT INTO bodies (id, slug, name) VALUES ('b', 'b', 'Body');
+    INSERT INTO deciders (id, slug, name, sort_name) VALUES ('ann', 'ann', 'Ann', 'Ann');
+    INSERT INTO sources (id, url, title, published_on, archive_url, created_at) VALUES
+      ('dated', 'https://news.example/dated', 'Dated by hand', '2018-07-19', 'https://web.archive.org/web/1/https://news.example/dated', '2026-01-01'),
+      ('undated', 'https://news.example/undated', 'No date', NULL, NULL, '2026-01-02');
+    INSERT INTO acts (id, decider_id, kind, occurred_on, body, created_at) VALUES ('a', 'ann', 'says', '2018-07-19', 'Words.', '2026-01-01');
+    INSERT INTO reports (id, source_id, act_id, created_at) VALUES ('r', 'dated', 'a', '2026-01-01');
+    INSERT INTO proposals (id, source_id, origin, created_at) VALUES ('p', 'undated', 'model', '2026-01-02');
+  `)
+  db.exec(migration('0017_source_published_from.sql'))
+
+  it('marks a date already on a source as an editor’s, and leaves an undated source with no origin', () => {
+    expect(all(db, `SELECT id, published_on, published_on_from, archive_url FROM sources ORDER BY id`)).toEqual([
+      { id: 'dated', published_on: '2018-07-19', published_on_from: 'editor', archive_url: 'https://web.archive.org/web/1/https://news.example/dated' },
+      { id: 'undated', published_on: null, published_on_from: null, archive_url: null },
+    ])
+    expect([count(db, 'reports'), count(db, 'proposals')]).toEqual([1, 1])
+  })
+
+  it('takes the three origins and refuses anything else', () => {
+    db.exec(`UPDATE sources SET published_on_from = 'page' WHERE id = 'undated'`)
+    db.exec(`UPDATE sources SET published_on_from = 'search' WHERE id = 'undated'`)
+    expect(() => db.exec(`UPDATE sources SET published_on_from = 'model' WHERE id = 'undated'`)).toThrow()
+  })
+})
+
+describe('0018_reads_point_at_sources', () => {
+  const db = database('0018')
+  db.exec(`
+    INSERT INTO bodies (id, slug, name) VALUES ('b', 'b', 'Body');
+    INSERT INTO questions (id, slug, body_id, kind, title, short_title) VALUES ('q1', 'q1', 'b', 'position', 'One?', 'One'), ('q2', 'q2', 'b', 'position', 'Two?', 'Two');
+    INSERT INTO sources (id, url, title, published_on, published_on_from, created_at) VALUES ('on-file', 'https://news.example/on-file', 'On file', '2018-07-19', 'page', '2026-01-01');
+    INSERT INTO article_reads (url, question_id, read_at, outcome, model, detail) VALUES
+      ('https://news.example/on-file', 'q1', '2026-11-01T00:00:00Z', 'queued', 'm', NULL),
+      ('https://news.example/nothing', 'q1', '2026-11-02T00:00:00Z', 'no_acts', 'm', 'Nothing.'),
+      ('https://news.example/nothing', 'q2', '2026-11-03T00:00:00Z', 'no_acts', 'm', NULL);
+  `)
+  db.exec(migration('0018_reads_point_at_sources.sql'))
+
+  it('gives an article read with nothing found a source of its own, dated by its first read', () => {
+    expect(all(db, `SELECT url, title, created_at FROM sources WHERE id <> 'on-file'`)).toEqual([{ url: 'https://news.example/nothing', title: null, created_at: '2026-11-02T00:00:00Z' }])
+    expect(all(db, `SELECT title, published_on FROM sources WHERE id = 'on-file'`)).toEqual([{ title: 'On file', published_on: '2018-07-19' }])
+  })
+
+  it('keeps every read, pointed at its source', () => {
+    expect(all(db, `SELECT s.url, r.question_id, r.outcome, r.detail FROM article_reads r JOIN sources s ON s.id = r.source_id ORDER BY r.read_at`)).toEqual([
+      { url: 'https://news.example/on-file', question_id: 'q1', outcome: 'queued', detail: null },
+      { url: 'https://news.example/nothing', question_id: 'q1', outcome: 'no_acts', detail: 'Nothing.' },
+      { url: 'https://news.example/nothing', question_id: 'q2', outcome: 'no_acts', detail: null },
+    ])
+    expect(all(db, `PRAGMA foreign_key_check`)).toEqual([])
+  })
+})
+
+describe('0019_signed_in_contributors', () => {
+  const db = database('0019')
   db.exec(`
     INSERT INTO auth_users (id, name, email, "emailVerified", "createdAt", "updatedAt") VALUES ('u', '', 'u@reader.test', 1, '2026-11-01', '2026-11-01');
     INSERT INTO people (id, display_name, muted_at, created_at) VALUES ('u', 'Una', '2026-11-02', '2026-11-01');
@@ -600,7 +667,7 @@ describe('0017_signed_in_contributors', () => {
       ('signed-in', 'hot:ann', 'Una', 'u', 'Signed in.', '2026-11-03'),
       ('signed-out', 'hot:ann', 'Visitor', NULL, 'Signed out.', '2026-11-04');
   `)
-  db.exec(migration('0017_signed_in_contributors.sql'))
+  db.exec(migration('0019_signed_in_contributors.sql'))
 
   it('keeps the comments of signed-in people and deletes the ones posted signed out', () => {
     expect(all(db, `SELECT * FROM comments`)).toEqual([{ id: 'signed-in', thread_id: 'hot:ann', person_id: 'u', body: 'Signed in.', created_at: '2026-11-03' }])

@@ -1,5 +1,14 @@
 import { z } from 'zod'
-import { ACT_KINDS, DIRECTIONS, OWN_WEIGHTS, type ProposalDraft } from '../shared/schema.ts'
+import { ACT_KINDS, DIRECTIONS, OWN_WEIGHTS, type FoundPublishedOn, type ProposalDraft } from '../shared/schema.ts'
+
+// An article as the reader is given it. `published` is the page's own date when
+// it has one, or else the date the search result came with.
+export type ArticleRef = { url: string; title: string | null; published: FoundPublishedOn | null }
+
+const DATE_LINE: Record<FoundPublishedOn['from'], (day: string) => string> = {
+  page: (day) => `Published ${day}, according to the page`,
+  search: (day) => `Dated ${day} by the search results, which may be when the page last changed rather than when it was published`,
+}
 
 // The model that reads articles. Check the Workers AI catalogue for a planned
 // deprecation date before changing it: an id past that date answers 410.
@@ -144,7 +153,7 @@ A question whose relation_to_main_question is smaller_step is a narrower version
 
 In named_only, list each person from the list whom the article names but records no act for, with the words that name them copied exactly from the article (for example "was absent").`
 
-export function modelPrompt(context: ReadingContext, article: { url: string; title: string | null; date: string | null; text: string }, today: string) {
+export function modelPrompt(context: ReadingContext, article: ArticleRef & { text: string }, today: string) {
   const subQuestionIds = new Set(context.subQuestions.map((q) => q.id))
   const questions = [context.question, ...context.subQuestions, ...context.relatedQuestions].map((q) => ({
     question_id: q.id,
@@ -158,7 +167,7 @@ export function modelPrompt(context: ReadingContext, article: { url: string; tit
     `Today is ${today}.`,
     `Questions:\n${JSON.stringify(questions, null, 1)}`,
     `People, with the questions each can be read on:\n${JSON.stringify(context.people.map((p) => ({ person_id: p.id, name: p.name, question_ids: p.questions })), null, 1)}`,
-    `Article: ${article.title ?? '(no title)'}\n${article.url}${article.date ? `\nDated ${article.date}` : ''}\n\n${article.text}`,
+    `Article: ${article.title ?? '(no title)'}\n${article.url}\n${article.published ? DATE_LINE[article.published.from](article.published.on) : 'Publish date not known'}\n\n${article.text}`,
   ].join('\n\n')
   return {
     messages: [
@@ -301,7 +310,7 @@ function answerOf(raw: unknown): unknown {
 export async function readArticle(
   env: Pick<Env, 'AI' | 'AI_GATEWAY'>,
   context: ReadingContext,
-  article: { url: string; title: string | null; date: string | null; text: string },
+  article: ArticleRef & { text: string },
   today: string,
 ): Promise<Reading> {
   let answer: unknown
@@ -366,7 +375,7 @@ export async function readArticle(
 
 // One proposal for the article, with one item per act. The model's reason for
 // each act goes in that item's note, which only editors read.
-export function draftFromReading(article: { url: string; title: string | null }, acts: ModelAct[], dropped: Dropped[], query: string | null, mentions: Mention[] = []): ProposalDraft {
+export function draftFromReading(article: ArticleRef, acts: ModelAct[], dropped: Dropped[], query: string | null, mentions: Mention[] = []): ProposalDraft {
   const lines = [
     `Read by ${MODEL}. Each quote below was found word for word in the text fetched from the article.`,
     dropped.length
@@ -378,7 +387,7 @@ export function draftFromReading(article: { url: string; title: string | null },
     query ? `Found by searching: ${query}` : null,
   ]
   return {
-    source: { url: article.url, title: article.title?.slice(0, 300) || null },
+    source: { url: article.url, title: article.title?.slice(0, 300) || null, published: article.published },
     note: lines.filter(Boolean).join('\n'),
     items: acts.map((a) => ({
       question_id: a.question_id,

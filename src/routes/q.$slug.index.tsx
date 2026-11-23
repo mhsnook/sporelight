@@ -1,6 +1,6 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useMemo } from 'react'
-import type { Question } from '../../shared/schema.ts'
+import type { Question, Seat } from '../../shared/schema.ts'
 import { NEEDS_ATTENTION } from '../../shared/standing.ts'
 import { isHeld, useTracker, useViewedBody, type HeldSeat } from '../lib/tracker.tsx'
 import { SPECTRUM, STANDINGS, STANDING_BG, claimTag, formatDate, standingLabel, type Standing } from '../lib/position.ts'
@@ -171,6 +171,7 @@ function Board() {
                     </Link>
                   </span>
                 ))}
+                <AddRunning seat={row.seat} question={question} compact />
               </li>
             ))}
           </ul>
@@ -192,6 +193,7 @@ function Board() {
                     </Link>
                   </span>
                 ))}
+                <AddRunning seat={row.seat} question={question} compact />
               </li>
             ))}
           </ul>
@@ -328,17 +330,30 @@ function SeatCard({ row, question }: { row: HeldSeat; question: Question }) {
         <ul className="border-t border-line py-1.5 pr-3 pl-4 text-xs">
           {row.upcoming.map((c) => (
             <li key={c.role.id}>
-              <Link to="/q/$slug/$decider" params={{ slug: question.slug, decider: c.decider.slug }} className="flex items-center gap-1.5 py-0.5 hover:underline">
-                <span className={`size-2 shrink-0 rounded-full ${STANDING_BG[c.standing]}`} />
-                <span className="truncate">
-                  <span className="text-muted">{claimTag(c.role, tracker.asOf)}:</span> {c.decider.name}
+              <Link to="/q/$slug/$decider" params={{ slug: question.slug, decider: c.decider.slug }} className="flex items-start gap-1.5 py-0.5 hover:underline">
+                <span className={`mt-1 size-2 shrink-0 rounded-full ${STANDING_BG[c.standing]}`} />
+                <span className="min-w-0">
+                  <span className="block">{c.decider.name}</span>
+                  <span className="block text-muted">
+                    {claimTag(c.role, tracker.asOf)} · {standingLabel(c.standing, question)}
+                  </span>
                 </span>
-                <span className="ml-auto whitespace-nowrap text-muted">{standingLabel(c.standing, question)}</span>
               </Link>
             </li>
           ))}
         </ul>
       )}
+      <AddRunning seat={row.seat} question={question} />
     </li>
+  )
+}
+
+// Editors only: starts a role for someone running for this seat, and comes back here once it is saved.
+function AddRunning({ seat, question, compact }: { seat: Seat; question: Question; compact?: boolean }) {
+  if (!isEditor()) return null
+  return (
+    <Link to="/roles/new" search={{ seat: seat.id, running: true, question: question.slug }} className={compact ? 'mt-1 block text-xs link' : 'block border-t border-line py-1.5 pr-3 pl-4 text-xs link'}>
+      Add someone running <span className="sr-only">for {seat.label}</span>
+    </Link>
   )
 }

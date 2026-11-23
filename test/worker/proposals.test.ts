@@ -3,7 +3,7 @@ import { getServerByName } from 'partyserver'
 import { beforeAll, describe, expect, it } from 'vitest'
 import type { ProposalDraft } from '../../shared/schema.ts'
 import type { Tracker } from '../../worker/tracker.ts'
-import { postAs, proposal, reader, rows, seed } from './helpers.ts'
+import { postAs, proposal, reader, rows, seed, noOutsidePages } from './helpers.ts'
 
 const tracker = () => getServerByName<Env, Tracker>(env.Tracker, 'main')
 // What the Worker answers a proposal it queued, and one it already had.
@@ -21,6 +21,7 @@ let send: ReturnType<typeof postAs>
 let personId = ''
 
 beforeAll(async () => {
+  noOutsidePages()
   await seed()
   const signedIn = await reader('proposer@reader.test')
   send = signedIn.send
@@ -203,14 +204,14 @@ describe('POST /api/proposals: duplicates from the same source', () => {
   it('a rejected item blocks the news search whatever the quote', async () => {
     const newsUrl = 'https://news.example/rejected-lead'
     const draft = (quote: string) => ({ source: { url: newsUrl, title: null }, note: null, items: [{ question_id: 'hot', decider_id: 'ann', kind: 'says' as const, occurred_on: null, quote, reading: null }] })
-    expect(await (await tracker()).propose(draft('Ann Alpha said something.'), 'news_search')).toEqual({ ok: true, queued: 1, proposal_id: expect.any(String) })
+    expect(await (await tracker()).propose(draft('Ann Alpha said something.'), 'news_search')).toEqual({ ok: true, queued: 1, proposal_id: expect.any(String), source_id: expect.any(String), undated: true })
     await env.DB.prepare(
       `UPDATE proposal_items SET status = 'rejected' WHERE proposal_id IN (SELECT p.id FROM proposals p JOIN sources s ON s.id = p.source_id WHERE s.url = ?)`,
     )
       .bind(newsUrl)
       .run()
-    expect(await (await tracker()).propose(draft('Ann Alpha said something else.'), 'news_search')).toEqual({ ok: true, queued: 0, proposal_id: null })
-    expect(await (await tracker()).propose(draft('Ann Alpha said something.'), 'news_search')).toEqual({ ok: true, queued: 0, proposal_id: null })
+    expect(await (await tracker()).propose(draft('Ann Alpha said something else.'), 'news_search')).toEqual({ ok: true, queued: 0, proposal_id: null, source_id: expect.any(String), undated: true })
+    expect(await (await tracker()).propose(draft('Ann Alpha said something.'), 'news_search')).toEqual({ ok: true, queued: 0, proposal_id: null, source_id: expect.any(String), undated: true })
   })
 })
 
