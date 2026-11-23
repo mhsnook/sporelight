@@ -339,6 +339,11 @@ describe('planReview and the source’s publish date', () => {
     expect(updatesOf(writes, 'sources')).toEqual([{ on: 'sources', type: 'update', id: 'article', changes: { published_on: null, published_on_from: 'editor' } }])
   })
 
+  it('refuses a date ahead of today or before the web, and writes nothing', () => {
+    expect(() => plan({ ...verdict([publish([ann()])]), published_on: '2062-07-19' })).toThrow('The publish date has to be a day from 1991-01-01 to today.')
+    expect(() => plan({ ...verdict([publish([ann()])]), published_on: '0201-07-19' })).toThrow()
+  })
+
   it('confirms a page date the editor kept as their own, and writes nothing for a date they did not touch', () => {
     const dated = source('article', { published_on: '2018-07-19', published_on_from: 'page' })
     expect(updatesOf(planReview(published(), pending, dated, { ...verdict([publish([ann()])]), published_on: '2018-07-19' }, NOW, ids()), 'sources')).toHaveLength(1)

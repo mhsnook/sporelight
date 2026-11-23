@@ -1,5 +1,9 @@
 // The day a page says it was published, read from its HTML with HTMLRewriter.
 
+import { EARLIEST_PUBLISHED } from '../shared/schema.ts'
+
+export { EARLIEST_PUBLISHED }
+
 // Meta tags that name a publish date, most trusted first. Matched against a
 // tag's `property`, `name` or `itemprop`, ignoring case. Modified dates are
 // left out on purpose: a page edited today was not published today.
@@ -37,10 +41,6 @@ const ARTICLE_TYPE = /(?:Article|BlogPosting|Report|PressRelease)$/
 const TIME_REACH = 40
 const BYLINE_TIMES = 2
 
-// Before this, a page's metadata date is a placeholder, not when the page was
-// published.
-export const EARLIEST_PUBLISHED = '1991-01-01'
-
 const MONTH = /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i
 
 // A day as YYYY-MM-DD, or null if the value is not a date that can be right
@@ -51,7 +51,7 @@ export function dayOf(value: string | null | undefined, today: string): string |
   let day: string | null = null
   const iso = /^(\d{4})-?(\d{2})-?(\d{2})(?:$|[T\s])/.exec(text) ?? /^(\d{4})\/(\d{2})\/(\d{2})\b/.exec(text)
   if (iso) day = `${iso[1]}-${iso[2]}-${iso[3]}`
-  else if (MONTH.test(text) && /\b\d{4}\b/.test(text)) {
+  else if (MONTH.test(text) && /\b\d{4}\b/.test(text) && /\b\d{1,2}(?:st|nd|rd|th)?\b/i.test(text)) {
     const parsed = Date.parse(text)
     if (!Number.isNaN(parsed)) day = new Date(parsed).toISOString().slice(0, 10)
   }
@@ -83,6 +83,8 @@ function linkedDates(node: unknown, out: { value: string; isArticle: boolean }[]
 // right is passed over for the next one.
 export async function publishedOnPage(html: BodyInit, today: string): Promise<string | null> {
   const meta = new Map<string, string>()
+  // Some pages also give `name="og:title"` with the site's title; the `property` form is the Open Graph one.
+  const fromProperty = new Set<string>()
   const linked: { value: string; isArticle: boolean }[] = []
   const microdata: string[] = []
   const times: { at: number; value: string; pubdate: boolean }[] = []
@@ -99,9 +101,12 @@ export async function publishedOnPage(html: BodyInit, today: string): Promise<st
     })
     .on('meta', {
       element(el) {
-        const key = (el.getAttribute('property') ?? el.getAttribute('name') ?? el.getAttribute('itemprop') ?? '').trim().toLowerCase()
+        const property = el.getAttribute('property')
+        const key = (property ?? el.getAttribute('name') ?? el.getAttribute('itemprop') ?? '').trim().toLowerCase()
         const content = el.getAttribute('content')
-        if (key && content && !meta.has(key)) meta.set(key, content)
+        if (!key || !content || fromProperty.has(key) || (meta.has(key) && property === null)) return
+        meta.set(key, content)
+        if (property !== null) fromProperty.add(key)
       },
     })
     .on('[itemprop="datePublished"]:not(meta)', {

@@ -316,7 +316,8 @@ function PublishedOnControl({ value, edited, onChange }: { value: string | null;
           type="date"
           value={value ?? ''}
           max={new Date().toISOString().slice(0, 10)}
-          onChange={(e) => onChange(e.target.value || null)}
+          // A date input reads empty while a date is half typed; only "Not known" says the date is not known.
+          onChange={(e) => e.target.value && onChange(e.target.value)}
           className="field w-auto py-1 text-[13px]"
         />
         <button type="button" className="underline underline-offset-2" onClick={() => onChange(null)}>

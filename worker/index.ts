@@ -1,6 +1,6 @@
 import { getServerByName, routePartykitRequest } from 'partyserver'
 import { ARCHIVE_CRON, archiveNow, archiveSources, type Archiver } from './archive.ts'
-import { commentInputSchema, displayNameSchema, proposalInputSchema } from '../shared/schema.ts'
+import { commentInputSchema, displayNameSchema, proposalInputSchema, sourceUrl } from '../shared/schema.ts'
 import { RUN_ID } from '../shared/news-run.ts'
 import { fetchPublishedOn } from './article.ts'
 import { auth, signedInPerson } from './auth.ts'
@@ -79,6 +79,8 @@ async function handleProposal(req: Request, env: Env, ctx: ExecutionContext): Pr
 
 // The reader is not kept waiting for their page to be fetched.
 async function dateReaderSource(env: Env, url: string) {
+  const known = await env.DB.prepare(`SELECT published_on_from FROM sources WHERE url = ?`).bind(sourceUrl(url)).first<{ published_on_from: string | null }>()
+  if (known?.published_on_from === 'page' || known?.published_on_from === 'editor') return
   const publishedOn = await fetchPublishedOn(url, new Date().toISOString().slice(0, 10)).catch(() => null)
   if (publishedOn) await (await tracker(env)).notePublishedOn(url, publishedOn)
 }

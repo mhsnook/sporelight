@@ -215,6 +215,10 @@ export type SetPosition = z.infer<typeof setPositionSchema>
 export const PUBLISHED_ON_FROM = ['search', 'page', 'editor'] as const
 export type PublishedOnFrom = (typeof PUBLISHED_ON_FROM)[number]
 
+// Before this, a page's metadata date is a placeholder, not when the page was
+// published, and an editor's date is a typing mistake.
+export const EARLIEST_PUBLISHED = '1991-01-01'
+
 // Whether a date from `next` should replace what a source has. An editor's
 // word, a date or an empty one, is never replaced by an automated one.
 export const replacesPublishedOn = (next: PublishedOnFrom, current: Pick<Source, 'published_on_from'>) =>

@@ -1,4 +1,5 @@
 import {
+  EARLIEST_PUBLISHED,
   carriesUp,
   pairId,
   type Act,
@@ -213,6 +214,9 @@ export function planReview(
     }
   }
 
+  if (verdict.published_on && !(/^\d{4}-\d{2}-\d{2}$/.test(verdict.published_on) && verdict.published_on >= EARLIEST_PUBLISHED && verdict.published_on <= now.slice(0, 10))) {
+    throw new Error(`The publish date has to be a day from ${EARLIEST_PUBLISHED} to today.`)
+  }
   if (verdict.published_on !== undefined && (verdict.published_on !== source.published_on || source.published_on_from !== 'editor')) {
     writes.push({ on: 'sources', type: 'update', id: source.id, changes: { published_on: verdict.published_on, published_on_from: 'editor' } })
   }

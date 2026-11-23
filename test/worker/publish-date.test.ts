@@ -52,6 +52,15 @@ describe('publishedOnPage', () => {
     expect(await publishedOnPage(dingell(''), TODAY)).toBeNull()
   })
 
+  it('finds the headline by the Open Graph title, not by a name="og:title" tag with the site’s title', async () => {
+    // The section heading "Press Releases" matches the site's title; a <time> beside it is not the article's.
+    const page = dingell('')
+      .replace('<h2><span>Press Releases</span></h2>', `<h2><span>Press Releases</span></h2><p>Archive since <time datetime="2016-01-01">2016</time></p>${'<div></div>'.repeat(50)}`)
+      .replace('<div class="topnewstext"><b>Washington, DC, July 19, 2018</b></div>', '<div class="topnewstext"><time datetime="2018-07-19">July 19, 2018</time></div>')
+      .replace(/<div class="news-related-news">[\s\S]*?<\/main>/, '</main>')
+    expect(await publishedOnPage(page, TODAY)).toBe('2018-07-19')
+  })
+
   it('reads the article’s datePublished from JSON-LD, over the page wrapper’s, and ignores dateModified', async () => {
     const graph = {
       '@context': 'https://schema.org',
@@ -110,7 +119,7 @@ describe('dayOf', () => {
     expect(dayOf(value, TODAY)).toBe(day)
   })
 
-  it.each(['2018-02-30', '19 or so', '', '2026-11-24', '1990-12-31'])('gives none for %j', (value) => {
+  it.each(['2018-02-30', '19 or so', '', '2026-11-24', '1990-12-31', 'July 2018'])('gives none for %j', (value) => {
     expect(dayOf(value, TODAY)).toBeNull()
   })
 
