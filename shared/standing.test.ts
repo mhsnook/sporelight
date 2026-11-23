@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Direction, Weight } from './schema.ts'
-import { calculatePosition, footingOf, isAcross, type Read } from './standing.ts'
+import { calculatePosition, footingOf, isAcross, summarize, type Read, type ReviewOf } from './standing.ts'
 
 const now = new Date('2026-11-12T00:00:00Z')
 const said = (occurred_on: string) => ({ occurred_on, onRecord: false })
@@ -128,5 +128,65 @@ describe('isAcross', () => {
     expect(isAcross('lean_oppose', 'oppose')).toBe(false)
     expect(isAcross('mixed', 'oppose')).toBe(false)
     expect(isAcross('support', 'mixed')).toBe(false)
+  })
+})
+
+const review = (reviewer_id: string, tier: ReviewOf['tier'], position: Direction, weight: Weight = 'clear', updated_at = '2026-11-01T00:00:00Z'): ReviewOf => ({ reviewer_id, tier, position, weight, updated_at })
+
+describe('summarize', () => {
+  it('is null with no reviews', () => {
+    expect(summarize([])).toBeNull()
+  })
+
+  it('takes an editor review over any number of people who disagree', () => {
+    const reviews = [review('a', 'person', 'support'), review('b', 'person', 'support'), review('editors', 'editor', 'oppose', 'passing')]
+    expect(summarize(reviews)).toEqual({ position: 'oppose', weight: 'passing', tier: 'editor', count: 1 })
+  })
+
+  it('takes people over an agent, and an agent when it is all there is', () => {
+    expect(summarize([review('reader', 'agent', 'oppose'), review('a', 'person', 'support')])).toMatchObject({ position: 'support', tier: 'person' })
+    expect(summarize([review('reader', 'agent', 'oppose', 'concrete')])).toEqual({ position: 'oppose', weight: 'concrete', tier: 'agent', count: 1 })
+  })
+
+  it('averages a yes and a no to mixed', () => {
+    expect(summarize([review('a', 'person', 'support'), review('b', 'person', 'oppose')])?.position).toBe('mixed')
+  })
+
+  it('averages a mixed and a no to probably no', () => {
+    expect(summarize([review('a', 'person', 'mixed'), review('b', 'person', 'oppose')])?.position).toBe('lean_oppose')
+  })
+
+  it('rounds halves toward mixed', () => {
+    expect(summarize([review('a', 'person', 'support'), review('b', 'person', 'lean_support')])?.position).toBe('lean_support')
+    expect(summarize([review('a', 'person', 'lean_support'), review('b', 'person', 'mixed')])?.position).toBe('mixed')
+    expect(summarize([review('a', 'person', 'support'), review('b', 'person', 'support'), review('c', 'person', 'lean_support')])?.position).toBe('support')
+  })
+
+  it('rounds the weight down', () => {
+    expect(summarize([review('a', 'person', 'support', 'concrete'), review('b', 'person', 'support', 'clear')])?.weight).toBe('clear')
+    expect(summarize([review('a', 'person', 'support', 'clear'), review('b', 'person', 'support', 'presumed')])?.weight).toBe('passing')
+  })
+
+  it('counts one reviewer once, by their latest review', () => {
+    const reviews = [review('a', 'person', 'support', 'clear', '2026-01-01'), review('a', 'person', 'oppose', 'clear', '2026-02-01'), review('b', 'person', 'oppose')]
+    expect(summarize(reviews)).toMatchObject({ position: 'oppose', count: 2 })
+  })
+
+  it('counts a copy of another review as one more review that agrees', () => {
+    expect(summarize([review('a', 'person', 'support'), review('b', 'person', 'support'), review('c', 'person', 'oppose')])?.position).toBe('lean_support')
+  })
+})
+
+describe('calculatePosition over summaries', () => {
+  it('moves off what the model guessed once a person reviews the act', () => {
+    const guess = summarize([review('reader', 'agent', 'support', 'concrete')])!
+    const reviewed = summarize([review('reader', 'agent', 'support', 'concrete'), review('a', 'person', 'oppose', 'clear')])!
+    expect(calculatePosition([{ ...guess, occurred_on: '2026-01-01', inForce: true }])).toBe('support')
+    expect(calculatePosition([{ ...reviewed, occurred_on: '2026-01-01', inForce: true }])).toBe('oppose')
+  })
+
+  it('treats a summary of probably no on a concrete act as where they stand', () => {
+    const summary = summarize([review('a', 'person', 'mixed', 'concrete'), review('b', 'person', 'oppose', 'concrete')])!
+    expect(calculatePosition([{ ...summary, occurred_on: '2026-01-01', inForce: true }])).toBe('lean_oppose')
   })
 })
