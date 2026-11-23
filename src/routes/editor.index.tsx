@@ -10,7 +10,7 @@ import { groupBy } from '../lib/build-tracker.ts'
 import { decisionOf, draftEntries, outlook, proposalIsAcross, verdictOf, type EntryDraft } from '../lib/review-form.ts'
 import { narrowQueue, tallyQueue, type QuestionTally } from '../lib/queue-filter.ts'
 import { useTracker } from '../lib/tracker.tsx'
-import { DIRECTION_LABEL, FOUND, ageWhenFound, formatDate, KIND_LABEL, publishedLine, sourceLabel, WEIGHT_LABEL } from '../lib/position.ts'
+import { DIRECTION_LABEL, timeAgo, formatDate, KIND_LABEL, publishedLine, sourceLabel, WEIGHT_LABEL } from '../lib/position.ts'
 import { trialView, type TrialResponse, type TrialView } from '../lib/reader-trial.ts'
 import { Marked, splitPassage } from '../components/RecordItem.tsx'
 import { NotFound, ProgressBar, Syncing, Token } from '../components/bits.tsx'
@@ -36,8 +36,6 @@ const TOAST_MS = 4200
 
 // What the editor had on a card. It is kept while they look at another card, and put back if publishing it fails.
 // `publishedOn` is the source's publish date as the editor set it, when they did.
-const ageOf = (source: Source, proposal: Proposal) => ageWhenFound(source.published_on, proposal.created_at)
-
 type Work = { drafts: EntryDraft[]; reviewNote: string; publishedOn?: string | null }
 type Finish = { writes: Write[]; how: 'publishing' | 'dismissing'; message: string; work: Work }
 
@@ -243,7 +241,7 @@ function Queue() {
                           {source && (
                             <span className="mt-0.5 block text-xs leading-snug text-muted">
                               {publishedLine(source)}
-                              {ageOf(source, p) && <b className="text-ink"> · {ageOf(source, p)} before it was {FOUND[p.origin]}</b>}
+                              {timeAgo(source.published_on) && <b className="text-ink"> · {timeAgo(source.published_on)}</b>}
                             </span>
                           )}
                         </span>

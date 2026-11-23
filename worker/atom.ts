@@ -1,6 +1,6 @@
 import { isWebAddress } from '../shared/schema.ts'
 import type { Story, StoryItem } from '../src/lib/feed.ts'
-import { KIND_LABEL, ageWhenFound, sourceLabel, standingLabel } from '../src/lib/position.ts'
+import { KIND_LABEL, sourceLabel, standingLabel } from '../src/lib/position.ts'
 
 // XML 1.0 allows no control characters but tab, newline and carriage return,
 // and no unpaired surrogates, even escaped, so they are dropped rather than escaped.
@@ -29,12 +29,11 @@ const personPage = (origin: string, item: StoryItem) =>
 
 const sourceTitle = (story: Story) => sourceLabel(story.source)
 
-// Dates in the feed's text stay as YYYY-MM-DD, as an act's do.
+// Dates in the feed stay as YYYY-MM-DD, as an act's do. No "8 years ago": a feed entry is kept and read later.
 function publishedText(story: Story): string {
   const { published_on, published_on_from } = story.source
   if (!published_on) return 'publish date not known'
-  const age = ageWhenFound(published_on, story.at)
-  return `${published_on_from === 'search' ? 'search result dated' : 'published'} ${published_on}${age ? `, ${age} before it was added` : ''}`
+  return `${published_on_from === 'search' ? 'search result dated' : 'published'} ${published_on}`
 }
 
 function storyText(story: Story, origin: string): string {

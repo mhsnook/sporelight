@@ -1,4 +1,4 @@
-import type { ActKind, Direction, Position, Proposal, Question, Role, Source, UnreadReason, Weight } from '../../shared/schema.ts'
+import type { ActKind, Direction, Position, Question, Role, Source, UnreadReason, Weight } from '../../shared/schema.ts'
 
 export type Standing = Position | 'unknown'
 
@@ -101,26 +101,18 @@ export function publishedLine(source: Pick<Source, 'published_on' | 'published_o
   return `${source.published_on_from === 'search' ? 'Search result dated' : 'Published'} ${formatDate(source.published_on)}`
 }
 
-// What happened to an article the day a proposal was made from it, for "8 years before it was read".
-export const FOUND: Record<Proposal['origin'], string> = {
-  reader: 'sent in',
-  news_search: 'found',
-  partner: 'sent in',
-  model: 'read',
-}
-
-// A source published at least this long before it was found is said to be old.
+// A source published at least this long ago says how long ago.
 export const OLD_SOURCE_DAYS = 30
 const DAY_MS = 24 * 60 * 60 * 1000
 
-// How long before `foundAt` a source was published, as "8 years" or "3 months",
-// or null when it is less than OLD_SOURCE_DAYS or not known.
-export function ageWhenFound(publishedOn: string | null, foundAt: string): string | null {
+// "8 years ago" or "3 months ago", or null when the date is not known or is
+// less than OLD_SOURCE_DAYS ago.
+export function timeAgo(publishedOn: string | null, now: Date = new Date()): string | null {
   if (!publishedOn) return null
-  const days = Math.floor((Date.parse(foundAt.slice(0, 10)) - Date.parse(publishedOn)) / DAY_MS)
+  const days = Math.floor((Date.parse(now.toISOString().slice(0, 10)) - Date.parse(publishedOn)) / DAY_MS)
   if (!(days >= OLD_SOURCE_DAYS)) return null
   const [n, unit] = days >= 365 ? [Math.floor(days / 365.25) || 1, 'year'] : [Math.floor(days / 30.44) || 1, 'month']
-  return `${n} ${unit}${n === 1 ? '' : 's'}`
+  return `${n} ${unit}${n === 1 ? '' : 's'} ago`
 }
 
 // What to call a source in a list or a heading.

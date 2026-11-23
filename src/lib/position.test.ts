@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ageWhenFound, publishedLine } from './position.ts'
+import { publishedLine, timeAgo } from './position.ts'
 
 describe('publishedLine', () => {
   it('calls a date from the page or an editor a publish date', () => {
@@ -17,20 +17,20 @@ describe('publishedLine', () => {
   })
 })
 
-describe('ageWhenFound', () => {
-  it('gives the Dingell release’s age when it was read', () => {
-    expect(ageWhenFound('2018-07-19', '2026-11-23T14:17:00.000Z')).toBe('8 years')
+describe('timeAgo', () => {
+  it('gives the Dingell release’s age', () => {
+    expect(timeAgo('2018-07-19', new Date('2026-11-23T14:17:00.000Z'))).toBe('8 years ago')
   })
 
   it('counts in months under a year, and says nothing under 30 days', () => {
-    expect(ageWhenFound('2026-10-24', '2026-11-23T00:00:00.000Z')).toBe('1 month')
-    expect(ageWhenFound('2026-03-01', '2026-11-23T00:00:00.000Z')).toBe('8 months')
-    expect(ageWhenFound('2026-10-25', '2026-11-23T00:00:00.000Z')).toBeNull()
-    expect(ageWhenFound('2025-11-23', '2026-11-23T00:00:00.000Z')).toBe('1 year')
+    expect(timeAgo('2026-10-24', new Date('2026-11-23T00:00:00.000Z'))).toBe('1 month ago')
+    expect(timeAgo('2026-03-01', new Date('2026-11-23T00:00:00.000Z'))).toBe('8 months ago')
+    expect(timeAgo('2026-10-25', new Date('2026-11-23T00:00:00.000Z'))).toBeNull()
+    expect(timeAgo('2025-11-23', new Date('2026-11-23T00:00:00.000Z'))).toBe('1 year ago')
   })
 
-  it('says nothing for an unknown date or one after it was found', () => {
-    expect(ageWhenFound(null, '2026-11-23T00:00:00.000Z')).toBeNull()
-    expect(ageWhenFound('2026-12-01', '2026-11-23T00:00:00.000Z')).toBeNull()
+  it('says nothing for an unknown date or one ahead of today', () => {
+    expect(timeAgo(null, new Date('2026-11-23T00:00:00.000Z'))).toBeNull()
+    expect(timeAgo('2026-12-01', new Date('2026-11-23T00:00:00.000Z'))).toBeNull()
   })
 })

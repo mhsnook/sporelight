@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 import { SOURCE_KINDS, isUnreadLead, type Proposal, type ProposalMention, type ProposalNote, type PublishedOnFrom, type Source } from '../../../shared/schema.ts'
 import { useTracker } from '../../lib/tracker.tsx'
 import { addedEntry, decisionStandings, missingFrom, outlook, presumedEntry, type EntryDraft } from '../../lib/review-form.ts'
-import { FOUND, KIND_NOUN, UNREAD_TEXT, ageWhenFound, formatDate, hostOf, publishedLine, sourceLabel, standingLabel } from '../../lib/position.ts'
+import { KIND_NOUN, UNREAD_TEXT, timeAgo, formatDate, hostOf, publishedLine, sourceLabel, standingLabel } from '../../lib/position.ts'
 import { Token } from '../bits.tsx'
 import { ArchivedCopy } from '../RecordItem.tsx'
 import { ArchiveControls } from '../ArchiveControls.tsx'
@@ -89,7 +89,7 @@ export function ReviewCard({
   }, [])
   const phase: CardPhase = leaving ?? (arrived ? 'in' : 'arriving')
   const shown: Source = publishedOn === undefined ? source : { ...source, published_on: publishedOn, published_on_from: 'editor' }
-  const age = ageWhenFound(shown.published_on, proposal.created_at)
+  const age = timeAgo(shown.published_on)
 
   const patch = (key: string, changes: Partial<EntryDraft>) => setDrafts((all) => all.map((d) => (d.key === key ? { ...d, ...changes } : d)))
   const first = drafts[0]
@@ -164,7 +164,7 @@ export function ReviewCard({
             </p>
             {age && (
               <span className="rounded-full border-2 border-ink bg-mixed/40 px-2.5 py-[2px] text-sm font-bold">
-                {age} before it was {FOUND[proposal.origin]}
+                {age}
               </span>
             )}
             {shown.published_on && shown.published_on_from && <span className="text-[13px] text-muted">{DATE_FROM[shown.published_on_from]}</span>}

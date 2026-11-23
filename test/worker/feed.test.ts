@@ -101,12 +101,12 @@ describe('GET /feed.xml', () => {
     await caches.default.delete(new Request('http://sporelight.test/feed.xml'))
   })
 
-  it('gives the source’s publish date in the title and beside the source, and how long before it was added', async () => {
+  it('gives the source’s publish date in the title and beside the source', async () => {
     await env.DB.prepare(`UPDATE sources SET published_on = '2018-07-19', published_on_from = 'page' WHERE id = 'src-1'`).run()
     await caches.default.delete(new Request('http://sporelight.test/feed.xml'))
     const xml = await (await feed()).text()
-    expect(xml).toContain('<title>Ann &lt;signs&gt; on (published 2018-07-19, 8 years before it was added; 2 people)</title>')
-    expect(xml).toContain('Source: Ann &lt;signs&gt; on https://news.example/a?x=1&amp;y=2 (published 2018-07-19, 8 years before it was added)')
+    expect(xml).toContain('<title>Ann &lt;signs&gt; on (published 2018-07-19; 2 people)</title>')
+    expect(xml).toContain('Source: Ann &lt;signs&gt; on https://news.example/a?x=1&amp;y=2 (published 2018-07-19)')
     // The entry's own times stay the day it entered the record.
     expect(xml).toContain('<published>2026-11-10T09:00:00.000Z</published>')
     await env.DB.prepare(`UPDATE sources SET published_on = NULL, published_on_from = NULL WHERE id = 'src-1'`).run()

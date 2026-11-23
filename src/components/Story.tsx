@@ -2,7 +2,7 @@ import { Link } from '@tanstack/react-router'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Decider, Position, Proposal, Question, SetPosition, Source, Weight } from '../../shared/schema.ts'
 import type { Story, StoryItem, WaitingStory } from '../lib/feed.ts'
-import { FOUND, KIND_LABEL, SPECTRUM, STANDING_COLOR, ageWhenFound, formatDate, hostOf, publishedLine, sourceLabel, standingLabel } from '../lib/position.ts'
+import { KIND_LABEL, SPECTRUM, STANDING_COLOR, timeAgo, formatDate, hostOf, publishedLine, sourceLabel, standingLabel } from '../lib/position.ts'
 import { Token } from './bits.tsx'
 import { ActWords, ArchivedCopy, WeightTag } from './RecordItem.tsx'
 
@@ -100,10 +100,9 @@ function Folded<T>({ items, render }: { items: T[]; render: (item: T) => ReactNo
   )
 }
 
-// The source's publish date, the first date on a story, and how old it was
-// when it reached us. `when` says what happened to it then: "added", "read".
-function Published({ source, at, when, className = '' }: { source: Pick<Source, 'published_on' | 'published_on_from'>; at: string; when: string; className?: string }) {
-  const age = ageWhenFound(source.published_on, at)
+// The source's publish date, the first date on a story, and how long ago that was.
+function Published({ source, className = '' }: { source: Pick<Source, 'published_on' | 'published_on_from'>; className?: string }) {
+  const age = timeAgo(source.published_on)
   return (
     <span className={className} data-testid="published">
       <span className="font-bold text-ink">{publishedLine(source)}</span>
@@ -111,7 +110,7 @@ function Published({ source, at, when, className = '' }: { source: Pick<Source, 
         <>
           {' · '}
           <span className="rounded-full bg-mixed/40 px-1.5 font-bold text-ink">
-            {age} before it was {when}
+            {age}
           </span>
         </>
       )}
@@ -126,7 +125,7 @@ export function StoryCard({ story }: { story: Story }) {
       <header className="flex items-start justify-between gap-4 border-b-2 border-ink bg-paper/60 px-4 py-3">
         <div className="min-w-0">
           <p className="text-xs">
-            <Published source={story.source} at={story.at} when="added" />
+            <Published source={story.source} />
           </p>
           <p className="tag text-muted">
             {hostOf(story.source.url)} · added {formatDate(story.at)} · {people} {people === 1 ? 'person' : 'people'}
@@ -208,7 +207,7 @@ export function WaitingStoryCard({ story, linked = false }: { story: WaitingStor
           <span className="shrink-0 font-bold">{open ? 'Hide' : 'Review'}</span>
         </span>
         <span className="block truncate text-sm font-semibold">{story.source ? sourceLabel(story.source) : 'A source with no link'}</span>
-        {story.source && <Published source={story.source} at={story.proposal.created_at} when={FOUND[story.proposal.origin]} className="block truncate" />}
+        {story.source && <Published source={story.source} className="block truncate" />}
         {!open &&
           claims.slice(0, CLAIM_LINES).map(({ decider, claim }) => (
             <span key={claim.item.id} className="flex items-center gap-x-1.5 truncate">

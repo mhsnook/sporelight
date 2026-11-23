@@ -288,18 +288,18 @@ test('an old article leads with its publish date on the card, in the queue and o
   const card = page.getByRole('article', { name: sourceTitle })
   const published = card.getByTestId('published')
   await expect(published).toHaveText('Published Jul 19, 2018')
-  await expect(card.getByText('8 years before it was read')).toBeVisible()
+  await expect(card.getByText('8 years ago', { exact: true })).toBeVisible()
   await expect(card.getByText('from the page', { exact: true })).toBeVisible()
   // The read date is there, below the publish date.
   const read = card.getByText('Read by a model on Nov 19, 2026')
   await expect(read).toBeVisible()
   expect((await published.boundingBox())!.y).toBeLessThan((await read.boundingBox())!.y)
-  await expect(page.getByRole('complementary').getByRole('button').filter({ hasText: sourceTitle })).toContainText('Published Jul 19, 2018 · 8 years before it was read')
+  await expect(page.getByRole('complementary').getByRole('button').filter({ hasText: sourceTitle })).toContainText('Published Jul 19, 2018 · 8 years ago')
   await expect(page.getByRole('complementary').getByRole('button').filter({ hasText: other })).toContainText('Publish date not known')
 
   await page.goto(`/latest?proposal=${old.proposal}`)
   const waiting = page.getByRole('article', { name: `Not checked yet: ${sourceTitle}` })
-  await expect(waiting.getByTestId('published')).toHaveText('Published Jul 19, 2018 · 8 years before it was read')
+  await expect(waiting.getByTestId('published')).toHaveText('Published Jul 19, 2018 · 8 years ago')
   await expect(waiting.getByText('Published Jul 19, 2018. Read from the article by a model on Nov 19, 2026.')).toBeVisible()
   await page.goto(`/latest?proposal=${undated.proposal}`)
   await expect(page.getByRole('article', { name: `Not checked yet: ${other}` }).getByTestId('published')).toHaveText('Publish date not known')
@@ -313,12 +313,12 @@ test('an editor sets the publish date of an undated article on the card, and it 
   await openCard(page, sourceTitle)
   const card = page.getByRole('article', { name: sourceTitle })
   await expect(card.getByTestId('published')).toHaveText('Publish date not known')
-  await expect(card.getByText(/before it was read/)).toHaveCount(0)
+  await expect(card.getByText(/ ago$/)).toHaveCount(0)
   await card.getByText('Set the date').click()
   await card.getByLabel('Publish date').fill('2025-01-02')
   await expect(card.getByTestId('published')).toHaveText('Published Jan 2, 2025')
   await expect(card.getByText('set by an editor')).toBeVisible()
-  await expect(card.getByText('1 year before it was read')).toBeVisible()
+  await expect(card.getByText('1 year ago', { exact: true })).toBeVisible()
   // Not written until the card is.
   expect(query(`SELECT published_on, published_on_from FROM sources WHERE id = '${ids.source}'`)).toEqual([{ published_on: null, published_on_from: null }])
 
@@ -330,7 +330,7 @@ test('an editor sets the publish date of an undated article on the card, and it 
 
   await page.goto('/latest?question=free-ferry')
   const story = page.getByRole('article', { name: sourceTitle })
-  await expect(story.getByTestId('published')).toHaveText('Published Jan 2, 2025 · 1 year before it was added')
+  await expect(story.getByTestId('published')).toHaveText('Published Jan 2, 2025 · 1 year ago')
 })
 
 test('a reading across from a position editors set makes a decision card, and lifting the position shows what the record works out to', async ({ page, request }) => {
