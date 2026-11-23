@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { SOURCE_KINDS, isUnreadLead, type Proposal, type ProposalMention, type ProposalNote, type Source } from '../../../shared/schema.ts'
+import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
+import { SOURCE_KINDS, isUnreadLead, type Proposal, type ProposalMention, type ProposalNote, type PublishedOnFrom, type Source } from '../../../shared/schema.ts'
 import { useTracker } from '../../lib/tracker.tsx'
 import { addedEntry, decisionStandings, missingFrom, outlook, presumedEntry, type EntryDraft } from '../../lib/review-form.ts'
-import { KIND_NOUN, UNREAD_TEXT, formatDate, hostOf, sourceLabel, standingLabel } from '../../lib/position.ts'
+import { FOUND, KIND_NOUN, UNREAD_TEXT, ageWhenFound, formatDate, hostOf, publishedLine, sourceLabel, standingLabel } from '../../lib/position.ts'
 import { Token } from '../bits.tsx'
 import { ArchivedCopy } from '../RecordItem.tsx'
 import { ArchiveControls } from '../ArchiveControls.tsx'
@@ -13,6 +13,12 @@ const ORIGIN_LINE: Record<Proposal['origin'], string> = {
   news_search: 'Found by the news search',
   partner: 'Sent in by a partner',
   model: 'Read by a model',
+}
+
+const DATE_FROM: Record<PublishedOnFrom, string> = {
+  page: 'from the page',
+  search: 'from the search results, which may be when the page last changed',
+  editor: 'set by an editor',
 }
 
 const SOURCE_KIND_LABEL: Record<(typeof SOURCE_KINDS)[number], string> = {
@@ -47,6 +53,8 @@ export function ReviewCard({
   setDrafts,
   reviewNote,
   setReviewNote,
+  publishedOn,
+  setPublishedOn,
   behind,
   readOnly,
   leaving,
@@ -62,6 +70,9 @@ export function ReviewCard({
   setDrafts: (update: (drafts: EntryDraft[]) => EntryDraft[]) => void
   reviewNote: string
   setReviewNote: (note: string) => void
+  // The source's publish date as the editor set it on this card; undefined until they do.
+  publishedOn: string | null | undefined
+  setPublishedOn: (day: string | null) => void
   // How many proposals wait behind this one.
   behind: number
   readOnly: boolean
@@ -77,6 +88,8 @@ export function ReviewCard({
     return () => cancelAnimationFrame(frame)
   }, [])
   const phase: CardPhase = leaving ?? (arrived ? 'in' : 'arriving')
+  const shown: Source = publishedOn === undefined ? source : { ...source, published_on: publishedOn, published_on_from: 'editor' }
+  const age = ageWhenFound(shown.published_on, proposal.created_at)
 
   const patch = (key: string, changes: Partial<EntryDraft>) => setDrafts((all) => all.map((d) => (d.key === key ? { ...d, ...changes } : d)))
   const first = drafts[0]
@@ -142,8 +155,20 @@ export function ReviewCard({
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
             <span className="tag rounded-full border-2 border-ink bg-surface px-2.5 py-[3px]">{isReported ? 'Source on the record' : 'New source'}</span>
             <span className="tag text-muted">
-              {[source.kind ? SOURCE_KIND_LABEL[source.kind] : null, hostOf(source.url), source.published_on ? formatDate(source.published_on) : null].filter(Boolean).join(' · ')}
+              {[source.kind ? SOURCE_KIND_LABEL[source.kind] : null, hostOf(source.url)].filter(Boolean).join(' · ')}
             </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+            <p className="text-[17px] font-extrabold" data-testid="published">
+              {publishedLine(shown)}
+            </p>
+            {age && (
+              <span className="rounded-full border-2 border-ink bg-mixed/40 px-2.5 py-[2px] text-sm font-bold">
+                {age} before it was {FOUND[proposal.origin]}
+              </span>
+            )}
+            {shown.published_on && shown.published_on_from && <span className="text-[13px] text-muted">{DATE_FROM[shown.published_on_from]}</span>}
+            {!readOnly && <PublishedOnControl value={shown.published_on} edited={publishedOn !== undefined} onChange={setPublishedOn} />}
           </div>
           <h2 className="text-[21px] leading-[1.2] font-extrabold tracking-[-0.01em]">
             {source.url ? (
@@ -208,7 +233,7 @@ export function ReviewCard({
                 onChange={(changes) => patch(d.key, changes)}
                 onDismiss={(dismissed) => (d.items.length || !dismissed ? patch(d.key, { dismissed }) : setDrafts((all) => all.filter((x) => x.key !== d.key)))}
                 proposal={proposal}
-                source={source}
+                source={shown}
                 notes={itemNotes(d)}
                 roster={roster}
                 continued={i > 0 && d.decider_id !== null && inOrder[i - 1].decider_id === d.decider_id && !inOrder[i - 1].dismissed}
@@ -274,5 +299,31 @@ export function ReviewCard({
         )}
       </article>
     </div>
+  )
+}
+
+// Sets the source's publish date, or says it is not known. Kept on the card and
+// written with it, like the rest of the editor's changes.
+function PublishedOnControl({ value, edited, onChange }: { value: string | null; edited: boolean; onChange: (day: string | null) => void }) {
+  const id = useId()
+  return (
+    <details className="text-[13px] text-muted">
+      <summary className="cursor-pointer underline underline-offset-2">{value ? 'Change the date' : 'Set the date'}</summary>
+      <span className="mt-1 flex flex-wrap items-center gap-2">
+        <label htmlFor={id}>Publish date</label>
+        <input
+          id={id}
+          type="date"
+          value={value ?? ''}
+          max={new Date().toISOString().slice(0, 10)}
+          onChange={(e) => onChange(e.target.value || null)}
+          className="field w-auto py-1 text-[13px]"
+        />
+        <button type="button" className="underline underline-offset-2" onClick={() => onChange(null)}>
+          Not known
+        </button>
+        <span>{edited ? 'Saved when this card is published or dismissed.' : ''}</span>
+      </span>
+    </details>
   )
 }

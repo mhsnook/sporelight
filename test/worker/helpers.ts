@@ -1,4 +1,5 @@
 import { env, exports } from 'cloudflare:workers'
+import { vi } from 'vitest'
 import worker from '../../worker/index.ts'
 import { EDITOR_TOKEN } from './editor-token.ts'
 
@@ -34,6 +35,10 @@ export async function seed() {
     ].map((sql) => env.DB.prepare(sql)),
   )
 }
+
+// A reader's submission fetches its page for the publish date after answering.
+// Files that post one without testing that answer every outside fetch with 404.
+export const noOutsidePages = () => vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('not found', { status: 404 }))
 
 let ip = 0
 export const nextIp = () => `10.0.${Math.floor(++ip / 250)}.${ip % 250}`

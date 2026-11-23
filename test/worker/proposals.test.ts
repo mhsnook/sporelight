@@ -3,7 +3,7 @@ import { getServerByName } from 'partyserver'
 import { beforeAll, describe, expect, it } from 'vitest'
 import type { ProposalDraft } from '../../shared/schema.ts'
 import type { Tracker } from '../../worker/tracker.ts'
-import { post, proposal, rows, seed } from './helpers.ts'
+import { post, proposal, rows, seed, noOutsidePages } from './helpers.ts'
 
 const tracker = () => getServerByName<Env, Tracker>(env.Tracker, 'main')
 // What the Worker answers a proposal it queued, and one it already had.
@@ -17,7 +17,10 @@ const totals = async () => ({
   notes: await count('proposal_notes'),
 })
 
-beforeAll(seed)
+beforeAll(async () => {
+  noOutsidePages()
+  await seed()
+})
 
 describe('POST /api/proposals: refused input', () => {
   it.each([

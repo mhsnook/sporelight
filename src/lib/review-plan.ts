@@ -83,6 +83,9 @@ export type EntryVerdict = { decider_id: string; items: ProposalItem[]; note: st
 export type Verdict = {
   review_note: string | null
   entries: EntryVerdict[]
+  // The source's publish date as the editor set it on the card. Left out when
+  // they did not touch it; null when they said it is not known.
+  published_on?: string | null
 }
 
 // The store sends a transaction as one batch per table, in the order each table
@@ -210,6 +213,9 @@ export function planReview(
     }
   }
 
+  if (verdict.published_on !== undefined && (verdict.published_on !== source.published_on || source.published_on_from !== 'editor')) {
+    writes.push({ on: 'sources', type: 'update', id: source.id, changes: { published_on: verdict.published_on, published_on_from: 'editor' } })
+  }
   if (verdict.review_note) note(verdict.review_note, null)
   writes.push({ on: 'proposals', type: 'update', id: proposal.id, changes: { status: 'reviewed', reviewed_at: now } })
 

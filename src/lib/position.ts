@@ -1,4 +1,4 @@
-import type { ActKind, Direction, Position, Question, Role, UnreadReason, Weight } from '../../shared/schema.ts'
+import type { ActKind, Direction, Position, Proposal, Question, Role, Source, UnreadReason, Weight } from '../../shared/schema.ts'
 
 export type Standing = Position | 'unknown'
 
@@ -93,6 +93,35 @@ export const KIND_CHOICE: Record<ActKind, string> = {
 
 const dateFmt = new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })
 export const formatDate = (iso: string) => dateFmt.format(new Date(iso))
+
+// The first date shown for a source. A date from the search results is not
+// called a publish date: it may be when the page last changed.
+export function publishedLine(source: Pick<Source, 'published_on' | 'published_on_from'>): string {
+  if (!source.published_on) return 'Publish date not known'
+  return `${source.published_on_from === 'search' ? 'Search result dated' : 'Published'} ${formatDate(source.published_on)}`
+}
+
+// What happened to an article the day a proposal was made from it, for "8 years before it was read".
+export const FOUND: Record<Proposal['origin'], string> = {
+  reader: 'sent in',
+  news_search: 'found',
+  partner: 'sent in',
+  model: 'read',
+}
+
+// A source published at least this long before it was found is said to be old.
+export const OLD_SOURCE_DAYS = 30
+const DAY_MS = 24 * 60 * 60 * 1000
+
+// How long before `foundAt` a source was published, as "8 years" or "3 months",
+// or null when it is less than OLD_SOURCE_DAYS or not known.
+export function ageWhenFound(publishedOn: string | null, foundAt: string): string | null {
+  if (!publishedOn) return null
+  const days = Math.floor((Date.parse(foundAt.slice(0, 10)) - Date.parse(publishedOn)) / DAY_MS)
+  if (!(days >= OLD_SOURCE_DAYS)) return null
+  const [n, unit] = days >= 365 ? [Math.floor(days / 365.25) || 1, 'year'] : [Math.floor(days / 30.44) || 1, 'month']
+  return `${n} ${unit}${n === 1 ? '' : 's'}`
+}
 
 // What to call a source in a list or a heading.
 export const sourceLabel = (source: { title: string | null; url: string | null }) => source.title ?? (source.url ? hostOf(source.url) : 'A document with no public link')

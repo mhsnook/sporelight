@@ -10,7 +10,7 @@ import { groupBy } from '../lib/build-tracker.ts'
 import { decisionOf, draftEntries, outlook, proposalIsAcross, verdictOf, type EntryDraft } from '../lib/review-form.ts'
 import { narrowQueue, tallyQueue, type QuestionTally } from '../lib/queue-filter.ts'
 import { useTracker } from '../lib/tracker.tsx'
-import { DIRECTION_LABEL, formatDate, KIND_LABEL, sourceLabel, WEIGHT_LABEL } from '../lib/position.ts'
+import { DIRECTION_LABEL, FOUND, ageWhenFound, formatDate, KIND_LABEL, publishedLine, sourceLabel, WEIGHT_LABEL } from '../lib/position.ts'
 import { trialView, type TrialResponse, type TrialView } from '../lib/reader-trial.ts'
 import { Marked, splitPassage } from '../components/RecordItem.tsx'
 import { NotFound, ProgressBar, Syncing, Token } from '../components/bits.tsx'
@@ -35,7 +35,10 @@ const LEAVE_MS = 470
 const TOAST_MS = 4200
 
 // What the editor had on a card. It is kept while they look at another card, and put back if publishing it fails.
-type Work = { drafts: EntryDraft[]; reviewNote: string }
+// `publishedOn` is the source's publish date as the editor set it, when they did.
+const ageOf = (source: Source, proposal: Proposal) => ageWhenFound(source.published_on, proposal.created_at)
+
+type Work = { drafts: EntryDraft[]; reviewNote: string; publishedOn?: string | null }
 type Finish = { writes: Write[]; how: 'publishing' | 'dismissing'; message: string; work: Work }
 
 function Queue() {
@@ -237,6 +240,12 @@ function Queue() {
                             {across ? 'Contradicts our recorded position · ' : unread ? 'Not read · ' : ''}
                             {names.join(', ')}
                           </span>
+                          {source && (
+                            <span className="mt-0.5 block text-xs leading-snug text-muted">
+                              {publishedLine(source)}
+                              {ageOf(source, p) && <b className="text-ink"> · {ageOf(source, p)} before it was {FOUND[p.origin]}</b>}
+                            </span>
+                          )}
                         </span>
                       </button>
                     </li>
@@ -359,12 +368,13 @@ function Desk({
       draftEntries(items, contexts).map((d) => ({ ...d, note: notes.find((n) => n.kind === 'review' && d.items.some((i) => i.id === n.proposal_item_id))?.body ?? '' })),
   )
   const [reviewNote, setReviewNote] = useState(restored?.reviewNote ?? notes.find((n) => n.kind === 'review' && !n.proposal_item_id)?.body ?? '')
+  const [publishedOn, setPublishedOn] = useState(restored?.publishedOn)
   const [error, setError] = useState<string | null>(null)
   // What to hand back on leaving. A finished card hands back nothing: the queue keeps its work only if the write fails.
   const leaveWith = useRef<Work | undefined>(restored)
   const touched = useRef(restored !== undefined)
   const finished = useRef(false)
-  leaveWith.current = touched.current && !finished.current ? { drafts, reviewNote } : undefined
+  leaveWith.current = touched.current && !finished.current ? { drafts, reviewNote, publishedOn } : undefined
   useEffect(() => () => onLeave(leaveWith.current), [])
   const changeDrafts = (update: (drafts: EntryDraft[]) => EntryDraft[]) => {
     touched.current = true
@@ -374,6 +384,10 @@ function Desk({
     touched.current = true
     setReviewNote(note)
   }
+  const changePublishedOn = (day: string | null) => {
+    touched.current = true
+    setPublishedOn(day)
+  }
 
   function finish(dismissAll: boolean) {
     const decide = (d: EntryDraft) => {
@@ -381,7 +395,7 @@ function Desk({
       return question && outlook(tracker, d, question, d.reading).across ? decisionOf(d) : null
     }
     try {
-      const verdict = verdictOf(drafts, reviewNote, decide, dismissAll)
+      const verdict = { ...verdictOf(drafts, reviewNote, decide, dismissAll), published_on: publishedOn }
       const writes = planReview(tracker, proposal, source, verdict, new Date().toISOString())
       const published = new Set(verdict.entries.filter((e) => e.publish).map((e) => e.decider_id)).size
       const title = `“${sourceLabel(source)}”`
@@ -389,7 +403,7 @@ function Desk({
       finished.current = true
       onFinish({
         writes,
-        work: { drafts, reviewNote },
+        work: { drafts, reviewNote, publishedOn },
         how: published ? 'publishing' : 'dismissing',
         message: `${published ? `Published ${people(published)} from ${title}.` : `Dismissed ${title}.`}${behind ? ' Here is the next card.' : ''}`,
       })
@@ -409,6 +423,8 @@ function Desk({
         setDrafts={changeDrafts}
         reviewNote={reviewNote}
         setReviewNote={changeReviewNote}
+        publishedOn={publishedOn}
+        setPublishedOn={changePublishedOn}
         behind={behind}
         readOnly={readOnly}
         leaving={leaving}

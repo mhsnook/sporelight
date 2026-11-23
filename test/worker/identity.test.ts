@@ -1,13 +1,16 @@
 import { env } from 'cloudflare:workers'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { askForCode, codeIn, cookieFrom, type Frame, mailbox, nextIp, partySocket, post, proposal, rows, seed, signIn, until } from './helpers.ts'
+import { askForCode, codeIn, cookieFrom, type Frame, mailbox, nextIp, partySocket, post, proposal, rows, seed, signIn, until, noOutsidePages } from './helpers.ts'
 
 const mail = mailbox()
 const comment = (overrides: Record<string, unknown> = {}) => ({ question_id: 'hot', decider_id: 'ann', author_name: 'typed-name', body: 'A comment.', ...overrides })
 const personFor = async (email: string) =>
   (await rows<{ id: string; display_name: string | null; muted_at: string | null }>(`SELECT p.id, p.display_name, p.muted_at FROM people p JOIN auth_users u ON u.id = p.id WHERE u.email = ?`, email))[0]
 
-beforeAll(seed)
+beforeAll(async () => {
+  noOutsidePages()
+  await seed()
+})
 
 describe('signing in with a code sent by email', () => {
   it('sends one code to the address asked for, from the address in config', async () => {

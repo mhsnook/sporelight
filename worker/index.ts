@@ -2,6 +2,7 @@ import { getServerByName, routePartykitRequest } from 'partyserver'
 import { ARCHIVE_CRON, archiveNow, archiveSources, type Archiver } from './archive.ts'
 import { commentInputSchema, displayNameSchema, proposalInputSchema } from '../shared/schema.ts'
 import { RUN_ID } from '../shared/news-run.ts'
+import { fetchPublishedOn } from './article.ts'
 import { auth, signedInPerson } from './auth.ts'
 import { isEditorRequest } from './editor.ts'
 import { atomResponse } from './feed.ts'
@@ -59,7 +60,7 @@ async function handleComment(req: Request, env: Env): Promise<Response> {
   return result.ok ? Response.json({ ok: true }) : Response.json({ error: result.error }, { status: result.status })
 }
 
-async function handleProposal(req: Request, env: Env): Promise<Response> {
+async function handleProposal(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const body = await readerPost(req, env)
   if (body instanceof Response) return body
   const parsed = proposalInputSchema.safeParse(body)
@@ -70,9 +71,16 @@ async function handleProposal(req: Request, env: Env): Promise<Response> {
   const { source_url, source_title, submitter_note, ...item } = parsed.data
   const person = await signedInPerson(req, env)
   const result = await (await tracker(env)).propose({ source: { url: source_url, title: source_title }, note: submitter_note, items: [item] }, 'reader', person?.id ?? null)
+  if (result.ok) ctx.waitUntil(dateReaderSource(env, source_url))
   return result.ok
     ? Response.json({ ok: true, duplicate: result.queued === 0, proposal_id: result.proposal_id })
     : Response.json({ error: result.error }, { status: result.status })
+}
+
+// The reader is not kept waiting for their page to be fetched.
+async function dateReaderSource(env: Env, url: string) {
+  const publishedOn = await fetchPublishedOn(url, new Date().toISOString().slice(0, 10)).catch(() => null)
+  if (publishedOn) await (await tracker(env)).notePublishedOn(url, publishedOn)
 }
 
 async function handleDisplayName(req: Request, env: Env): Promise<Response> {
@@ -95,7 +103,7 @@ export default {
     }
     if (url.pathname === '/api/me/name' && req.method === 'POST') return handleDisplayName(req, env)
     if (url.pathname === '/feed.xml' && req.method === 'GET') return atomResponse(req, env, ctx)
-    if (url.pathname === '/api/proposals' && req.method === 'POST') return handleProposal(req, env)
+    if (url.pathname === '/api/proposals' && req.method === 'POST') return handleProposal(req, env, ctx)
     if (url.pathname === '/api/comments' && req.method === 'POST') return handleComment(req, env)
     if (url.pathname === '/api/editor/session') {
       return (await isEditorRequest(req, env)) ? Response.json({ ok: true }) : new Response('unauthorized', { status: 401 })

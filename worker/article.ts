@@ -2,6 +2,7 @@
 // for the quote check to search.
 
 import type { UnreadReason } from '../shared/schema.ts'
+import { publishedOnPage } from './publish-date.ts'
 
 // Bytes read from the response before giving up on it as too large.
 export const MAX_BYTES = 3_000_000
@@ -23,11 +24,16 @@ const TYPES: Record<string, string> = {
   'text/plain': 'article.txt',
 }
 
-export type Article = { ok: true; text: string; truncated: boolean } | { ok: false; reason: string; unread: UnreadReason }
+// `publishedOn` is the day the page itself says it was published, when it says.
+export type Article =
+  | { ok: true; text: string; truncated: boolean; publishedOn: string | null }
+  | { ok: false; reason: string; unread: UnreadReason; publishedOn?: string | null }
+
+type Page = { ok: true; body: Uint8Array; type: string; name: string; finalUrl: string } | { ok: false; reason: string; unread: UnreadReason }
 
 // Many news sites turn away anything that is not a browser, so a refusal here is
 // an ordinary outcome and comes back as a reason, never as a thrown error.
-export async function fetchArticle(env: Pick<Env, 'AI'>, url: string): Promise<Article> {
+async function fetchPage(url: string): Promise<Page> {
   let res: Response
   try {
     res = await fetch(url, {
@@ -48,9 +54,19 @@ export async function fetchArticle(env: Pick<Env, 'AI'>, url: string): Promise<A
     await res.body?.cancel()
     return { ok: false, unread: 'not_an_article', reason: `The page is ${type || 'of no stated type'}, not an article.` }
   }
-
   const body = await readCapped(res)
   if (!body) return { ok: false, unread: 'not_an_article', reason: 'The page is too large to read.' }
+  return { ok: true, body, type, name, finalUrl: res.url || url }
+}
+
+// A PDF is not dated: the converter's documented metadata for a PDF has no creation or publish date.
+const pageDate = (page: Extract<Page, { ok: true }>, today: string) => (page.name === 'article.html' ? publishedOnPage(page.body, today) : Promise.resolve(null))
+
+export async function fetchArticle(env: Pick<Env, 'AI'>, url: string, today: string): Promise<Article> {
+  const page = await fetchPage(url)
+  if (!page.ok) return page
+  const { body, type, name } = page
+  const publishedOn = await pageDate(page, today)
 
   let text: string
   if (name === 'article.txt') {
@@ -58,15 +74,21 @@ export async function fetchArticle(env: Pick<Env, 'AI'>, url: string): Promise<A
   } else {
     const converted = await env.AI.toMarkdown(
       { name, blob: new Blob([body], { type }) },
-      { conversionOptions: { output: { format: 'text' }, html: { hostname: new URL(res.url || url).hostname }, pdf: { metadata: false } } },
+      { conversionOptions: { output: { format: 'text' }, html: { hostname: new URL(page.finalUrl).hostname }, pdf: { metadata: false } } },
     ).catch((e: unknown) => ({ format: 'error' as const, error: String(e) }))
-    if (converted.format === 'error') return { ok: false, unread: 'no_text', reason: `The page could not be turned into text (${converted.error.slice(0, 120)}).` }
+    if (converted.format === 'error') return { ok: false, unread: 'no_text', reason: `The page could not be turned into text (${converted.error.slice(0, 120)}).`, publishedOn }
     text = converted.data.trimStart().replace(METADATA_HEADER, '')
   }
 
   text = text.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim()
-  if (text.length < 200) return { ok: false, unread: 'no_text', reason: 'The page has almost no text, which usually means a paywall or a page built by script.' }
-  return { ok: true, text: text.slice(0, MAX_TEXT_CHARS), truncated: text.length > MAX_TEXT_CHARS }
+  if (text.length < 200) return { ok: false, unread: 'no_text', reason: 'The page has almost no text, which usually means a paywall or a page built by script.', publishedOn }
+  return { ok: true, text: text.slice(0, MAX_TEXT_CHARS), truncated: text.length > MAX_TEXT_CHARS, publishedOn }
+}
+
+// Only the publish date, for a page sent in by a reader: no conversion, no model.
+export async function fetchPublishedOn(url: string, today: string): Promise<string | null> {
+  const page = await fetchPage(url)
+  return page.ok ? pageDate(page, today) : null
 }
 
 async function readCapped(res: Response): Promise<Uint8Array | null> {

@@ -2,7 +2,7 @@ import { Link } from '@tanstack/react-router'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Decider, Position, Proposal, Question, SetPosition, Source, Weight } from '../../shared/schema.ts'
 import type { Story, StoryItem, WaitingStory } from '../lib/feed.ts'
-import { KIND_LABEL, SPECTRUM, STANDING_COLOR, formatDate, hostOf, sourceLabel, standingLabel } from '../lib/position.ts'
+import { FOUND, KIND_LABEL, SPECTRUM, STANDING_COLOR, ageWhenFound, formatDate, hostOf, publishedLine, sourceLabel, standingLabel } from '../lib/position.ts'
 import { Token } from './bits.tsx'
 import { ActWords, ArchivedCopy, WeightTag } from './RecordItem.tsx'
 
@@ -100,12 +100,34 @@ function Folded<T>({ items, render }: { items: T[]; render: (item: T) => ReactNo
   )
 }
 
+// The source's publish date, the first date on a story, and how old it was
+// when it reached us. `when` says what happened to it then: "added", "read".
+function Published({ source, at, when, className = '' }: { source: Pick<Source, 'published_on' | 'published_on_from'>; at: string; when: string; className?: string }) {
+  const age = ageWhenFound(source.published_on, at)
+  return (
+    <span className={className} data-testid="published">
+      <span className="font-bold text-ink">{publishedLine(source)}</span>
+      {age && (
+        <>
+          {' · '}
+          <span className="rounded-full bg-mixed/40 px-1.5 font-bold text-ink">
+            {age} before it was {when}
+          </span>
+        </>
+      )}
+    </span>
+  )
+}
+
 export function StoryCard({ story }: { story: Story }) {
   const people = story.items.length
   return (
     <article className="card overflow-hidden" aria-label={sourceLabel(story.source)}>
       <header className="flex items-start justify-between gap-4 border-b-2 border-ink bg-paper/60 px-4 py-3">
         <div className="min-w-0">
+          <p className="text-xs">
+            <Published source={story.source} at={story.at} when="added" />
+          </p>
           <p className="tag text-muted">
             {hostOf(story.source.url)} · added {formatDate(story.at)} · {people} {people === 1 ? 'person' : 'people'}
             {story.isDemo && ' · demo data'}
@@ -186,6 +208,7 @@ export function WaitingStoryCard({ story, linked = false }: { story: WaitingStor
           <span className="shrink-0 font-bold">{open ? 'Hide' : 'Review'}</span>
         </span>
         <span className="block truncate text-sm font-semibold">{story.source ? sourceLabel(story.source) : 'A source with no link'}</span>
+        {story.source && <Published source={story.source} at={story.proposal.created_at} when={FOUND[story.proposal.origin]} className="block truncate" />}
         {!open &&
           claims.slice(0, CLAIM_LINES).map(({ decider, claim }) => (
             <span key={claim.item.id} className="flex items-center gap-x-1.5 truncate">
@@ -237,6 +260,7 @@ export function WaitingStoryCard({ story, linked = false }: { story: WaitingStor
           <div className="space-y-2 border-t-2 border-dashed border-ink bg-mint/50 px-4 py-3">
             <p className="font-bold">Can you review this?</p>
             <p>
+              {story.source && `${publishedLine(story.source)}. `}
               {ORIGIN[story.proposal.origin]} on {formatDate(story.proposal.created_at)}. No editor has checked it yet, and it does not count toward anyone’s position until one
               does. Read the source: are these the words, and do they show what is claimed? If something is wrong or missing, say so in the discussion on that person’s page.
             </p>

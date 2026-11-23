@@ -586,3 +586,32 @@ describe('0013_presumed_weight', () => {
     expect(() => db.exec(`UPDATE proposal_items SET weight = 'heavy' WHERE id = 'read'`)).toThrow()
   })
 })
+
+describe('0017_source_published_from', () => {
+  const db = database('0017')
+  db.exec(`
+    INSERT INTO bodies (id, slug, name) VALUES ('b', 'b', 'Body');
+    INSERT INTO deciders (id, slug, name, sort_name) VALUES ('ann', 'ann', 'Ann', 'Ann');
+    INSERT INTO sources (id, url, title, published_on, archive_url, created_at) VALUES
+      ('dated', 'https://news.example/dated', 'Dated by hand', '2018-07-19', 'https://web.archive.org/web/1/https://news.example/dated', '2026-01-01'),
+      ('undated', 'https://news.example/undated', 'No date', NULL, NULL, '2026-01-02');
+    INSERT INTO acts (id, decider_id, kind, occurred_on, body, created_at) VALUES ('a', 'ann', 'says', '2018-07-19', 'Words.', '2026-01-01');
+    INSERT INTO reports (id, source_id, act_id, created_at) VALUES ('r', 'dated', 'a', '2026-01-01');
+    INSERT INTO proposals (id, source_id, origin, created_at) VALUES ('p', 'undated', 'model', '2026-01-02');
+  `)
+  db.exec(migration('0017_source_published_from.sql'))
+
+  it('marks a date already on a source as an editor’s, and leaves an undated source with no origin', () => {
+    expect(all(db, `SELECT id, published_on, published_on_from, archive_url FROM sources ORDER BY id`)).toEqual([
+      { id: 'dated', published_on: '2018-07-19', published_on_from: 'editor', archive_url: 'https://web.archive.org/web/1/https://news.example/dated' },
+      { id: 'undated', published_on: null, published_on_from: null, archive_url: null },
+    ])
+    expect([count(db, 'reports'), count(db, 'proposals')]).toEqual([1, 1])
+  })
+
+  it('takes the three origins and refuses anything else', () => {
+    db.exec(`UPDATE sources SET published_on_from = 'page' WHERE id = 'undated'`)
+    db.exec(`UPDATE sources SET published_on_from = 'search' WHERE id = 'undated'`)
+    expect(() => db.exec(`UPDATE sources SET published_on_from = 'model' WHERE id = 'undated'`)).toThrow()
+  })
+})

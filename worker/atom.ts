@@ -1,6 +1,6 @@
 import { isWebAddress } from '../shared/schema.ts'
 import type { Story, StoryItem } from '../src/lib/feed.ts'
-import { KIND_LABEL, sourceLabel, standingLabel } from '../src/lib/position.ts'
+import { KIND_LABEL, ageWhenFound, sourceLabel, standingLabel } from '../src/lib/position.ts'
 
 // XML 1.0 allows no control characters but tab, newline and carriage return,
 // and no unpaired surrogates, even escaped, so they are dropped rather than escaped.
@@ -29,6 +29,14 @@ const personPage = (origin: string, item: StoryItem) =>
 
 const sourceTitle = (story: Story) => sourceLabel(story.source)
 
+// Dates in the feed's text stay as YYYY-MM-DD, as an act's do.
+function publishedText(story: Story): string {
+  const { published_on, published_on_from } = story.source
+  if (!published_on) return 'publish date not known'
+  const age = ageWhenFound(published_on, story.at)
+  return `${published_on_from === 'search' ? 'search result dated' : 'published'} ${published_on}${age ? `, ${age} before it was added` : ''}`
+}
+
 function storyText(story: Story, origin: string): string {
   const people = story.items.map((item) => {
     const { act } = item
@@ -42,7 +50,7 @@ function storyText(story: Story, origin: string): string {
       personPage(origin, item),
     ].join('\n')
   })
-  return [...people, `Source: ${sourceTitle(story)}${story.source.url && story.source.title ? ` ${story.source.url}` : ''}${isWebAddress(story.source.archive_url) ? ` (archived: ${story.source.archive_url})` : ''}`, ...(story.isDemo ? ['Demo data, not real.'] : [])].join('\n\n')
+  return [...people, `Source: ${sourceTitle(story)}${story.source.url && story.source.title ? ` ${story.source.url}` : ''} (${publishedText(story)})${isWebAddress(story.source.archive_url) ? ` (archived: ${story.source.archive_url})` : ''}`, ...(story.isDemo ? ['Demo data, not real.'] : [])].join('\n\n')
 }
 
 export function atomFeed(stories: Story[], meta: AtomMeta): string {
@@ -53,7 +61,7 @@ export function atomFeed(stories: Story[], meta: AtomMeta): string {
     return [
       '  <entry>',
       `    <id>urn:sporelight:story:${x(encodeURIComponent(story.source.id))}:${x(story.at)}</id>`,
-      `    <title>${x(`${sourceTitle(story)} (${people} ${people === 1 ? 'person' : 'people'})`)}</title>`,
+      `    <title>${x(`${sourceTitle(story)} (${story.source.published_on ? `${publishedText(story)}; ` : ''}${people} ${people === 1 ? 'person' : 'people'})`)}</title>`,
       `    <link rel="alternate" type="text/html" href="${x(story.source.url ?? personPage(meta.origin, story.items[0]))}"/>`,
       ...story.items.map((item) => `    <link rel="related" type="text/html" title="${x(item.decider.name)}" href="${x(personPage(meta.origin, item))}"/>`),
       `    <published>${x(story.at)}</published>`,

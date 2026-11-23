@@ -1,4 +1,5 @@
 import type { Proposal, ProposalDraft, ProposalItem, UnreadReason } from '../shared/schema.ts'
+import type { ArticleRef } from './reader.ts'
 
 export type RosterEntry = { id: string; name: string; sort_name: string }
 export type SearchHit = { url: string; title: string; description?: string; lastModifiedDate?: string }
@@ -47,21 +48,36 @@ export function peopleInHit(hit: SearchHit, match: (text: string) => string[]): 
   return people.length > MAX_PEOPLE_PER_HIT ? [] : people
 }
 
+// The search provider's date for a result. It is when the page last changed,
+// as far as the provider knows, which is not always when it was published.
 export const hitDate = (hit: SearchHit): string | null => {
   const date = hit.lastModifiedDate?.slice(0, 10)
   return date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null
 }
 
+export const hitPublished = (hit: SearchHit): ArticleRef['published'] => {
+  const on = hitDate(hit)
+  return on ? { on, from: 'search' } : null
+}
+
 // One hit is one proposal, with an item for each person it names. `notRead`
 // is given for a lead queued because the article could not be read: its `why`
-// is added to the note.
-export function leadFromHit(hit: SearchHit, questionId: string, query: string, match: (text: string) => string[], notRead?: { unread: UnreadReason; why: string }): ProposalDraft | null {
+// is added to the note. `published` is the page's own date, when the page was
+// fetched and gave one.
+export function leadFromHit(
+  hit: SearchHit,
+  questionId: string,
+  query: string,
+  match: (text: string) => string[],
+  notRead?: { unread: UnreadReason; why: string },
+  published: ArticleRef['published'] = hitPublished(hit),
+): ProposalDraft | null {
   const people = peopleInHit(hit, match)
   if (people.length === 0) return null
   const quote = (hit.description ?? hit.title).trim().slice(0, 2000)
-  const occurred_on = hitDate(hit)
+  const occurred_on = published?.on ?? null
   return {
-    source: { url: hit.url, title: hit.title.slice(0, 300) || null },
+    source: { url: hit.url, title: hit.title.slice(0, 300) || null, published },
     note: `Search excerpt, not a verified quote. Found by searching: ${query}${notRead ? `\n${notRead.why}` : ''}`,
     unread: notRead?.unread,
     items: people.map((decider_id) => ({ question_id: questionId, decider_id, kind: 'says', occurred_on, quote, reading: null })),

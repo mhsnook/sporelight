@@ -3,6 +3,7 @@ import {
   allCollections,
   sourceUrl,
   pairId,
+  replacesPublishedOn,
   usualWeight,
   type Comment,
   type CommentInput,
@@ -59,7 +60,12 @@ export class Tracker extends PartyDbServer<Env> {
     }
 
     const url = sourceUrl(draft.source.url)
-    const known = await db.prepare(`SELECT id FROM sources WHERE url = ?`).bind(url).first<{ id: string }>()
+    const known = await db.prepare(`SELECT id, published_on, published_on_from FROM sources WHERE url = ?`).bind(url).first<Pick<Source, 'id' | 'published_on' | 'published_on_from'>>()
+    const published = draft.source.published ?? null
+    const dated =
+      known && published && replacesPublishedOn(published.from, known)
+        ? [{ channel: 'sources', ops: [{ type: 'update' as const, value: { id: known.id, published_on: published.on, published_on_from: published.from } }] }]
+        : []
     let items = draft.items
     if (known) {
       const seen = await db
@@ -68,7 +74,10 @@ export class Tracker extends PartyDbServer<Env> {
         .all<Pick<ProposalItem, 'question_id' | 'decider_id' | 'status' | 'quote'>>()
       items = items.filter((i) => !alreadyProposed(seen.results, i, origin))
     }
-    if (items.length === 0) return { ok: true, queued: 0, proposal_id: null }
+    if (items.length === 0) {
+      if (dated.length) await this.commit(dated)
+      return { ok: true, queued: 0, proposal_id: null }
+    }
 
     const now = new Date().toISOString()
     const source: Source = {
@@ -76,7 +85,8 @@ export class Tracker extends PartyDbServer<Env> {
       url,
       title: draft.source.title,
       publisher: null,
-      published_on: null,
+      published_on: published?.on ?? null,
+      published_on_from: published?.from ?? null,
       kind: null,
       archive_url: null,
       stored_copy: null,
@@ -113,7 +123,7 @@ export class Tracker extends PartyDbServer<Env> {
     try {
       // In this order: each batch may only point at rows an earlier one wrote.
       await this.commit([
-        ...(known ? [] : [{ channel: 'sources', ops: [{ type: 'insert' as const, value: source }] }]),
+        ...(known ? dated : [{ channel: 'sources', ops: [{ type: 'insert' as const, value: source }] }]),
         { channel: 'proposals', ops: [{ type: 'insert', value: proposal }] },
         { channel: 'proposal_items', ops: rows.map((value) => ({ type: 'insert' as const, value })) },
         ...(notes.length ? [{ channel: 'proposal_notes', ops: notes.map((value) => ({ type: 'insert' as const, value })) }] : []),
@@ -139,6 +149,15 @@ export class Tracker extends PartyDbServer<Env> {
     if (!row || row.archive_url) return row?.archive_url ?? null
     await this.commit([{ channel: 'sources', ops: [{ type: 'update', value: { id: sourceId, archive_url: archiveUrl } }] }])
     return archiveUrl
+  }
+
+  // For a page a reader sent in, once its date has been read.
+  async notePublishedOn(url: string, publishedOn: string) {
+    const row = await this.env.DB.prepare(`SELECT id, published_on, published_on_from FROM sources WHERE url = ?`)
+      .bind(sourceUrl(url))
+      .first<Pick<Source, 'id' | 'published_on' | 'published_on_from'>>()
+    if (!row || !replacesPublishedOn('page', row)) return
+    await this.commit([{ channel: 'sources', ops: [{ type: 'update', value: { id: row.id, published_on: publishedOn, published_on_from: 'page' } }] }])
   }
 
   async addPerson(id: string, createdAt: string) {

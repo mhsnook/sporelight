@@ -10,9 +10,10 @@ import { MODEL } from '../../worker/reader.ts'
 import type { Tracker } from '../../worker/tracker.ts'
 import type { NewsStep } from '../../shared/news-run.ts'
 import type { Proposal, ProposalDraft } from '../../shared/schema.ts'
-import { rows, seed } from './helpers.ts'
+import { post, proposal, rows, seed } from './helpers.ts'
 
 const NOW = new Date('2026-11-19T12:00:00Z')
+const TODAY = NOW.toISOString().slice(0, 10)
 
 // Under the hot question: a measure put to everyone, an ask put to Bob by name,
 // and an ask put to whoever chairs the committee, which Ann does now and Bob
@@ -41,7 +42,7 @@ afterEach(() => {
 
 const FILLER = ' The committee met for several hours and heard from witnesses on both sides of the debate.'.repeat(4)
 // Three paragraphs once converted to text: the title, the body and the filler.
-const page = (body: string) => `<html><head><title>T</title></head>\n<body><article><p>${body}</p>\n<p>${FILLER}</p></article></body></html>`
+const page = (body: string, head = '') => `<html><head><title>T</title>${head}</head>\n<body><article><p>${body}</p>\n<p>${FILLER}</p></article></body></html>`
 
 type Act = Record<string, unknown>
 const act = (overrides: Act = {}): Act => ({
@@ -299,6 +300,89 @@ describe('reading articles', () => {
   })
 })
 
+describe('the publish date', () => {
+  const PUBLISHED = '<meta property="article:published_time" content="2018-07-19" />'
+  const said = 'Ann Alpha said: “I will vote for this bill when it reaches the floor.”'
+  const sourceOf = async (url: string) => (await rows<{ published_on: string | null; published_on_from: string | null }>(`SELECT published_on, published_on_from FROM sources WHERE url = ?`, url))[0]
+  const promptOf = (s: ReturnType<typeof stubbed>) => s.run.mock.calls[0][1].messages[1].content
+
+  it('stores the page’s own date on the source and gives it to the model in place of the search date', async () => {
+    const url = 'https://news.example/date-page'
+    const s = stubbed({ hits: [hit(url)], pages: { [url]: page(said, PUBLISHED) }, answer: () => ({ acts: [act({ occurred_on: null })] }) })
+    await searchNews(s.env, await tracker(), NOW)
+    expect(await sourceOf(url)).toEqual({ published_on: '2018-07-19', published_on_from: 'page' })
+    expect(promptOf(s)).toContain(`${url}\nPublished 2018-07-19, according to the page`)
+    expect(promptOf(s)).not.toContain('2026-11-17')
+    // The rule that an act's date is not the article's still stands.
+    expect(s.run.mock.calls[0][1].messages[0].content).toContain("This is not the article's date unless the article says the act happened that day")
+  })
+
+  it('falls back to the search result’s date, and says what it is', async () => {
+    const url = 'https://news.example/date-search'
+    const s = stubbed({ hits: [hit(url)], pages: { [url]: page(said) }, answer: () => ({ acts: [act()] }) })
+    await searchNews(s.env, await tracker(), NOW)
+    expect(await sourceOf(url)).toEqual({ published_on: '2026-11-17', published_on_from: 'search' })
+    expect(promptOf(s)).toContain('Dated 2026-11-17 by the search results, which may be when the page last changed')
+  })
+
+  it('tells the model when no date is known', async () => {
+    const url = 'https://news.example/date-none'
+    const s = stubbed({ hits: [{ ...hit(url), lastModifiedDate: undefined }], pages: { [url]: page(said) }, answer: () => ({ acts: [act()] }) })
+    await searchNews(s.env, await tracker(), NOW)
+    expect(await sourceOf(url)).toEqual({ published_on: null, published_on_from: null })
+    expect(promptOf(s)).toContain(`${url}\nPublish date not known`)
+  })
+
+  it('dates a lead from the page when the page was fetched but not read', async () => {
+    const url = 'https://news.example/date-lead'
+    const s = stubbed({ hits: [hit(url)], pages: { [url]: `<html><head>${PUBLISHED}</head><body><p>Subscribe to read this story.</p></body></html>` }, answer: () => ({ acts: [] }) })
+    await searchNews(s.env, await tracker(), NOW)
+    expect(await proposalsFor(url)).toEqual([expect.objectContaining({ origin: 'news_search', unread: 'no_text' })])
+    expect(await sourceOf(url)).toEqual({ published_on: '2018-07-19', published_on_from: 'page' })
+    expect(await itemsFor(url)).toEqual([expect.objectContaining({ occurred_on: '2018-07-19' })])
+    expect(s.run).not.toHaveBeenCalled()
+  })
+
+  it('fills in a source on file with no date, and replaces a search date with the page’s', async () => {
+    const empty = 'https://news.example/date-fill'
+    const searched = 'https://news.example/date-upgrade'
+    await env.DB.prepare(
+      `INSERT INTO sources (id, url, title, published_on, published_on_from, created_at) VALUES ('src-fill', ?1, 'On file', NULL, NULL, '2026-01-01'), ('src-upgrade', ?2, 'On file', '2026-11-01', 'search', '2026-01-01')`,
+    )
+      .bind(empty, searched)
+      .run()
+    const s = stubbed({ hits: [hit(empty), hit(searched)], pages: { [empty]: page(said, PUBLISHED), [searched]: page(said, PUBLISHED) }, answer: () => ({ acts: [act()] }) })
+    await searchNews(s.env, await tracker(), NOW)
+    expect(await sourceOf(empty)).toEqual({ published_on: '2018-07-19', published_on_from: 'page' })
+    expect(await sourceOf(searched)).toEqual({ published_on: '2018-07-19', published_on_from: 'page' })
+  })
+
+  it('does not overwrite a date an editor set, or an editor’s word that the date is not known', async () => {
+    const dated = 'https://news.example/date-editor'
+    const unknown = 'https://news.example/date-editor-unknown'
+    await env.DB.prepare(
+      `INSERT INTO sources (id, url, title, published_on, published_on_from, created_at) VALUES ('src-editor', ?1, 'On file', '2018-07-20', 'editor', '2026-01-01'), ('src-editor-unknown', ?2, 'On file', NULL, 'editor', '2026-01-01')`,
+    )
+      .bind(dated, unknown)
+      .run()
+    const s = stubbed({ hits: [hit(dated), hit(unknown)], pages: { [dated]: page(said, PUBLISHED), [unknown]: page(said, PUBLISHED) }, answer: () => ({ acts: [act()] }) })
+    await searchNews(s.env, await tracker(), NOW)
+    expect(await sourceOf(dated)).toEqual({ published_on: '2018-07-20', published_on_from: 'editor' })
+    expect(await sourceOf(unknown)).toEqual({ published_on: null, published_on_from: 'editor' })
+  })
+
+  it('reads the date of a page a reader sends in, after answering them', async () => {
+    const url = 'https://news.example/date-reader'
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(page(said, PUBLISHED), { headers: { 'content-type': 'text/html' } }))
+    const res = await post('/api/proposals', proposal({ source_url: url, quote: 'I will vote for this bill when it reaches the floor.' }))
+    expect(res.status).toBe(200)
+    // The date is read in waitUntil, after the answer.
+    for (let i = 0; i < 100 && (await sourceOf(url))?.published_on_from !== 'page'; i++) await new Promise((r) => setTimeout(r, 20))
+    expect(await sourceOf(url)).toEqual({ published_on: '2018-07-19', published_on_from: 'page' })
+    expect(fetcher).toHaveBeenCalledWith(url, expect.anything())
+  })
+})
+
 describe('the steps a run reports', () => {
   it('says what it searched, which article it is reading, and how each read ended', async () => {
     const urls = ['https://news.example/steps-acts', 'https://news.example/steps-none', 'https://news.example/steps-refused']
@@ -489,7 +573,7 @@ describe('fetchArticle', () => {
   it('refuses a page whose declared size is over the limit, without reading it', async () => {
     serve(() => new Response(body(10), { headers: { 'content-type': 'text/html', 'content-length': String(MAX_BYTES + 1) } }))
     const AI = ai()
-    expect(await fetchArticle({ AI } as unknown as Env, 'https://news.example/huge')).toEqual({ ok: false, unread: 'not_an_article', reason: 'The page is too large to read.' })
+    expect(await fetchArticle({ AI } as unknown as Env, 'https://news.example/huge', TODAY)).toEqual({ ok: false, unread: 'not_an_article', reason: 'The page is too large to read.' })
     expect(AI.toMarkdown).not.toHaveBeenCalled()
   })
 
@@ -504,7 +588,7 @@ describe('fetchArticle', () => {
     })
     serve(() => new Response(stream, { headers: { 'content-type': 'text/html' } }))
     const AI = ai()
-    expect(await fetchArticle({ AI } as unknown as Env, 'https://news.example/endless')).toEqual({ ok: false, unread: 'not_an_article', reason: 'The page is too large to read.' })
+    expect(await fetchArticle({ AI } as unknown as Env, 'https://news.example/endless', TODAY)).toEqual({ ok: false, unread: 'not_an_article', reason: 'The page is too large to read.' })
     expect(sent).toBeLessThan(10)
     expect(AI.toMarkdown).not.toHaveBeenCalled()
   })
@@ -512,43 +596,43 @@ describe('fetchArticle', () => {
   it('refuses something that is not an article without converting it', async () => {
     serve(() => new Response(body(5000), { headers: { 'content-type': 'image/png' } }))
     const AI = ai()
-    expect(await fetchArticle({ AI } as unknown as Env, 'https://news.example/picture')).toMatchObject({ ok: false, unread: 'not_an_article' })
+    expect(await fetchArticle({ AI } as unknown as Env, 'https://news.example/picture', TODAY)).toMatchObject({ ok: false, unread: 'not_an_article' })
     expect(AI.toMarkdown).not.toHaveBeenCalled()
   })
 
   it('reports a conversion that fails or throws as a page it could not read', async () => {
     serve(() => new Response(page('Words.'), { headers: { 'content-type': 'text/html' } }))
     const failing = { toMarkdown: async () => ({ format: 'error', error: 'unsupported' }) }
-    expect(await fetchArticle({ AI: failing } as unknown as Env, 'https://news.example/a')).toMatchObject({ ok: false, unread: 'no_text', reason: expect.stringContaining('unsupported') })
+    expect(await fetchArticle({ AI: failing } as unknown as Env, 'https://news.example/a', TODAY)).toMatchObject({ ok: false, unread: 'no_text', reason: expect.stringContaining('unsupported') })
     const throwing = { toMarkdown: async () => Promise.reject(new Error('binding down')) }
-    expect(await fetchArticle({ AI: throwing } as unknown as Env, 'https://news.example/a')).toMatchObject({ ok: false, unread: 'no_text', reason: expect.stringContaining('binding down') })
+    expect(await fetchArticle({ AI: throwing } as unknown as Env, 'https://news.example/a', TODAY)).toMatchObject({ ok: false, unread: 'no_text', reason: expect.stringContaining('binding down') })
   })
 
   it.each([401, 403, 429])('says the site refused when it answers %i', async (status) => {
     serve(() => new Response('no', { status }))
-    expect(await fetchArticle({ AI: ai() } as unknown as Env, 'https://news.example/a')).toEqual({ ok: false, unread: 'refused', reason: `The site answered ${status}.` })
+    expect(await fetchArticle({ AI: ai() } as unknown as Env, 'https://news.example/a', TODAY)).toEqual({ ok: false, unread: 'refused', reason: `The site answered ${status}.` })
   })
 
   it.each([404, 500, 503])('says the page could not be reached when the site answers %i', async (status) => {
     serve(() => new Response('no', { status }))
-    expect(await fetchArticle({ AI: ai() } as unknown as Env, 'https://news.example/a')).toEqual({ ok: false, unread: 'unreachable', reason: `The site answered ${status}.` })
+    expect(await fetchArticle({ AI: ai() } as unknown as Env, 'https://news.example/a', TODAY)).toEqual({ ok: false, unread: 'unreachable', reason: `The site answered ${status}.` })
   })
 
   it('says the page could not be reached when the fetch throws', async () => {
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('connection reset'))
-    expect(await fetchArticle({ AI: ai() } as unknown as Env, 'https://news.example/a')).toMatchObject({ ok: false, unread: 'unreachable', reason: expect.stringContaining('connection reset') })
+    expect(await fetchArticle({ AI: ai() } as unknown as Env, 'https://news.example/a', TODAY)).toMatchObject({ ok: false, unread: 'unreachable', reason: expect.stringContaining('connection reset') })
   })
 
   it('says the page gave no text when what is left of it is a few words', async () => {
     serve(() => new Response('Subscribe to read this story.', { headers: { 'content-type': 'text/plain' } }))
-    expect(await fetchArticle({ AI: ai() } as unknown as Env, 'https://news.example/a')).toMatchObject({ ok: false, unread: 'no_text' })
+    expect(await fetchArticle({ AI: ai() } as unknown as Env, 'https://news.example/a', TODAY)).toMatchObject({ ok: false, unread: 'no_text' })
   })
 
   it('leaves out the metadata the converter puts before the page text', async () => {
     serve(() => new Response(page('Words.'), { headers: { 'content-type': 'text/html' } }))
     const story = `Sen. Ann Alpha, chair of the Health, Labor & Pensions committee, said she would vote for it.${FILLER}`
     const converting = { toMarkdown: async () => ({ format: 'text', data: `title: Alpha backs the plan\ndescription: Health, Labor &amp; Pensions chair backs it\nimage: https://news.example/a.jpg\n\nAlpha backs the plan\n\n${story}` }) }
-    const article = await fetchArticle({ AI: converting } as unknown as Env, 'https://news.example/a')
+    const article = await fetchArticle({ AI: converting } as unknown as Env, 'https://news.example/a', TODAY)
     expect(article).toMatchObject({ ok: true })
     expect(article.ok && article.text).toBe(`Alpha backs the plan\n\n${story}`)
   })
@@ -557,7 +641,7 @@ describe('fetchArticle', () => {
     serve(() => new Response(page('Words.'), { headers: { 'content-type': 'text/html' } }))
     const story = `Ann Alpha said she would vote for it.${FILLER}`
     const converting = { toMarkdown: async () => ({ format: 'text', data: `title: Alpha backs the plan\ndescription:\nog:image: https://news.example/a.jpg\n\n${story}` }) }
-    const article = await fetchArticle({ AI: converting } as unknown as Env, 'https://news.example/a')
+    const article = await fetchArticle({ AI: converting } as unknown as Env, 'https://news.example/a', TODAY)
     expect(article.ok && article.text).toBe(story.replace(/[ \t]+/g, ' ').trim())
   })
 
@@ -565,14 +649,19 @@ describe('fetchArticle', () => {
     serve(() => new Response(page('Words.'), { headers: { 'content-type': 'text/html' } }))
     const data = `note: the vote was close.${FILLER}`
     const converting = { toMarkdown: async () => ({ format: 'text', data }) }
-    expect(await fetchArticle({ AI: converting } as unknown as Env, 'https://news.example/a')).toMatchObject({ ok: true, text: data.replace(/[ \t]+/g, ' ').trim() })
+    expect(await fetchArticle({ AI: converting } as unknown as Env, 'https://news.example/a', TODAY)).toMatchObject({ ok: true, text: data.replace(/[ \t]+/g, ' ').trim() })
+  })
+
+  it('gives the date an HTML page states, and none for plain text', async () => {
+    serve(() => new Response(page('Ann Alpha said she would vote for it.', '<meta property="article:published_time" content="2018-07-19" />'), { headers: { 'content-type': 'text/html' } }))
+    expect(await fetchArticle({ AI: ai() } as unknown as Env, 'https://news.example/a', TODAY)).toMatchObject({ ok: true, publishedOn: '2018-07-19' })
   })
 
   it('reads a page of plain text without converting it', async () => {
     const text = `Ann Alpha said she would vote for it.\n${FILLER.trim()}`
     serve(() => new Response(text, { headers: { 'content-type': 'text/plain; charset=utf-8' } }))
     const AI = ai()
-    expect(await fetchArticle({ AI } as unknown as Env, 'https://news.example/a')).toEqual({ ok: true, text, truncated: false })
+    expect(await fetchArticle({ AI } as unknown as Env, 'https://news.example/a', TODAY)).toEqual({ ok: true, text, truncated: false, publishedOn: null })
     expect(AI.toMarkdown).not.toHaveBeenCalled()
   })
 })
