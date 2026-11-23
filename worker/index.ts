@@ -3,6 +3,7 @@ import { ARCHIVE_CRON, archiveNow, archiveSources, type Archiver } from './archi
 import { commentInputSchema, displayNameSchema, proposalInputSchema } from '../shared/schema.ts'
 import { RUN_ID } from '../shared/news-run.ts'
 import { auth, signedInPerson } from './auth.ts'
+import { handleMcp } from './mcp.ts'
 import { isEditorRequest } from './editor.ts'
 import { atomResponse } from './feed.ts'
 import { dryRunArticle, listRuns, NEWS_CRON, runNewsSearch, runWithSteps, type Submitter } from './news.ts'
@@ -97,6 +98,7 @@ export default {
     if (url.pathname === '/feed.xml' && req.method === 'GET') return atomResponse(req, env, ctx)
     if (url.pathname === '/api/proposals' && req.method === 'POST') return handleProposal(req, env)
     if (url.pathname === '/api/comments' && req.method === 'POST') return handleComment(req, env)
+    if (url.pathname === '/mcp') return handleMcp(req, env)
     if (url.pathname === '/api/editor/session') {
       return (await isEditorRequest(req, env)) ? Response.json({ ok: true }) : new Response('unauthorized', { status: 401 })
     }

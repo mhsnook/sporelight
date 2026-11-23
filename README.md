@@ -32,6 +32,26 @@ The first data set is the United States Congress and Medicare for All. Nothing i
 - **Signing in.** A reader can sign in with a code sent to their email address. Signing in is optional, and everything works signed out as before. The first name a signed-in person posts under becomes the name shown for them, and they can change it. Their email address is kept with their sign-in account and is never sent to a browser or shown on a page. What they send in records who sent it, and their comments are tied to them. A person's roles are stored one per row, each with where it holds, so the same person can later hold different roles for different organisations; nothing reads them yet.
 - **Muting.** An editor can mute someone who has signed in, from any of their comments. While they are muted, their waiting proposals are left out of `/latest` and their comments out of each thread. Editors still see the comments, marked as muted, and can unmute them there. Muting hides what is shown; the rows are still synced like the rest of the public tables. The review queue still lists their proposals.
 
+## Agents
+
+The Worker serves an [MCP](https://modelcontextprotocol.io) endpoint at `/mcp` (streamable HTTP, no session), so an agent can read the tracker and send evidence without a browser. Its tools:
+
+- `list_questions`: the open questions, the bodies each is put to, and their open sub-questions.
+- `find_people`: people by part of a name, with their claims on seats today.
+- `get_positions`: where each person a question is put to stands today, worked out from the published record by the same code the question pages use. It can be narrowed to one body or one standing.
+- `get_record`: the published acts behind one person's position on one question, with their sources.
+- `submit_evidence`: one act by one person, read on one question, for an editor to review.
+
+The read tools return only what is published. `submit_evidence` takes the same fields as the form on a person's page and goes through the same validation, duplicate check, queue limit and review queue. It also takes the same limit per address. Nothing it sends is published until an editor accepts it.
+
+A submission names its organisation with an org id (3 to 63 lowercase letters, digits and hyphens) and a secret of at least 16 characters that the sender chooses. The first submission under an org id claims it for that secret, and every later one has to carry the same secret. The `partners` table keeps the org id and a salted PBKDF2 hash of the secret; no collection serves it. A partner's proposal has origin `partner` and `submitted_by` set to its `partners` row, and an editor note on it says which org sent it.
+
+To try it locally, point an MCP client at `http://localhost:5173/mcp` while `pnpm dev` runs. With Claude Code:
+
+```sh
+claude mcp add --transport http sporelight http://localhost:5173/mcp
+```
+
 ## Stack
 
 - Cloudflare Worker + D1, with a React SPA served as static assets
