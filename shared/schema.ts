@@ -104,6 +104,11 @@ export type Role = z.infer<typeof roleSchema>
 export const inEffect = (row: { starts_on: string | null; ends_on: string | null }, day: string) =>
   (row.starts_on === null || row.starts_on <= day) && (row.ends_on === null || day < row.ends_on)
 
+// Whether a dated row is still to come on a day. A row can end before it would
+// start, as a candidate's claim does when they withdraw; it is not to come once ended.
+export const stillAhead = (row: { starts_on: string | null; ends_on: string | null }, day: string) =>
+  row.starts_on !== null && row.starts_on > day && (row.ends_on === null || day < row.ends_on)
+
 // A key role, such as a committee chair. It outlives its holders.
 export const officeSchema = z.object({
   id: z.string(),

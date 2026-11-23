@@ -161,6 +161,9 @@ function Queue() {
           </button>
         </p>
         <NewsSearch>
+          <Link to="/editor/people" className="btn btn-sm shadow-none">
+            People
+          </Link>
           <button type="button" className="btn btn-sm shadow-none" onClick={signOut}>
             Sign out
           </button>

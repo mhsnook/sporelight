@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chooseSlug, inputOf, newQuestionRows, questionEdits, questionInserts, questionProblems, readQuestionForm, relatedQuestionRows, type QuestionInput } from './question-form.ts'
+import { inputOf, newQuestionRows, questionEdits, questionInserts, questionProblems, readQuestionForm, relatedQuestionRows, type QuestionInput } from './question-form.ts'
 import { link, question, relation } from './fixtures.ts'
 
 const ids = () => {
@@ -80,17 +80,6 @@ describe('questionProblems', () => {
     expect(questionProblems(filled({ office_ids: ['chair'] }), true)).toEqual([])
     const twice = [{ decider_id: 'ann', role_label: null }, { decider_id: 'ann', role_label: 'Chair' }]
     expect(questionProblems(filled({ deciders: twice }), true)).toEqual([expect.stringContaining('twice')])
-  })
-})
-
-describe('chooseSlug', () => {
-  it('makes the address from the short name and steps past ones in use', () => {
-    expect(chooseSlug('Medicare at 55', new Set())).toBe('medicare-at-55')
-    expect(chooseSlug('Medicare at 55', new Set(['medicare-at-55', 'medicare-at-55-2']))).toBe('medicare-at-55-3')
-  })
-
-  it('puts a sub-question’s address under its parent’s', () => {
-    expect(chooseSlug('H.R. 1', new Set(), question('m4a', { slug: 'medicare-for-all' }))).toBe('medicare-for-all-h-r-1')
   })
 })
 

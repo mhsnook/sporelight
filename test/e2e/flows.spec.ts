@@ -756,3 +756,104 @@ test('a question with a closing date still ahead offers to remove the date, not 
   await expect(page.getByRole('button', { name: 'Close this question' })).toBeVisible()
   await expect.poll(() => query(`SELECT status, closed_on FROM questions WHERE short_title = '${shortName}'`)).toEqual([{ status: 'open', closed_on: null }])
 })
+
+test('an editor records someone new as running for a seat, sees them beside its holder, edits the role and ends it', async ({ page }) => {
+  const stamp = Date.now()
+  const name = `Juniper Hale ${stamp}`
+  await signInAsEditor(page)
+
+  await page.goto('/q/free-ferry')
+  await page.getByRole('link', { name: 'Add someone running for Ward 4' }).click()
+  await expect(page.getByRole('heading', { name: 'Someone running for Ward 4' })).toBeVisible()
+  await expect(page.getByRole('radio', { name: /^Possible/ })).toBeChecked()
+  await expect(page.getByLabel(/^Starts on/)).toHaveValue('2027-05-04')
+  await page.getByRole('button', { name: 'Add the role' }).click()
+  await expect(page.getByRole('alert')).toContainText('Choose who holds the role')
+
+  await page.getByRole('radio', { name: 'Someone new' }).check()
+  await page.getByLabel('Name', { exact: true }).fill(name)
+  await page.getByLabel('What it still depends on').selectOption({ label: 'A general election' })
+  await page.getByLabel(/^Affiliation/).fill('Harbor Forward')
+  await page.getByRole('button', { name: 'Add the role' }).click()
+
+  // Back on the question, beside the seat's holder.
+  await expect(page).toHaveURL(/\/q\/free-ferry\?.*q=Ward/)
+  const card = page.getByRole('listitem').filter({ has: page.getByRole('link', { name: /Desmond Kowalczyk/ }) })
+  await expect(card).toContainText(name)
+  await expect(card).toContainText('general election · No record yet')
+  const [made] = query<{ id: string; seat_id: string; certainty: string; contest: string; starts_on: string; affiliation: string; slug: string; decider_id: string }>(
+    `SELECT r.id, r.seat_id, r.certainty, r.contest, r.starts_on, r.affiliation, d.slug, d.id AS decider_id FROM roles r JOIN deciders d ON d.id = r.decider_id WHERE d.name = '${name}'`,
+  )
+  expect(made).toMatchObject({ seat_id: 'harbor-city-council:ward-4', certainty: 'possible', contest: 'general', starts_on: '2027-05-04', affiliation: 'Harbor Forward', slug: `juniper-hale-${stamp}` })
+  expect(made.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/)
+  expect(made.decider_id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/)
+
+  // Edited from their page.
+  await card.getByRole('link', { name: new RegExp(name) }).click()
+  await expect(page.getByText('running in the general election')).toBeVisible()
+  await page.getByRole('link', { name: 'Edit their role on Ward 4' }).click()
+  await expect(page.getByRole('heading', { name: `${name} on Ward 4` })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Delete this role' })).toBeVisible()
+  await page.getByLabel(/^Affiliation/).fill('Dockside Alliance')
+  await page.getByRole('button', { name: 'Save changes' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Saved.' })).toBeVisible()
+  await expect.poll(() => query(`SELECT affiliation FROM roles WHERE id = '${made.id}'`)).toEqual([{ affiliation: 'Dockside Alliance' }])
+
+  // Ended: they leave the seat's card and their page says so.
+  await page.getByRole('button', { name: 'End the role' }).click()
+  await expect(page.getByText('Ends on Nov 19, 2026.')).toBeVisible()
+  await expect.poll(() => query(`SELECT ends_on FROM roles WHERE id = '${made.id}'`)).toEqual([{ ends_on: DAY }])
+  await page.goto('/q/free-ferry?q=Ward%204')
+  await expect(card).toBeVisible()
+  await expect(card).not.toContainText(name)
+  await page.goto(`/q/free-ferry/${made.slug}`)
+  await expect(page.getByText('no longer in line for the seat since Nov 19, 2026')).toBeVisible()
+})
+
+test('a role whose holder has a record on the questions put to its body can be ended but not deleted', async ({ page }) => {
+  await signInAsEditor(page)
+  await page.goto('/q/free-ferry/desmond-kowalczyk')
+  await page.getByRole('link', { name: 'Edit their role on Ward 4' }).click()
+  await expect(page.getByRole('heading', { name: 'Desmond Kowalczyk on Ward 4' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Deleting' })).toContainText(/This role cannot be deleted, .*readings? on the record/)
+  await expect(page.getByRole('button', { name: 'Delete this role' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'End the role' })).toBeVisible()
+})
+
+test('an editor adds a person with no page yet, gives them a seat found by chamber and region, and edits their name', async ({ page }) => {
+  const stamp = Date.now()
+  const name = `Ines Okonkwo ${stamp}`
+  await signInAsEditor(page)
+
+  await page.getByRole('link', { name: 'People' }).click()
+  await page.getByRole('link', { name: 'Add a person' }).click()
+  const form = page.getByRole('form', { name: 'The new person' })
+  await form.getByRole('button', { name: 'Add the person' }).click()
+  await expect(page.getByRole('alert')).toContainText('The person needs a name.')
+  await form.getByLabel('Name', { exact: true }).fill(name)
+  await form.getByLabel(/^Sort name/).fill('Okonkwo, Ines')
+  await form.getByLabel(/^Link/).fill('https://example.org/ines')
+  await form.getByRole('button', { name: 'Add the person' }).click()
+  await expect(page.getByRole('heading', { level: 1, name })).toBeVisible()
+  await expect(page).toHaveURL(new RegExp(`/editor/people/ines-okonkwo-${stamp}$`))
+  expect(query(`SELECT sort_name, url FROM deciders WHERE slug = 'ines-okonkwo-${stamp}'`)).toEqual([{ sort_name: 'Okonkwo, Ines', url: 'https://example.org/ines' }])
+
+  await page.getByRole('link', { name: 'Give them a role on a seat' }).click()
+  await page.getByLabel('Body').selectOption({ label: 'United States Congress' })
+  await expect(page.getByLabel('Seat', { exact: true })).toBeDisabled()
+  await page.getByLabel('Chamber').selectOption('House')
+  await page.getByLabel('Region').selectOption('VT')
+  await page.getByLabel('Seat', { exact: true }).selectOption('us-congress:VT-AL')
+  await page.getByRole('radio', { name: /^Possible/ }).check()
+  await page.getByLabel('What it still depends on').selectOption({ label: 'A primary' })
+  await page.getByLabel(/^Starts on/).fill('2029-01-03')
+  await page.getByRole('button', { name: 'Add the role' }).click()
+  const seats = page.getByRole('region', { name: 'Seats' })
+  await expect(seats).toContainText('VT-AL')
+  await expect(seats).toContainText('running in the primary')
+
+  await page.getByLabel('Name', { exact: true }).fill(`Ines A. Okonkwo ${stamp}`)
+  await page.getByRole('button', { name: 'Save changes' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Saved.' })).toBeVisible()
+  await expect.poll(() => query(`SELECT name, slug FROM deciders WHERE slug = 'ines-okonkwo-${stamp}'`)).toEqual([{ name: `Ines A. Okonkwo ${stamp}`, slug: `ines-okonkwo-${stamp}` }])
+})
