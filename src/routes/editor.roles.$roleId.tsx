@@ -8,7 +8,7 @@ import { commit } from '../lib/review.ts'
 import { claimLabel, formatDate } from '../lib/position.ts'
 import { today, useTracker } from '../lib/tracker.tsx'
 import { NotFound, Syncing } from '../components/bits.tsx'
-import { notSaved } from '../components/form.tsx'
+import { Section, notSaved } from '../components/form.tsx'
 import { RoleForm } from '../components/RoleForm.tsx'
 
 export const Route = createFileRoute('/editor/roles/$roleId')({ component: EditRole })
@@ -62,13 +62,7 @@ function EndRole({ role, onEnded }: { role: Role; onEnded: () => void }) {
     onEnded()
   }
   return (
-    <section aria-labelledby="end-role" className="card space-y-3 p-4 sm:p-6">
-      <div>
-        <h2 id="end-role" className="text-lg font-extrabold">
-          Ending
-        </h2>
-        <p className="text-sm text-muted">When they leave the seat, lose a race or stop running. The claim stays on file with its dates, and their record stays theirs.</p>
-      </div>
+    <Section id="end-role" title="Ending" hint="When they leave the seat, lose a race or stop running. The claim stays on file with its dates, and their record stays theirs.">
       {role.ends_on ? (
         <p className="text-sm">Ends on {formatDate(role.ends_on)}. Clear the end date above to undo it.</p>
       ) : (
@@ -89,7 +83,7 @@ function EndRole({ role, onEnded }: { role: Role; onEnded: () => void }) {
         </form>
       )}
       {error && <p className="text-sm text-oppose">{error}</p>}
-    </section>
+    </Section>
   )
 }
 
@@ -97,6 +91,7 @@ function EndRole({ role, onEnded }: { role: Role; onEnded: () => void }) {
 function DeleteRole({ role, personSlug }: { role: Role; personSlug: string }) {
   const { tracker } = useTracker()
   const navigate = Route.useNavigate()
+  const [error, setError] = useState<string | null>(null)
   const threads = threadsFor(role, tracker)
   const proposalItems = useLiveQuery((q) => q.from({ row: db.proposal_items }))
   const proposalMentions = useLiveQuery((q) => q.from({ row: db.proposal_mentions }))
@@ -107,16 +102,16 @@ function DeleteRole({ role, personSlug }: { role: Role; personSlug: string }) {
 
   function remove() {
     if (!window.confirm('Delete this role? It is gone from every page, with no record that it was there.')) return
-    // The delete is optimistic, so this page would show the role as not found while the server confirms it.
-    commit([{ on: 'roles', type: 'delete', id: role.id }]).catch((err: unknown) => window.alert(`The role was not deleted. ${notSaved(err)}`))
-    navigate({ to: '/editor/people/$slug', params: { slug: personSlug } })
+    setError(null)
+    // Not optimistic: the role stays on this page until the server has deleted it.
+    db.roles.delete(role.id, { optimistic: false }).isPersisted.promise.then(
+      () => navigate({ to: '/editor/people/$slug', params: { slug: personSlug } }),
+      (err: unknown) => setError(notSaved(err)),
+    )
   }
 
   return (
-    <section aria-labelledby="delete-role" className="card space-y-3 p-4 sm:p-6">
-      <h2 id="delete-role" className="text-lg font-extrabold">
-        Deleting
-      </h2>
+    <Section id="delete-role" title="Deleting">
       {!loaded ? (
         <p className="text-sm text-muted">Checking what depends on this role…</p>
       ) : dependents.length > 0 ? (
@@ -131,6 +126,7 @@ function DeleteRole({ role, personSlug }: { role: Role; personSlug: string }) {
           </button>
         </>
       )}
-    </section>
+      {error && <p className="text-sm text-oppose">{error}</p>}
+    </Section>
   )
 }

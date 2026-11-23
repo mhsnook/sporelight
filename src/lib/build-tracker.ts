@@ -1,5 +1,5 @@
 import type { Act, Body, Decider, Office, OfficeHolder, Position, Question, QuestionBody, QuestionDecider, QuestionOffice, QuestionRelation, Reading, Report, Role, Seat, SetPosition, Source } from '../../shared/schema.ts'
-import { inEffect, isOpenOn, pairId, type Certainty } from '../../shared/schema.ts'
+import { inEffect, isOpenOn, pairId, stillAhead, type Certainty } from '../../shared/schema.ts'
 import { calculatePosition, footingOf, isAcross, type Footing } from '../../shared/standing.ts'
 import type { Standing } from './position.ts'
 
@@ -104,8 +104,7 @@ export function buildTracker(c: TrackerData, asOf: string) {
   const rolesInEffect = c.roles.filter((r) => inEffect(r, asOf)).sort((a, b) => SURENESS[a.certainty] - SURENESS[b.certainty])
   const rolesBySeat = groupBy(rolesInEffect, (r) => r.seat_id)
   const upcomingBySeat = groupBy(
-    // A claim can end before it would start, as when a candidate withdraws.
-    c.roles.filter((r) => r.starts_on !== null && r.starts_on > asOf && (r.ends_on === null || r.ends_on > asOf)).sort((a, b) => a.starts_on!.localeCompare(b.starts_on!) || SURENESS[a.certainty] - SURENESS[b.certainty]),
+    c.roles.filter((r) => stillAhead(r, asOf)).sort((a, b) => a.starts_on!.localeCompare(b.starts_on!) || SURENESS[a.certainty] - SURENESS[b.certainty]),
     (r) => r.seat_id,
   )
   const rolesByDecider = groupBy(rolesInEffect, (r) => r.decider_id)
@@ -368,6 +367,7 @@ export function buildTracker(c: TrackerData, asOf: string) {
     measuresIn,
     asOf,
     upcomingBySeat,
+    everyRoleByDecider,
     recordFor,
     standingFor,
     listingFor,

@@ -10,6 +10,13 @@ export const allFields = (f: FormData, name: string) => f.getAll(name).map((v) =
 
 export const isDay = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value))
 
+// The fields of `wanted` that differ from the stored row, or null when none do.
+export function changedFields<T extends object, K extends keyof T>(row: T, wanted: Pick<T, K>, keys: readonly K[]): Partial<T> | null {
+  const changes: Partial<T> = {}
+  for (const k of keys) if (wanted[k] !== row[k]) changes[k] = wanted[k]
+  return Object.keys(changes).length ? changes : null
+}
+
 // A slug is a page address, so it is chosen once, when the row is made, and is
 // never one another row of the same table has.
 export function chooseSlug(name: string, taken: ReadonlySet<string>, under?: { slug: string }, fallback = 'question'): string {

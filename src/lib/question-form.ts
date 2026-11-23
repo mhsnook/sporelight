@@ -10,7 +10,7 @@ import {
   type QuestionRelation,
 } from '../../shared/schema.ts'
 import type { Write } from './review-plan.ts'
-import { allFields, chooseSlug, isDay, orNull, textField } from './form-input.ts'
+import { allFields, changedFields, chooseSlug, isDay, orNull, textField } from './form-input.ts'
 
 // What the question form holds once read. Text is trimmed, and an empty
 // optional field is null.
@@ -201,8 +201,8 @@ export function questionEdits(
     act_label: input.kind === 'formal_act' ? input.act_label : null,
     implies_on_parent: question.parent_id ? input.implies_on_parent : null,
   }
-  const changes = Object.fromEntries(EDITABLE.filter((k) => wanted[k] !== question[k]).map((k) => [k, wanted[k]])) as Partial<Question>
-  const writes: Write[] = Object.keys(changes).length ? [{ on: 'questions', type: 'update', id: question.id, changes }] : []
+  const changes = changedFields(question, wanted, EDITABLE)
+  const writes: Write[] = changes ? [{ on: 'questions', type: 'update', id: question.id, changes }] : []
 
   const bodies = new Set(input.also_body_ids.filter((b) => b !== question.body_id))
   // The form offers no box for the body a question is listed under, so a link to it is left alone.

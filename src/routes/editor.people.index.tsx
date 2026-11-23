@@ -1,4 +1,5 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
+import { useMemo } from 'react'
 import { useTracker } from '../lib/tracker.tsx'
 import { Syncing } from '../components/bits.tsx'
 
@@ -14,13 +15,13 @@ function People() {
   const { tracker, isReady } = useTracker()
   const { q } = Route.useSearch()
   const navigate = Route.useNavigate()
+  const everyone = useMemo(() => [...tracker.deciders].sort((a, b) => a.sort_name.localeCompare(b.sort_name)), [tracker.deciders])
   if (!isReady) return <Syncing />
 
   const needle = q?.toLowerCase()
-  const everyone = [...tracker.deciders].sort((a, b) => a.sort_name.localeCompare(b.sort_name))
   const matching = needle ? everyone.filter((d) => d.name.toLowerCase().includes(needle) || d.sort_name.toLowerCase().includes(needle)) : everyone
   const seatsOf = (deciderId: string) =>
-    [...new Set(tracker.roles.filter((r) => r.decider_id === deciderId).flatMap((r) => tracker.seatById.get(r.seat_id)?.label ?? []))].join(', ')
+    [...new Set((tracker.everyRoleByDecider.get(deciderId) ?? []).flatMap((r) => tracker.seatById.get(r.seat_id)?.label ?? []))].join(', ')
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">

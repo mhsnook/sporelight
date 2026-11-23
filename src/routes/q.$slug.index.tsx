@@ -1,6 +1,6 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useMemo } from 'react'
-import type { Question } from '../../shared/schema.ts'
+import type { Question, Seat } from '../../shared/schema.ts'
 import { NEEDS_ATTENTION } from '../../shared/standing.ts'
 import { isHeld, useTracker, useViewedBody, type HeldSeat } from '../lib/tracker.tsx'
 import { SPECTRUM, STANDINGS, STANDING_BG, claimTag, formatDate, standingLabel, type Standing } from '../lib/position.ts'
@@ -171,7 +171,7 @@ function Board() {
                     </Link>
                   </span>
                 ))}
-                <AddRunning seatId={row.seat.id} seatLabel={row.seat.label} question={question} className="mt-1 block text-xs link" />
+                <AddRunning seat={row.seat} question={question} compact />
               </li>
             ))}
           </ul>
@@ -193,7 +193,7 @@ function Board() {
                     </Link>
                   </span>
                 ))}
-                <AddRunning seatId={row.seat.id} seatLabel={row.seat.label} question={question} className="mt-1 block text-xs link" />
+                <AddRunning seat={row.seat} question={question} compact />
               </li>
             ))}
           </ul>
@@ -343,17 +343,17 @@ function SeatCard({ row, question }: { row: HeldSeat; question: Question }) {
           ))}
         </ul>
       )}
-      <AddRunning seatId={row.seat.id} seatLabel={row.seat.label} question={question} />
+      <AddRunning seat={row.seat} question={question} />
     </li>
   )
 }
 
 // Editors only: starts a role for someone running for this seat, and comes back here once it is saved.
-function AddRunning({ seatId, seatLabel, question, className = 'block border-t border-line py-1.5 pr-3 pl-4 text-xs link' }: { seatId: string; seatLabel: string; question: Question; className?: string }) {
+function AddRunning({ seat, question, compact }: { seat: Seat; question: Question; compact?: boolean }) {
   if (!isEditor()) return null
   return (
-    <Link to="/editor/roles/new" search={{ seat: seatId, running: true, question: question.slug }} className={className}>
-      Add someone running <span className="sr-only">for {seatLabel}</span>
+    <Link to="/editor/roles/new" search={{ seat: seat.id, running: true, question: question.slug }} className={compact ? 'mt-1 block text-xs link' : 'block border-t border-line py-1.5 pr-3 pl-4 text-xs link'}>
+      Add someone running <span className="sr-only">for {seat.label}</span>
     </Link>
   )
 }

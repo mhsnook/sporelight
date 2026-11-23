@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type FormEvent } from 'react'
+import { useMemo, useState, type FormEvent } from 'react'
 import { CONTESTS, type Certainty, type Decider, type Role, type Seat } from '../../shared/schema.ts'
 import { newPerson, personInputOf } from '../lib/person-form.ts'
 import {
@@ -17,9 +17,8 @@ import {
   type Contest,
   type RoleInput,
 } from '../lib/role-form.ts'
-import { commit } from '../lib/review.ts'
 import { useTracker } from '../lib/tracker.tsx'
-import { Choice, Field, Problems, Section, notSaved, useMounted } from './form.tsx'
+import { Choice, Field, Problems, SaveBar, Section, useSave } from './form.tsx'
 import { PersonFields } from './PersonForm.tsx'
 
 const CERTAINTY_CHOICE: Record<Certainty, string> = {
@@ -55,11 +54,7 @@ export function RoleForm({ seat, person, start, editing, startHint, onSaved }: R
   const [seatId, setSeatId] = useState(seat?.id ?? '')
   const [holder, setHolder] = useState<'existing' | 'new'>('existing')
   const [certainty, setCertainty] = useState(start.certainty)
-  const [problems, setProblems] = useState<string[]>([])
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
-  const top = useRef<HTMLDivElement>(null)
-  const mounted = useMounted()
+  const save = useSave()
 
   const choices = useMemo(() => personChoices(tracker.deciders), [tracker.deciders])
   const chambers = chambersIn(tracker.seats, bodyId)
@@ -81,29 +76,13 @@ export function RoleForm({ seat, person, start, editing, startHint, onSaved }: R
     const input = readRoleForm(f)
     const who = person ? ({ kind: 'existing', decider: person } as const) : readRoleHolder(f, choices)
     const found = [...(chosenSeat ? [] : ['Choose the seat.']), ...holderProblems(who), ...roleProblems(input, !editing)]
-    setProblems(found)
-    setSaved(false)
-    if (found.length || !chosenSeat || who.kind === 'unknown') {
-      top.current?.scrollIntoView({ block: 'start' })
-      return
-    }
+    // The last two are already among the problems found; they are repeated to narrow the types.
+    if (!save.check(found) || !chosenSeat || who.kind === 'unknown') return
     const decider = who.kind === 'new' ? newPerson(who.person, tracker.deciders) : who.decider
     const added = who.kind === 'new' ? decider : undefined
     const role = editing ?? newRole(input, chosenSeat.id, decider.id)
     const writes = editing ? roleEdits(editing, input) : roleInserts(role, added)
-    setSaving(true)
-    commit(writes).then(
-      () => {
-        setSaving(false)
-        setSaved(true)
-        if (mounted.current) onSaved?.({ ...role, ...input }, decider)
-      },
-      (err: unknown) => {
-        setSaving(false)
-        setProblems([notSaved(err)])
-        top.current?.scrollIntoView({ block: 'start' })
-      },
-    )
+    save.save(writes, () => onSaved?.({ ...role, ...input }, decider))
   }
 
   const pickBody = (id: string) => {
@@ -114,8 +93,8 @@ export function RoleForm({ seat, person, start, editing, startHint, onSaved }: R
   }
 
   return (
-    <form onSubmit={onSubmit} onChange={() => setSaved(false)} noValidate className="space-y-6" aria-label={editing ? 'Edit the role' : 'The new role'}>
-      <Problems problems={problems} top={top} />
+    <form onSubmit={onSubmit} onChange={save.edited} noValidate className="space-y-6" aria-label={editing ? 'Edit the role' : 'The new role'}>
+      <Problems save={save} />
 
       {!person && (
         <Section title="Who">
@@ -247,16 +226,7 @@ export function RoleForm({ seat, person, start, editing, startHint, onSaved }: R
         </div>
       </Section>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <button className="btn btn-primary" disabled={saving}>
-          {editing ? 'Save changes' : 'Add the role'}
-        </button>
-        {saved && editing && (
-          <p role="status" className="text-sm font-semibold">
-            Saved.
-          </p>
-        )}
-      </div>
+      <SaveBar save={save} label={editing ? 'Save changes' : 'Add the role'} isEdit={!!editing} />
     </form>
   )
 }

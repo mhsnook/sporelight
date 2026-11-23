@@ -1,62 +1,30 @@
-import { useRef, useState, type FormEvent } from 'react'
+import type { FormEvent } from 'react'
 import type { Decider } from '../../shared/schema.ts'
 import { PERSON_LIMITS, newPerson, personEdits, personInputOf, personProblems, readPersonForm, type PersonInput } from '../lib/person-form.ts'
-import { commit } from '../lib/review.ts'
 import { useTracker } from '../lib/tracker.tsx'
-import { Field, Problems, Section, notSaved, useMounted } from './form.tsx'
+import { Field, Problems, SaveBar, Section, useSave } from './form.tsx'
 
 // Fields keep stable `name`s: `readPersonForm` reads them from the FormData on submit.
 export function PersonForm({ editing, onSaved }: { editing?: Decider; onSaved?: (saved: Decider) => void }) {
   const { tracker } = useTracker()
-  const [problems, setProblems] = useState<string[]>([])
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
-  const top = useRef<HTMLDivElement>(null)
-  const mounted = useMounted()
+  const save = useSave()
 
   function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const input = readPersonForm(new FormData(e.currentTarget))
-    const found = personProblems(input)
-    setProblems(found)
-    setSaved(false)
-    if (found.length) {
-      top.current?.scrollIntoView({ block: 'start' })
-      return
-    }
+    if (!save.check(personProblems(input))) return
     const made = editing ? undefined : newPerson(input, tracker.deciders)
     const writes = made ? [{ on: 'deciders' as const, type: 'insert' as const, row: made }] : personEdits(editing!, input)
-    setSaving(true)
-    commit(writes).then(
-      () => {
-        setSaving(false)
-        setSaved(true)
-        if (mounted.current) onSaved?.(made ?? editing!)
-      },
-      (err: unknown) => {
-        setSaving(false)
-        setProblems([notSaved(err)])
-        top.current?.scrollIntoView({ block: 'start' })
-      },
-    )
+    save.save(writes, () => onSaved?.(made ?? editing!))
   }
 
   return (
-    <form onSubmit={onSubmit} onChange={() => setSaved(false)} noValidate className="space-y-6" aria-label={editing ? 'Edit the person' : 'The new person'}>
-      <Problems problems={problems} top={top} />
+    <form onSubmit={onSubmit} onChange={save.edited} noValidate className="space-y-6" aria-label={editing ? 'Edit the person' : 'The new person'}>
+      <Problems save={save} />
       <Section title="The person">
         <PersonFields start={personInputOf(editing ?? null)} isNew={!editing} />
       </Section>
-      <div className="flex flex-wrap items-center gap-3">
-        <button className="btn btn-primary" disabled={saving}>
-          {editing ? 'Save changes' : 'Add the person'}
-        </button>
-        {saved && editing && (
-          <p role="status" className="text-sm font-semibold">
-            Saved.
-          </p>
-        )}
-      </div>
+      <SaveBar save={save} label={editing ? 'Save changes' : 'Add the person'} isEdit={!!editing} />
     </form>
   )
 }

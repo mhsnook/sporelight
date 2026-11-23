@@ -1,7 +1,7 @@
 import { CERTAINTIES, CONTESTS, pairId, type Body, type Certainty, type Comment, type Decider, type ProposalItem, type ProposalMention, type Role, type Seat } from '../../shared/schema.ts'
 import type { Tracker } from './build-tracker.ts'
 import type { Write } from './review-plan.ts'
-import { isDay, orNull, textField } from './form-input.ts'
+import { changedFields, isDay, orNull, textField } from './form-input.ts'
 import { personProblems, readPersonForm, type PersonInput } from './person-form.ts'
 
 export type Contest = (typeof CONTESTS)[number]
@@ -68,15 +68,12 @@ export function holderProblems(holder: RoleHolder): string[] {
   return []
 }
 
-// The first day of the seat's next term, if the seat or its body names one
-// still to come. The seat's own next election comes first, as the seed's
-// demo council starts its challengers on it; Congress names the day on the body.
+// The first day of the seat's next term, if the seat or its body names one still to come.
 export function nextTermStart(seat: Pick<Seat, 'next_election_on'>, body: Pick<Body, 'next_term_on'> | undefined, today: string): string | null {
   return [seat.next_election_on, body?.next_term_on ?? null].find((day) => day !== null && day > today) ?? null
 }
 
-// Someone running for a seat is a possible holder from the next term, as the
-// seed records the candidates in an undecided race.
+// Someone running for a seat: a possible holder from the next term.
 export const runningFor = (seat: Seat, body: Body | undefined, today: string): RoleInput => ({
   affiliation: null,
   starts_on: nextTermStart(seat, body, today),
@@ -109,8 +106,8 @@ export function roleInserts(role: Role, person?: Decider): Write[] {
 const EDITABLE = ['affiliation', 'starts_on', 'ends_on', 'certainty', 'contest'] as const
 
 export function roleEdits(role: Role, input: RoleInput): Write[] {
-  const changes = Object.fromEntries(EDITABLE.filter((k) => input[k] !== role[k]).map((k) => [k, input[k]])) as Partial<Role>
-  return Object.keys(changes).length ? [{ on: 'roles', type: 'update', id: role.id, changes }] : []
+  const changes = changedFields(role, input, EDITABLE)
+  return changes ? [{ on: 'roles', type: 'update', id: role.id, changes }] : []
 }
 
 export const endRole = (role: Role, on: string): Write => ({ on: 'roles', type: 'update', id: role.id, changes: { ends_on: on } })
@@ -126,25 +123,36 @@ export const seatsIn = (seats: readonly Seat[], filter: SeatFilter) =>
     .filter((s) => s.body_id === filter.body_id && (filter.chamber === null || s.chamber === filter.chamber) && (filter.region === null || s.region === filter.region))
     .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }))
 
+type BodyQuestions = Pick<Tracker, 'seatById' | 'questions' | 'appliesIn'>
+
+// The questions put to the body a role's seat is in.
+const questionsHere = (role: Role, tracker: BodyQuestions) => {
+  const bodyId = tracker.seatById.get(role.seat_id)?.body_id
+  return bodyId === undefined ? [] : tracker.questions.filter((q) => tracker.appliesIn(q, bodyId))
+}
+
+// The comment threads a role's dependents are counted over, so the page can load just those.
+export const threadsFor = (role: Role, tracker: BodyQuestions): string[] => questionsHere(role, tracker).map((q) => pairId(q.id, role.decider_id))
+
 // The rows a role keeps reachable. Rows point at a person, not a role, but a
 // person's page under a question is found through their seat in the body the
 // question is put to. A role is safe to delete only when its person keeps
 // another seat in that body, or has nothing there for a page to show.
 export function roleDependents(
   role: Role,
-  tracker: Pick<Tracker, 'roles' | 'seatById' | 'questions' | 'appliesIn' | 'actsByDecider' | 'readings' | 'setPositions' | 'questionDeciders' | 'officeHolders' | 'offices'>,
+  tracker: BodyQuestions & Pick<Tracker, 'everyRoleByDecider' | 'actsByDecider' | 'readings' | 'setPositions' | 'questionDeciders' | 'officeHolders' | 'offices'>,
   loaded: { proposalItems: readonly ProposalItem[]; proposalMentions: readonly ProposalMention[]; comments: readonly Comment[] },
 ): string[] {
-  const bodyId = tracker.seatById.get(role.seat_id)?.body_id
-  const seatedElsewhere = tracker.roles.some((r) => r.id !== role.id && r.decider_id === role.decider_id && tracker.seatById.get(r.seat_id)?.body_id === bodyId)
-  if (bodyId === undefined || seatedElsewhere) return []
   const who = role.decider_id
-  const here = new Set(tracker.questions.filter((q) => tracker.appliesIn(q, bodyId)).map((q) => q.id))
+  const bodyId = tracker.seatById.get(role.seat_id)?.body_id
+  const seatedElsewhere = (tracker.everyRoleByDecider.get(who) ?? []).some((r) => r.id !== role.id && tracker.seatById.get(r.seat_id)?.body_id === bodyId)
+  if (bodyId === undefined || seatedElsewhere) return []
+  const here = new Set(questionsHere(role, tracker).map((q) => q.id))
   const acts = new Set((tracker.actsByDecider.get(who) ?? []).map((a) => a.id))
   const items = loaded.proposalItems.filter((i) => i.decider_id === who && here.has(i.question_id))
   const proposalsHere = new Set(loaded.proposalItems.filter((i) => here.has(i.question_id)).map((i) => i.proposal_id))
   const officesHere = new Set(tracker.offices.filter((o) => o.body_id === bodyId).map((o) => o.id))
-  const threads = new Set([...here].map((q) => pairId(q, who)))
+  const threads = new Set(threadsFor(role, tracker))
   const counts: [number, string, string][] = [
     [tracker.readings.filter((r) => acts.has(r.act_id) && here.has(r.question_id)).length, 'reading on the record', 'readings on the record'],
     [items.length, 'proposal item', 'proposal items'],
@@ -155,10 +163,4 @@ export function roleDependents(
     [loaded.comments.filter((c) => threads.has(c.thread_id)).length, 'comment', 'comments'],
   ]
   return counts.filter(([n]) => n > 0).map(([n, one, many]) => (n === 1 ? `1 ${one}` : `${n} ${many}`))
-}
-
-// The comment threads a role's dependents are counted over, so the page can load just those.
-export const threadsFor = (role: Role, tracker: Pick<Tracker, 'seatById' | 'questions' | 'appliesIn'>): string[] => {
-  const bodyId = tracker.seatById.get(role.seat_id)?.body_id
-  return bodyId === undefined ? [] : tracker.questions.filter((q) => tracker.appliesIn(q, bodyId)).map((q) => pairId(q.id, role.decider_id))
 }

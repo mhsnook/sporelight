@@ -1,6 +1,6 @@
 import { isWebAddress, type Decider } from '../../shared/schema.ts'
 import type { Write } from './review-plan.ts'
-import { chooseSlug, orNull, textField } from './form-input.ts'
+import { changedFields, chooseSlug, orNull, textField } from './form-input.ts'
 
 export type PersonInput = { name: string; sort_name: string | null; url: string | null }
 
@@ -28,7 +28,7 @@ export function personProblems(input: PersonInput): string[] {
 // given: the last word of the name first, as the seed does.
 export function sortNameOf(name: string): string {
   const words = name.trim().split(/\s+/)
-  return words.length < 2 ? name.trim() : `${words.at(-1)}, ${words.slice(0, -1).join(' ')}`
+  return words.length < 2 ? words.join('') : `${words.at(-1)}, ${words.slice(0, -1).join(' ')}`
 }
 
 // A new person gets a random id, so re-running the seed, which writes its own
@@ -49,7 +49,6 @@ export const personInputOf = (decider: Decider | null): PersonInput => ({ name: 
 // The slug and the external id are left as they are: one is in page addresses,
 // the other is the seed's link to the outside roster.
 export function personEdits(decider: Decider, input: PersonInput): Write[] {
-  const wanted = { name: input.name, sort_name: input.sort_name ?? sortNameOf(input.name), url: input.url }
-  const changes = Object.fromEntries((Object.keys(wanted) as (keyof typeof wanted)[]).filter((k) => wanted[k] !== decider[k]).map((k) => [k, wanted[k]])) as Partial<Decider>
-  return Object.keys(changes).length ? [{ on: 'deciders', type: 'update', id: decider.id, changes }] : []
+  const changes = changedFields(decider, { name: input.name, sort_name: input.sort_name ?? sortNameOf(input.name), url: input.url }, ['name', 'sort_name', 'url'])
+  return changes ? [{ on: 'deciders', type: 'update', id: decider.id, changes }] : []
 }

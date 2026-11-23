@@ -3,6 +3,7 @@ import { useTracker } from '../lib/tracker.tsx'
 import { claimLabel } from '../lib/position.ts'
 import { NotFound, Syncing } from '../components/bits.tsx'
 import { PersonForm } from '../components/PersonForm.tsx'
+import { Section } from '../components/form.tsx'
 
 export const Route = createFileRoute('/editor/people/$slug')({ component: EditPerson })
 
@@ -13,9 +14,7 @@ function EditPerson() {
   const decider = tracker.deciderBySlug.get(slug)
   if (!decider) return <NotFound what="person" />
 
-  const roles = tracker.roles
-    .filter((r) => r.decider_id === decider.id)
-    .sort((a, b) => (a.starts_on ?? '').localeCompare(b.starts_on ?? '') || a.id.localeCompare(b.id))
+  const roles = [...(tracker.everyRoleByDecider.get(decider.id) ?? [])].sort((a, b) => (a.starts_on ?? '').localeCompare(b.starts_on ?? '') || a.id.localeCompare(b.id))
   const bodyIds = [...new Set(roles.flatMap((r) => tracker.seatById.get(r.seat_id)?.body_id ?? []))]
   // Their public page is under a question, so each body they sit in links to its first question.
   const pages = bodyIds.flatMap((id) => {
@@ -42,13 +41,7 @@ function EditPerson() {
 
       <PersonForm key={decider.id} editing={decider} />
 
-      <section aria-labelledby="roles" className="card space-y-3 p-4 sm:p-6">
-        <div>
-          <h2 id="roles" className="text-lg font-extrabold">
-            Seats
-          </h2>
-          <p className="text-sm text-muted">Each claim on a seat, past, present or to come.</p>
-        </div>
+      <Section id="roles" title="Seats" hint="Each claim on a seat, past, present or to come.">
         {roles.length === 0 && <p className="text-sm">No seat yet. Someone with no seat is not shown on any question.</p>}
         {roles.length > 0 && (
           <ul className="divide-y divide-line border-y border-line">
@@ -75,7 +68,7 @@ function EditPerson() {
         <Link to="/editor/roles/new" search={{ person: decider.slug }} className="btn btn-sm">
           Give them a role on a seat
         </Link>
-      </section>
+      </Section>
     </div>
   )
 }

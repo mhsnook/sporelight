@@ -1,9 +1,9 @@
-import { useRef, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { inEffect, type Question } from '../../shared/schema.ts'
 import { LIMITS, bodyOf, inputOf, nounOf, newQuestionRows, questionEdits, questionInserts, questionProblems, readQuestionForm, type Placement, type QuestionInput, type QuestionLinks } from '../lib/question-form.ts'
-import { commit } from '../lib/review.ts'
+import { chambersIn } from '../lib/role-form.ts'
 import { today, useTracker } from '../lib/tracker.tsx'
-import { Choice, Field, Problems, Section, notSaved, useMounted } from './form.tsx'
+import { Choice, Field, Problems, SaveBar, Section, useSave } from './form.tsx'
 
 export type QuestionFormProps =
   | { place: Placement; editing?: undefined; onSaved: (saved: Question) => void }
@@ -39,14 +39,10 @@ export function QuestionForm(props: QuestionFormProps) {
   const [bodyId, setBodyId] = useState(place ? bodyOf(place) : question!.body_id)
   const [kind, setKind] = useState(start.kind)
   const [people, setPeople] = useState(() => start.deciders.map((d) => ({ key: crypto.randomUUID(), ...d })))
-  const [problems, setProblems] = useState<string[]>([])
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
-  const top = useRef<HTMLDivElement>(null)
-  const mounted = useMounted()
+  const save = useSave()
 
   const body = tracker.bodyById.get(bodyId)
-  const chambers = [...new Set(tracker.seats.filter((s) => s.body_id === bodyId && s.chamber).map((s) => s.chamber!))].sort()
+  const chambers = chambersIn(tracker.seats, bodyId)
   const otherBodies = tracker.bodiesInOrder.filter((b) => b.id !== bodyId)
   const root = parent ?? question ?? undefined
   const seated = root ? tracker.rosterOf(root) : []
@@ -63,13 +59,7 @@ export function QuestionForm(props: QuestionFormProps) {
     e.preventDefault()
     const f = new FormData(e.currentTarget)
     const input = readQuestionForm(f)
-    const found = questionProblems(input, isAsk)
-    setProblems(found)
-    setSaved(false)
-    if (found.length) {
-      top.current?.scrollIntoView({ block: 'start' })
-      return
-    }
+    if (!save.check(questionProblems(input, isAsk))) return
     let writes
     let result: Question
     if (place) {
@@ -81,24 +71,12 @@ export function QuestionForm(props: QuestionFormProps) {
       writes = questionEdits(editing.question, input, editing.links)
       result = editing.question
     }
-    setSaving(true)
-    commit(writes).then(
-      () => {
-        setSaving(false)
-        setSaved(true)
-        if (mounted.current) props.onSaved?.(result)
-      },
-      (err: unknown) => {
-        setSaving(false)
-        setProblems([notSaved(err)])
-        top.current?.scrollIntoView({ block: 'start' })
-      },
-    )
+    save.save(writes, () => props.onSaved?.(result))
   }
 
   return (
-    <form onSubmit={onSubmit} onChange={() => setSaved(false)} noValidate className="space-y-6" aria-label={question ? 'Edit the question' : 'The new question'}>
-      <Problems problems={problems} top={top} />
+    <form onSubmit={onSubmit} onChange={save.edited} noValidate className="space-y-6" aria-label={question ? 'Edit the question' : 'The new question'}>
+      <Problems save={save} />
 
       <Section title="The question">
         {place?.kind === 'question' ? (
@@ -297,16 +275,7 @@ export function QuestionForm(props: QuestionFormProps) {
         </Section>
       )}
 
-      <div className="flex flex-wrap items-center gap-3">
-        <button className="btn btn-primary" disabled={saving}>
-          {question ? 'Save changes' : `Add the ${noun}`}
-        </button>
-        {saved && question && (
-          <p role="status" className="text-sm font-semibold">
-            Saved.
-          </p>
-        )}
-      </div>
+      <SaveBar save={save} label={question ? 'Save changes' : `Add the ${noun}`} isEdit={!!question} />
     </form>
   )
 }
