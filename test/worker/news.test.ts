@@ -95,7 +95,7 @@ describe('searchNews', () => {
     const { env, websearch } = stubbedEnv(() => new Response('gateway says no', { status: 502 }))
     const report = await searchNews(env, await tracker(), NOW)
     expect(websearch).toHaveBeenCalledTimes(1)
-    expect(report).toEqual({ error: 'Web search failed (502: gateway says no)', questions: [{ question: 'Hot Topic', hits: 0, read: 0, queued: 0 }], deferred: 0 })
+    expect(report).toEqual({ error: 'Web search failed (502: gateway says no)', questions: [{ question: 'Hot Topic', hits: 0, read: 0, queued: 0, failed: 0 }], deferred: 0 })
   })
 
   it('stops and reports a search that throws', async () => {

@@ -505,6 +505,61 @@ test('someone the article only describes can be recorded as presumed, and their 
   expect(query(`SELECT rd.weight FROM readings rd JOIN acts a ON a.id = rd.act_id WHERE a.body = '${words}'`)).toEqual([{ weight: 'presumed' }])
 })
 
+test('a news search shows each search and article as a step, with what became of each, and carries on past one that could not be queued', async ({ page }) => {
+  // No model or search runs in tests, so the run's recorded steps are the ones the worker would write.
+  const steps = [
+    { kind: 'plan', questions: ['Fare-free ferry'], queriesPerQuestion: 2, maxReads: 15 },
+    { kind: 'searched', question: 'Fare-free ferry', query: '"Fare-free ferry" Harbor Council statement', hits: 10, named: 3 },
+    { kind: 'reading', question: 'Fare-free ferry', url: 'https://example.com/a', title: 'Council splits on the ferry' },
+    { kind: 'read', question: 'Fare-free ferry', url: 'https://example.com/a', title: 'Council splits on the ferry', outcome: 'queued', queued: 2, detail: null },
+    { kind: 'reading', question: 'Fare-free ferry', url: 'https://example.com/b', title: 'Ferry budget hearing' },
+    { kind: 'read', question: 'Fare-free ferry', url: 'https://example.com/b', title: 'Ferry budget hearing', outcome: 'failed', queued: 0, detail: 'D1 is down.' },
+    { kind: 'reading', question: 'Fare-free ferry', url: 'https://example.com/c', title: 'Fares stay for now' },
+    { kind: 'read', question: 'Fare-free ferry', url: 'https://example.com/c', title: 'Fares stay for now', outcome: 'lead', queued: 1, detail: 'The site answered 403.' },
+    { kind: 'searched', question: 'Fare-free ferry', query: '"Fare-free ferry" Harbor Council opposes', hits: 4, named: 0 },
+  ]
+  const report = { questions: [{ question: 'Fare-free ferry', hits: 14, read: 3, queued: 3, failed: 1 }], deferred: 0 }
+  await page.route('**/api/editor/news-search', (route) => route.fulfill({ json: report }))
+  await page.route('**/api/editor/news-runs/*', (route) => {
+    const id = new URL(route.request().url()).pathname.split('/').pop()
+    const run = { id, started_at: TODAY.toISOString(), started_by: 'editor', outcome: 'searched', finished_at: TODAY.toISOString(), detail: JSON.stringify(report) }
+    return route.fulfill({ json: { run, steps } })
+  })
+  await signInAsEditor(page)
+  await page.getByRole('button', { name: 'Search the news now' }).click()
+
+  const run = page.getByRole('region', { name: 'News search' })
+  await expect(run.getByRole('heading', { name: 'The news search finished' })).toBeVisible()
+  await expect(run.getByRole('progressbar', { name: 'Searches done' })).toHaveAttribute('aria-valuenow', '2')
+  await expect(run).toContainText('2 of 2 searches · 3 articles read, at most 15 a run · 3 queued · 1 not queued')
+  const rows = run.getByRole('list', { name: 'Steps' }).getByRole('listitem')
+  await expect(rows).toHaveCount(5)
+  await expect(rows.nth(1)).toContainText('Council splits on the ferryQueued 2 entries')
+  await expect(rows.nth(2)).toContainText('Not queued: D1 is down. The next run tries it again.')
+  await expect(rows.nth(3)).toContainText('Not read, queued as a lead: The site answered 403.')
+  await expect(rows.nth(4)).toContainText('4 results, 0 naming someone on the roster')
+
+  await run.getByRole('button', { name: 'Close' }).click()
+  await expect(run).toHaveCount(0)
+})
+
+test('a news search run is recorded with its steps, and the page of runs shows it', async ({ page }) => {
+  // No search can be made in tests, so the run stops at its first search and records why.
+  await signInAsEditor(page)
+  await page.getByRole('button', { name: 'Search the news now' }).click()
+  const run = page.getByRole('region', { name: 'News search' })
+  await expect(run.getByRole('heading', { name: 'The news search stopped early' })).toBeVisible({ timeout: 20_000 })
+  await expect(run.getByRole('list', { name: 'Steps' }).getByRole('listitem').last()).toContainText(/Stopped\s*Web search failed/)
+  const [recorded] = query<{ id: string; outcome: string; steps: number }>(`SELECT r.id, r.outcome, (SELECT COUNT(*) FROM news_run_steps s WHERE s.run_id = r.id) AS steps FROM news_runs r ORDER BY r.started_at DESC LIMIT 1`)
+  expect(recorded).toMatchObject({ outcome: 'stopped', steps: 2 })
+
+  await run.getByRole('link', { name: 'Every run' }).click()
+  await expect(page).toHaveURL(new RegExp(`/editor/news-runs\\?run=${recorded.id}$`))
+  await expect(page.getByRole('heading', { name: 'News search runs' })).toBeVisible()
+  await expect(page.getByRole('list', { name: 'Runs' }).getByRole('link').first()).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('region', { name: 'News search' }).getByRole('heading', { name: 'The news search stopped early' })).toBeVisible()
+})
+
 test('a lead whose article was not read says so, starts empty, and cannot be published until the words, both answers and a date are in', async ({ page, request }) => {
   const stamp = Date.now()
   const now = TODAY.toISOString()

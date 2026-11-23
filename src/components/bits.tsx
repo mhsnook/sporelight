@@ -74,6 +74,15 @@ export function FootingTag({ footing }: { footing: Footing }) {
   )
 }
 
+// A bordered bar filled `done` of `total` of the way. `className` sizes it; `fillClassName` colours the fill.
+export function ProgressBar({ label, done, total, className, fillClassName = 'bg-support' }: { label: string; done: number; total: number; className: string; fillClassName?: string }) {
+  return (
+    <div className={`overflow-hidden rounded-full border-2 border-ink bg-surface ${className}`} role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={total} aria-valuenow={done}>
+      <div className={`h-full transition-[width] duration-[400ms] ${fillClassName}`} style={{ width: `${total ? (done / total) * 100 : 0}%` }} />
+    </div>
+  )
+}
+
 export function TallyBar({ counts, question }: { counts: Record<Standing, number>; question: Pick<Question, 'kind' | 'act_label'> }) {
   const shown = SPECTRUM.filter((s) => counts[s] > 0)
   const summary = shown.map((s) => `${standingLabel(s, question)} ${counts[s]}`).join(' · ')

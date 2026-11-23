@@ -8,6 +8,8 @@ import type { SearchHit } from '../../worker/leads.ts'
 import { dryRunArticle, MAX_READS_PER_RUN, NEWS_CRON, queueIsAttended, runNewsSearch, searchNews } from '../../worker/news.ts'
 import { MODEL } from '../../worker/reader.ts'
 import type { Tracker } from '../../worker/tracker.ts'
+import type { NewsStep } from '../../shared/news-run.ts'
+import type { Proposal, ProposalDraft } from '../../shared/schema.ts'
 import { rows, seed } from './helpers.ts'
 
 const NOW = new Date('2026-11-19T12:00:00Z')
@@ -297,23 +299,55 @@ describe('reading articles', () => {
   })
 })
 
+describe('the steps a run reports', () => {
+  it('says what it searched, which article it is reading, and how each read ended', async () => {
+    const urls = ['https://news.example/steps-acts', 'https://news.example/steps-none', 'https://news.example/steps-refused']
+    const s = stubbed({
+      hits: urls.map((u) => hit(u)),
+      pages: { [urls[0]]: page('Ann Alpha said: “I will vote for this bill when it reaches the floor.”'), [urls[1]]: page('Nothing of note.'), [urls[2]]: 403 },
+      answer: (prompt) => (prompt.includes('I will vote') ? { acts: [act()] } : { acts: [] }),
+    })
+    const steps: NewsStep[] = []
+    await searchNews(s.env, await tracker(), NOW, (step) => steps.push(step))
+
+    expect(steps[0]).toEqual({ kind: 'plan', questions: ['Hot Topic', 'Closing Topic'], queriesPerQuestion: 4, maxReads: MAX_READS_PER_RUN })
+    expect(steps.filter((st) => st.kind === 'searched')).toHaveLength(8)
+    expect(steps[1]).toMatchObject({ kind: 'searched', question: 'Hot Topic', hits: 3, named: 3 })
+    const reads = steps.filter((st) => st.kind === 'reading' || st.kind === 'read').map((st) => [st.kind, st.url, st.kind === 'read' ? st.outcome : null])
+    expect(reads).toEqual([
+      ['reading', urls[0], null],
+      ['read', urls[0], 'queued'],
+      ['reading', urls[1], null],
+      ['read', urls[1], 'nothing'],
+      ['reading', urls[2], null],
+      ['read', urls[2], 'lead'],
+    ])
+  })
+})
+
 describe('when queueing fails', () => {
   it('does not record the read, so the next run tries again', async () => {
     const url = 'https://news.example/queue-fails'
     const s = stubbed({ hits: [hit(url)], pages: { [url]: page('Ann Alpha said: “I will vote for this bill when it reaches the floor.”') }, answer: () => ({ acts: [act()] }) })
     const failing = { propose: async () => ({ ok: false as const, status: 400, error: 'Unknown question or decider.' }) }
-    const report = await searchNews(s.env, failing, NOW)
-    expect(report.error).toContain('Unknown question or decider.')
+    const steps: NewsStep[] = []
+    const report = await searchNews(s.env, failing, NOW, (step) => steps.push(step))
+    expect(report.questions[0]).toMatchObject({ read: 1, queued: 0, failed: 1 })
+    expect(steps).toContainEqual(expect.objectContaining({ kind: 'read', url, outcome: 'failed', detail: 'Unknown question or decider.' }))
     expect(await readsOf(url)).toEqual([])
   })
 
-  it('does not record the read when queueing throws, and carries on with the run', async () => {
+  it('does not record the read when queueing throws, and carries on with the rest of the run', async () => {
     const urls = ['https://news.example/queue-throws-0', 'https://news.example/queue-throws-1']
     const s = stubbed({ hits: urls.map((u) => hit(u)), pages: Object.fromEntries(urls.map((u) => [u, page('Ann Alpha said: “I will vote for this bill when it reaches the floor.”')])), answer: () => ({ acts: [act()] }) })
-    const throwing = { propose: vi.fn(async () => Promise.reject(new Error('D1 is down'))) }
-    await searchNews(s.env, throwing, NOW)
-    expect(throwing.propose).toHaveBeenCalledTimes(2)
+    const room = await tracker()
+    const propose = vi.fn(async (draft: ProposalDraft, origin: Proposal['origin']) => (propose.mock.calls.length === 1 ? Promise.reject(new Error('D1 is down')) : room.propose(draft, origin)))
+    const report = await searchNews(s.env, { propose }, NOW)
+    expect(propose).toHaveBeenCalledTimes(2)
+    expect(report.error).toBeUndefined()
+    expect(report.questions[0]).toMatchObject({ read: 2, queued: 1, failed: 1 })
     expect(await readsOf(urls[0])).toEqual([])
+    expect(await readsOf(urls[1])).toEqual([expect.objectContaining({ outcome: 'queued' })])
   })
 
   it('records an article whose every act was already proposed as having nothing new', async () => {
@@ -418,6 +452,9 @@ describe('the scheduled run', () => {
     const [run] = await runs()
     expect(run).toMatchObject({ started_by: 'cron', outcome: 'searched' })
     expect(JSON.parse(run.detail)).toMatchObject({ deferred: 0, questions: expect.arrayContaining([expect.objectContaining({ question: 'Hot Topic', read: 0 })]) })
+    // Its steps are recorded in order, starting with the plan.
+    const steps = await rows<{ step: string }>(`SELECT s.step FROM news_run_steps s JOIN news_runs r ON r.id = s.run_id WHERE r.started_by = 'cron' ORDER BY s.seq`)
+    expect(steps.map((r) => JSON.parse(r.step).kind)).toEqual(['plan', ...Array(websearch.mock.calls.length).fill('searched')])
   })
 
   it('records a run whose search failed as stopped', async () => {
