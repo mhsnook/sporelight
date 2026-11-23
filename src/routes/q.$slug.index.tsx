@@ -275,7 +275,7 @@ function EditorTools({ question }: { question: Question }) {
   if (!isEditor()) return null
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Link to="/editor/questions/$slug/edit" params={{ slug: question.slug }} className="btn">
+      <Link to="/q/$slug/edit" params={{ slug: question.slug }} className="btn">
         Edit this {nounOf(question, tracker.isAsk(question))}
       </Link>
       <CloseQuestion question={question} />

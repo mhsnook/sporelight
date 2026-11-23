@@ -1,6 +1,6 @@
 import { env, exports } from 'cloudflare:workers'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { type Frame, partySocket, post, proposal, rows, seed, until } from './helpers.ts'
+import { type Frame, partySocket, postAs, proposal, reader, rows, seed, until } from './helpers.ts'
 
 const rowsOn = (frames: Frame[], channel: string) => frames.filter((f) => f.channel === channel).flatMap((f) => f.ops.map((op) => op.value))
 const storyIds = (xml: string) => [...xml.matchAll(/<id>urn:sporelight:story:([^:<]+):[^<]+<\/id>/g)].map((m) => m[1])
@@ -13,8 +13,11 @@ const REJECTED = 'A claim an editor turned down after reading the source.'
 // Two published stories. The first source reports Ann on the hot question and
 // its measure, and Bob on the hot question. The second reports Ann on the cold
 // question. A pending proposal and a rejected one sit beside them.
+let send: ReturnType<typeof postAs>
+
 beforeAll(async () => {
   await seed()
+  send = postAs((await reader('feed@reader.test')).cookie)
   await env.DB.batch(
     [
       `INSERT INTO questions (id, slug, body_id, parent_id, kind, title, short_title, is_hot, status, implies_on_parent) VALUES
@@ -40,7 +43,7 @@ beforeAll(async () => {
     [WAITING, 'https://news.example/waiting'],
     [REJECTED, 'https://news.example/rejected'],
   ]) {
-    expect(await (await post('/api/proposals', proposal({ quote, source_url: url }))).json()).toMatchObject({ ok: true, duplicate: false })
+    expect(await (await send('/api/proposals', proposal({ quote, source_url: url }))).json()).toMatchObject({ ok: true, duplicate: false })
   }
   await env.DB.prepare(`UPDATE proposal_items SET status = 'rejected' WHERE quote = ?`).bind(REJECTED).run()
 })
@@ -114,7 +117,7 @@ describe('GET /feed.xml', () => {
   it('names the selection and links back to the same slice of the page', async () => {
     const xml = await (await feed('?question=hot')).text()
     expect(xml).toContain('<title>Sporelight: latest on the record (Hot Topic)</title>')
-    expect(xml).toContain('<link rel="alternate" type="text/html" href="http://sporelight.test/latest?question=hot"/>')
+    expect(xml).toContain('<link rel="alternate" type="text/html" href="http://sporelight.test/news?question=hot"/>')
   })
 
   it('answers 404 for a question or body that does not exist', async () => {
@@ -130,7 +133,7 @@ describe('what a reader socket is sent of proposals', () => {
 
     // A new proposal while connected: its source reaches the reader, the proposal does not.
     const seen = reader.frames.length
-    expect(await (await post('/api/proposals', proposal({ quote: 'Posted while a reader is connected.', source_url: 'https://news.example/live' }))).json()).toMatchObject({
+    expect(await (await send('/api/proposals', proposal({ quote: 'Posted while a reader is connected.', source_url: 'https://news.example/live' }))).json()).toMatchObject({
       ok: true,
       duplicate: false,
     })

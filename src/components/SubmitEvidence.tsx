@@ -2,6 +2,8 @@ import { useState, type FormEvent } from 'react'
 import { ACT_KINDS, DIRECTIONS, type Decider, type Direction, type Question } from '../../shared/schema.ts'
 import { DIRECTION_LABEL, KIND_CHOICE } from '../lib/position.ts'
 import { useTracker } from '../lib/tracker.tsx'
+import { useSignedIn } from '../lib/auth.ts'
+import { SignInPrompt } from './SignIn.tsx'
 import { AcrossNotice } from './Story.tsx'
 
 type State = { status: 'idle' | 'sending' } | { status: 'sent'; duplicate: boolean; proposalId: string | null; reading: Direction } | { status: 'error'; message: string }
@@ -10,6 +12,7 @@ export function SubmitEvidence({ question, decider, onDone }: { question: Questi
   const [state, setState] = useState<State>({ status: 'idle' })
   const [copied, setCopied] = useState<'no' | 'yes' | 'refused'>('no')
   const { tracker } = useTracker()
+  const { signedIn, isPending } = useSignedIn()
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -46,7 +49,7 @@ export function SubmitEvidence({ question, decider, onDone }: { question: Questi
 
   if (state.status === 'sent') {
     const across = tracker.acrossFor(question, decider.id, state.reading)
-    const link = state.proposalId ? `${window.location.origin}/latest?proposal=${state.proposalId}` : null
+    const link = state.proposalId ? `${window.location.origin}/news?proposal=${state.proposalId}` : null
     return (
       <div className="flex flex-col gap-3.5 rounded-2xl border-2 border-dashed border-ink bg-paper p-4 text-sm">
         <div>
@@ -96,6 +99,9 @@ export function SubmitEvidence({ question, decider, onDone }: { question: Questi
       </div>
     )
   }
+
+  if (isPending) return null
+  if (!signedIn) return <SignInPrompt>Sign in to send something for review. Your email address is never shown to anyone.</SignInPrompt>
 
   return (
     <form onSubmit={onSubmit} className="space-y-4">

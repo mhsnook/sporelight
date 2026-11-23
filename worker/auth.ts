@@ -77,5 +77,5 @@ async function sendCode(env: Env, email: string, code: string) {
 export async function signedInPerson(req: Request, env: Env): Promise<Person | null> {
   const session = await auth(env).api.getSession({ headers: req.headers, request: req, asResponse: false })
   if (!session) return null
-  return env.DB.prepare(`SELECT id, display_name, muted_at, created_at FROM people WHERE id = ?`).bind(session.user.id).first<Person>()
+  return env.DB.prepare(`SELECT id, display_name, created_at FROM people WHERE id = ?`).bind(session.user.id).first<Person>()
 }

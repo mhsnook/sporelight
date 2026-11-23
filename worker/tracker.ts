@@ -49,8 +49,8 @@ export class Tracker extends PartyDbServer<Env> {
     return new D1Adapter(this.env.DB, this.collections, { oplogRetention: this.oplogRetention })
   }
 
-  // Unreviewed proposals enter here rather than through CRUD so anonymous
-  // readers never need write access to the room.
+  // Unreviewed proposals enter here rather than through CRUD so readers never
+  // need write access to the room.
   async propose(draft: ProposalDraft, origin: Proposal['origin'], submittedBy: string | null = null, isRetry = false): Promise<SubmitResult> {
     const db = this.env.DB
     const pending = await db.prepare(`SELECT COUNT(*) AS n FROM proposals WHERE status = 'pending'`).first<{ n: number }>()
@@ -142,7 +142,7 @@ export class Tracker extends PartyDbServer<Env> {
   }
 
   async addPerson(id: string, createdAt: string) {
-    const person: Person = { id, display_name: null, muted_at: null, created_at: createdAt }
+    const person: Person = { id, display_name: null, created_at: createdAt }
     await this.commit([{ channel: 'people', ops: [{ type: 'insert', value: person }] }])
   }
 
@@ -150,9 +150,9 @@ export class Tracker extends PartyDbServer<Env> {
     await this.commit([{ channel: 'people', ops: [{ type: 'update', value: { id: personId, display_name: displayName } }] }])
   }
 
-  // A signed-in person's comment goes under the name they chose, and the first
-  // name they post under becomes that name.
-  async comment(input: CommentInput, person: Person | null = null): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  // A comment is shown under its person's display_name, so a person without one cannot post.
+  async comment(input: CommentInput, person: Person): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+    if (person.display_name === null) return { ok: false, status: 400, error: 'Choose a display name before you comment.' }
     const known = await this.env.DB.prepare(
       `SELECT 1 FROM questions q, deciders d WHERE q.id = ? AND d.id = ?`,
     )
@@ -162,13 +162,11 @@ export class Tracker extends PartyDbServer<Env> {
     const row: Comment = {
       id: crypto.randomUUID(),
       thread_id: pairId(input.question_id, input.decider_id),
-      author_name: person?.display_name ?? input.author_name,
-      person_id: person?.id ?? null,
+      person_id: person.id,
       body: input.body,
       created_at: new Date().toISOString(),
     }
-    const naming = person && person.display_name === null ? [{ channel: 'people', ops: [{ type: 'update' as const, value: { id: person.id, display_name: input.author_name } }] }] : []
-    await this.commit([...naming, { channel: 'comments', ops: [{ type: 'insert', value: row }] }])
+    await this.commit([{ channel: 'comments', ops: [{ type: 'insert', value: row }] }])
     return { ok: true }
   }
 }

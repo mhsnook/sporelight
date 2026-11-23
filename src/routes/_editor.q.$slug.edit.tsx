@@ -6,7 +6,7 @@ import { NotFound, Syncing } from '../components/bits.tsx'
 import { CloseQuestion, ClosedNote } from '../components/Asks.tsx'
 import { QuestionForm } from '../components/QuestionForm.tsx'
 
-export const Route = createFileRoute('/editor/questions/$slug/edit')({ component: EditQuestion })
+export const Route = createFileRoute('/_editor/q/$slug/edit')({ component: EditQuestion })
 
 const LINK_LABEL = { smaller_step: 'Smaller step', fuller_proposal: 'Fuller proposal', related: 'Related issue' } as const
 
@@ -29,7 +29,7 @@ function EditQuestion() {
     <div className="mx-auto max-w-2xl space-y-6">
       <div className="space-y-2">
         {parent && (
-          <Link to="/editor/questions/$slug/edit" params={{ slug: parent.slug }} className="link text-sm">
+          <Link to="/q/$slug/edit" params={{ slug: parent.slug }} className="link text-sm">
             ← {parent.title}
           </Link>
         )}
@@ -78,7 +78,7 @@ function SubQuestions({ question }: { question: Question }) {
                 {q.short_title}
                 {!tracker.isOpen(q) && <span className="text-faint"> · closed</span>}
               </span>
-              <Link to="/editor/questions/$slug/edit" params={{ slug: q.slug }} className="link shrink-0">
+              <Link to="/q/$slug/edit" params={{ slug: q.slug }} className="link shrink-0">
                 Edit <span className="sr-only">{q.short_title}</span>
               </Link>
             </li>
@@ -86,10 +86,10 @@ function SubQuestions({ question }: { question: Question }) {
         </ul>
       )}
       <div className="flex flex-wrap gap-2">
-        <Link to="/editor/questions/new" search={{ parent: question.slug, sub: 'measure' }} className="btn btn-sm">
+        <Link to="/questions/new" search={{ parent: question.slug, sub: 'measure' }} className="btn btn-sm">
           Add a measure
         </Link>
-        <Link to="/editor/questions/new" search={{ parent: question.slug, sub: 'ask' }} className="btn btn-sm">
+        <Link to="/questions/new" search={{ parent: question.slug, sub: 'ask' }} className="btn btn-sm">
           Add an ask
         </Link>
       </div>
@@ -116,14 +116,14 @@ function Linked({ question }: { question: Question }) {
                 <span className="tag mr-2">{LINK_LABEL[kind]}</span>
                 {q.short_title}
               </span>
-              <Link to="/editor/questions/$slug/edit" params={{ slug: q.slug }} className="link shrink-0">
+              <Link to="/q/$slug/edit" params={{ slug: q.slug }} className="link shrink-0">
                 Edit <span className="sr-only">{q.short_title}</span>
               </Link>
             </li>
           ))}
         </ul>
       )}
-      <Link to="/editor/questions/new" search={{ linkTo: question.slug }} className="btn btn-sm">
+      <Link to="/questions/new" search={{ linkTo: question.slug }} className="btn btn-sm">
         Add a smaller step or related question
       </Link>
     </section>

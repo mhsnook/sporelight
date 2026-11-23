@@ -6,7 +6,7 @@ import { runStatus } from '../lib/news-trace.ts'
 
 type RunsSearch = { run?: string }
 
-export const Route = createFileRoute('/editor/news-runs')({
+export const Route = createFileRoute('/_editor/news/runs')({
   component: NewsRuns,
   validateSearch: (s: Record<string, unknown>): RunsSearch => ({ run: typeof s.run === 'string' && s.run ? s.run : undefined }),
 })
@@ -35,7 +35,7 @@ function NewsRuns() {
     <div className="space-y-6">
       <header className="space-y-2">
         <p className="text-sm">
-          <Link to="/editor" className="link font-semibold">
+          <Link to="/news/review" className="link font-semibold">
             Review queue
           </Link>
         </p>
@@ -53,7 +53,7 @@ function NewsRuns() {
             {list.map((run) => (
               <li key={run.id}>
                 <Link
-                  to="/editor/news-runs"
+                  to="/news/runs"
                   search={{ run: run.id }}
                   className={`block rounded-[14px] border-2 border-ink px-3.5 py-2.5 hover:shadow-hard-md ${run.id === chosenId ? 'bg-mint shadow-hard-md' : 'bg-surface'}`}
                 >

@@ -7,21 +7,17 @@ import { db } from './db.ts'
 
 export const authClient = createAuthClient({ basePath: '/api/auth', plugins: [emailOTPClient()] })
 
-// Everyone who has signed in, and who among them an editor has muted.
+// Everyone who has signed in, by id.
 export function usePeople() {
   const { data } = useLiveQuery((q) => q.from({ row: db.people }))
-  return useMemo(() => {
-    const byId = new Map<string, Person>(data.map((p) => [p.id, p]))
-    const muted = new Set(data.filter((p) => p.muted_at !== null).map((p) => p.id))
-    return { byId, muted }
-  }, [data])
+  return useMemo(() => new Map<string, Person>(data.map((p) => [p.id, p])), [data])
 }
 
 // The person signed in in this browser. Their row arrives through the sync
 // room a moment after they first sign in, so `person` can lag `signedIn`.
 export function useSignedIn() {
   const session = authClient.useSession()
-  const { byId } = usePeople()
+  const byId = usePeople()
   const id = session.data?.user.id
   return { signedIn: id !== undefined, person: id ? byId.get(id) : undefined, isPending: session.isPending }
 }

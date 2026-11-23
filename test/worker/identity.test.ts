@@ -3,9 +3,9 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { askForCode, codeIn, cookieFrom, type Frame, mailbox, nextIp, partySocket, post, proposal, rows, seed, signIn, until } from './helpers.ts'
 
 const mail = mailbox()
-const comment = (overrides: Record<string, unknown> = {}) => ({ question_id: 'hot', decider_id: 'ann', author_name: 'typed-name', body: 'A comment.', ...overrides })
+const comment = (overrides: Record<string, unknown> = {}) => ({ question_id: 'hot', decider_id: 'ann', body: 'A comment.', ...overrides })
 const personFor = async (email: string) =>
-  (await rows<{ id: string; display_name: string | null; muted_at: string | null }>(`SELECT p.id, p.display_name, p.muted_at FROM people p JOIN auth_users u ON u.id = p.id WHERE u.email = ?`, email))[0]
+  (await rows<{ id: string; display_name: string | null }>(`SELECT p.id, p.display_name FROM people p JOIN auth_users u ON u.id = p.id WHERE u.email = ?`, email))[0]
 
 beforeAll(seed)
 
@@ -24,7 +24,7 @@ describe('signing in with a code sent by email', () => {
   it('signs in a new address with its code and adds a person with no name yet', async () => {
     const cookie = await signIn(mail, 'new@reader.test')
     expect(cookie).toMatch(/session_token=/)
-    expect(await personFor('new@reader.test')).toEqual({ id: expect.any(String), display_name: null, muted_at: null })
+    expect(await personFor('new@reader.test')).toEqual({ id: expect.any(String), display_name: null })
   })
 
   it('signs the same address in again as the same person', async () => {
@@ -101,36 +101,40 @@ describe('what the public is sent about a person', () => {
 })
 
 describe('what a signed-in person posts', () => {
-  it('ties a comment to the person, and takes the first name they post under as theirs', async () => {
-    const cookie = await signIn(mail, 'commenter@reader.test')
-    const person = await personFor('commenter@reader.test')
-    expect((await post('/api/comments', comment({ author_name: 'First Name', body: 'First comment.' }), undefined, undefined, cookie)).status).toBe(200)
-    expect((await post('/api/comments', comment({ author_name: 'Another Name', body: 'Second comment.' }), undefined, undefined, cookie)).status).toBe(200)
-    expect(await rows(`SELECT author_name, person_id FROM comments WHERE body IN ('First comment.', 'Second comment.') ORDER BY created_at`)).toEqual([
-      { author_name: 'First Name', person_id: person.id },
-      { author_name: 'First Name', person_id: person.id },
-    ])
-    expect((await personFor('commenter@reader.test')).display_name).toBe('First Name')
+  it('ties a comment to the person, after they choose the name it shows', async () => {
+    const cookie = await signIn(mail, 'named.commenter@reader.test')
+    const person = await personFor('named.commenter@reader.test')
+    expect((await post('/api/comments', comment({ body: 'Before a name.' }), undefined, undefined, cookie)).status).toBe(400)
+    expect((await post('/api/me/name', { display_name: 'First Name' }, undefined, undefined, cookie)).status).toBe(200)
+    expect((await post('/api/comments', comment({ body: 'First comment.' }), undefined, undefined, cookie)).status).toBe(200)
+    expect(await rows(`SELECT person_id FROM comments WHERE body IN ('Before a name.', 'First comment.')`)).toEqual([{ person_id: person.id }])
+    expect((await personFor('named.commenter@reader.test')).display_name).toBe('First Name')
   })
 
-  it('leaves a signed-out comment tied to nobody, under the name typed', async () => {
-    expect((await post('/api/comments', comment({ author_name: 'Just Visiting', body: 'Signed out.' }))).status).toBe(200)
-    expect(await rows(`SELECT author_name, person_id FROM comments WHERE body = 'Signed out.'`)).toEqual([{ author_name: 'Just Visiting', person_id: null }])
-  })
-
-  it('records who submitted a proposal, and nobody for a signed-out one', async () => {
+  it('records who submitted a proposal', async () => {
     const cookie = await signIn(mail, 'submitter@reader.test')
     const person = await personFor('submitter@reader.test')
-    const signedIn = await post('/api/proposals', proposal({ source_url: 'https://news.example/signed-in' }), undefined, undefined, cookie)
-    const signedOut = await post('/api/proposals', proposal({ source_url: 'https://news.example/signed-out' }))
-    const ids = [(await signedIn.json()) as { proposal_id: string }, (await signedOut.json()) as { proposal_id: string }].map((r) => r.proposal_id)
-    expect(await rows(`SELECT submitted_by FROM proposals WHERE id = ?`, ids[0])).toEqual([{ submitted_by: person.id }])
-    expect(await rows(`SELECT submitted_by FROM proposals WHERE id = ?`, ids[1])).toEqual([{ submitted_by: null }])
+    const res = await post('/api/proposals', proposal({ source_url: 'https://news.example/signed-in' }), undefined, undefined, cookie)
+    const { proposal_id } = (await res.json()) as { proposal_id: string }
+    expect(await rows(`SELECT origin, submitted_by FROM proposals WHERE id = ?`, proposal_id)).toEqual([{ origin: 'reader', submitted_by: person.id }])
   })
 
-  it('treats a forged cookie as signed out', async () => {
-    const forged = 'better-auth.session_token=not-a-real-session'
-    expect((await post('/api/comments', comment({ author_name: 'Forger', body: 'Forged cookie.' }), undefined, undefined, forged)).status).toBe(200)
-    expect(await rows(`SELECT person_id FROM comments WHERE body = 'Forged cookie.'`)).toEqual([{ person_id: null }])
+  it.each([
+    ['no cookie', undefined],
+    ['a forged cookie', 'better-auth.session_token=not-a-real-session'],
+  ])('refuses a proposal sent with %s, and queues nothing', async (_, cookie) => {
+    const url = `https://news.example/signed-out-${cookie ? 'forged' : 'none'}`
+    const res = await post('/api/proposals', proposal({ source_url: url }), undefined, undefined, cookie)
+    expect(res.status).toBe(401)
+    expect(await res.json()).toEqual({ error: 'Sign in to post.' })
+    expect(await rows(`SELECT id FROM sources WHERE url = ?`, url)).toEqual([])
+  })
+
+  it('refuses a comment sent with a cookie that has been signed out', async () => {
+    const cookie = await signIn(mail, 'gone.commenter@reader.test')
+    expect((await post('/api/me/name', { display_name: 'Gone Soon' }, undefined, undefined, cookie)).status).toBe(200)
+    expect((await mail.call('/api/auth/sign-out', {}, nextIp(), cookie)).ok).toBe(true)
+    expect((await post('/api/comments', comment({ body: 'After signing out.' }), undefined, undefined, cookie)).status).toBe(401)
+    expect(await rows(`SELECT id FROM comments WHERE body = 'After signing out.'`)).toEqual([])
   })
 })

@@ -20,7 +20,7 @@ import { ReviewCard, people } from '../components/review/ReviewCard.tsx'
 
 type QueueSearch = { question?: string }
 
-export const Route = createFileRoute('/editor/')({
+export const Route = createFileRoute('/_editor/news/review')({
   component: Queue,
   validateSearch: (s: Record<string, unknown>): QueueSearch => ({ question: typeof s.question === 'string' && s.question ? s.question : undefined }),
 })
@@ -113,7 +113,7 @@ function Queue() {
     return (
       <div className="pb-16 text-center">
         <NotFound what="question" />
-        <Link to="/editor" search={{}} className="link">
+        <Link to="/news/review" search={{}} className="link">
           See the whole queue
         </Link>
       </div>

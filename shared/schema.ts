@@ -400,7 +400,6 @@ export function sourceUrl(url: string): string {
 export const personSchema = z.object({
   id: z.string(),
   display_name: z.string().nullable(),
-  muted_at: z.string().nullable(),
   created_at: z.string(),
 })
 export type Person = z.infer<typeof personSchema>
@@ -413,9 +412,8 @@ export const SIGN_IN_CODE_MINUTES = 5
 export const commentSchema = z.object({
   id: z.string(),
   thread_id: z.string(),
-  author_name: z.string(),
-  // Null for a comment posted while signed out.
-  person_id: z.string().nullable(),
+  // Shown under this person's display_name.
+  person_id: z.string(),
   body: z.string(),
   created_at: z.string(),
 })
@@ -424,7 +422,6 @@ export type Comment = z.infer<typeof commentSchema>
 export const commentInputSchema = z.object({
   question_id: z.string().min(1),
   decider_id: z.string().min(1),
-  author_name: displayNameSchema,
   body: z.string().trim().min(1).max(2000),
 })
 export type CommentInput = z.infer<typeof commentInputSchema>
@@ -477,8 +474,8 @@ export const proposalNotesCollection = definePartyCollection({
 })
 
 // Sliced by thread, so a reader loads and hears only the threads they have open.
-// Readers post through the Worker, which stamps and validates the row; editors
-// may delete.
+// Signed-in readers post through the Worker, which stamps and validates the
+// row; editors may delete.
 export const commentsCollection = definePartyCollection({
   name: 'comments',
   key: 'id',
@@ -487,8 +484,7 @@ export const commentsCollection = definePartyCollection({
   access: { read: 'public', delete: 'authed' },
 })
 
-// Rows are added by the Worker when someone first signs in, and an editor mutes
-// a person by setting muted_at.
+// Rows are added by the Worker when someone first signs in.
 export const peopleCollection = definePartyCollection({ name: 'people', key: 'id', schema: personSchema, access: { read: 'public', update: 'authed' } })
 
 export const proposalContextsCollection = definePartyCollection({ name: 'proposal_contexts', key: 'id', schema: proposalContextSchema, access: 'authed' })

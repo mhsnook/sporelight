@@ -3,7 +3,7 @@ import { getServerByName } from 'partyserver'
 import { beforeAll, describe, expect, it } from 'vitest'
 import type { ProposalDraft } from '../../shared/schema.ts'
 import type { Tracker } from '../../worker/tracker.ts'
-import { post, proposal, rows, seed } from './helpers.ts'
+import { postAs, proposal, reader, rows, seed } from './helpers.ts'
 
 const tracker = () => getServerByName<Env, Tracker>(env.Tracker, 'main')
 // What the Worker answers a proposal it queued, and one it already had.
@@ -17,14 +17,22 @@ const totals = async () => ({
   notes: await count('proposal_notes'),
 })
 
-beforeAll(seed)
+let send: ReturnType<typeof postAs>
+let personId = ''
+
+beforeAll(async () => {
+  await seed()
+  const signedIn = await reader('proposer@reader.test')
+  send = postAs(signedIn.cookie)
+  personId = signedIn.personId
+})
 
 describe('POST /api/proposals: refused input', () => {
   it.each([
     ['text that is not JSON', 'not json'],
     ['JSON null', 'null'],
   ])('refuses %s', async (_, raw) => {
-    const res = await post('/api/proposals', raw)
+    const res = await send('/api/proposals', raw)
     expect(res.status).toBe(400)
     expect(await res.json()).toEqual({ error: 'Expected a JSON body.' })
   })
@@ -35,7 +43,7 @@ describe('POST /api/proposals: refused input', () => {
     ['a JSON number', '42'],
   ])('refuses %s with a 400 and writes nothing', async (_, raw) => {
     const before = await totals()
-    expect((await post('/api/proposals', raw)).status).toBe(400)
+    expect((await send('/api/proposals', raw)).status).toBe(400)
     expect(await totals()).toEqual(before)
   })
 
@@ -50,7 +58,7 @@ describe('POST /api/proposals: refused input', () => {
     ['submitter_note', { submitter_note: 'x'.repeat(1001) }],
   ])('refuses a bad %s and writes nothing', async (field, bad) => {
     const before = await totals()
-    const res = await post('/api/proposals', proposal(bad))
+    const res = await send('/api/proposals', proposal(bad))
     expect(res.status).toBe(400)
     expect(((await res.json()) as { error: string }).error).toMatch(new RegExp(`^${field}: `))
     expect(await totals()).toEqual(before)
@@ -58,7 +66,7 @@ describe('POST /api/proposals: refused input', () => {
 
   it('ignores fields only the server or an editor sets', async () => {
     const url = 'https://news.example/forged-fields'
-    const res = await post('/api/proposals', {
+    const res = await send('/api/proposals', {
       ...proposal({ source_url: url }),
       id: 'forged-proposal',
       proposal_id: 'forged-proposal',
@@ -82,7 +90,7 @@ describe('POST /api/proposals: refused input', () => {
        FROM proposal_items i JOIN proposals p ON p.id = i.proposal_id JOIN sources s ON s.id = p.source_id WHERE s.url = ?`,
       url,
     )
-    expect(row).toMatchObject({ origin: 'reader', proposal_status: 'pending', submitted_by: null, reviewed_at: null, unread: null, status: 'pending', weight: 'clear', passage: null, sort: 0 })
+    expect(row).toMatchObject({ origin: 'reader', proposal_status: 'pending', submitted_by: personId, reviewed_at: null, unread: null, status: 'pending', weight: 'clear', passage: null, sort: 0 })
     expect([row.proposal_id, row.id, row.act_id]).not.toContain('forged-proposal')
     expect((answer as { proposal_id: string }).proposal_id).toBe(row.proposal_id)
     expect(row.act_id).not.toBe('forged-act')
@@ -91,7 +99,7 @@ describe('POST /api/proposals: refused input', () => {
 
   it('answers a filled-in honeypot as if it worked and writes nothing', async () => {
     const before = await totals()
-    const res = await post('/api/proposals', { ...proposal({ source_url: 'https://news.example/honeypot' }), website: 'https://spam.example' })
+    const res = await send('/api/proposals', { ...proposal({ source_url: 'https://news.example/honeypot' }), website: 'https://spam.example' })
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ ok: true })
     expect(await totals()).toEqual(before)
@@ -102,7 +110,7 @@ describe('POST /api/proposals: refused input', () => {
     ['decider', { decider_id: 'no-such-person' }],
   ])('refuses an unknown %s and leaves no source behind', async (_, bad) => {
     const before = await totals()
-    const res = await post('/api/proposals', proposal({ ...bad, source_url: `https://news.example/unknown-${_}` }))
+    const res = await send('/api/proposals', proposal({ ...bad, source_url: `https://news.example/unknown-${_}` }))
     expect(res.status).toBe(400)
     expect(await res.json()).toEqual({ error: 'Unknown question or decider.' })
     expect(await totals()).toEqual(before)
@@ -111,7 +119,7 @@ describe('POST /api/proposals: refused input', () => {
   it('limits one address to six posts a minute', async () => {
     const statuses: number[] = []
     for (let i = 0; i < 7; i++) {
-      statuses.push((await post('/api/proposals', proposal({ quote: 'too short' }), '192.0.2.77')).status)
+      statuses.push((await send('/api/proposals', proposal({ quote: 'too short' }), '192.0.2.77')).status)
     }
     expect(statuses).toEqual([400, 400, 400, 400, 400, 400, 429])
   })
@@ -120,7 +128,7 @@ describe('POST /api/proposals: refused input', () => {
 describe('POST /api/proposals: a new source', () => {
   it('writes a source, a pending proposal, one item and the submitter note', async () => {
     const url = 'https://news.example/new-source'
-    const res = await post('/api/proposals', proposal({ source_url: `${url}#comments`, submitter_note: 'Second paragraph.' }))
+    const res = await send('/api/proposals', proposal({ source_url: `${url}#comments`, submitter_note: 'Second paragraph.' }))
     expect(res.status).toBe(200)
     const answer = (await res.json()) as { proposal_id: string }
     expect(answer).toEqual(QUEUED)
@@ -149,7 +157,7 @@ describe('POST /api/proposals: a new source', () => {
   })
 
   it('writes no note when the submitter left none', async () => {
-    await post('/api/proposals', proposal({ source_url: 'https://news.example/no-note' }))
+    await send('/api/proposals', proposal({ source_url: 'https://news.example/no-note' }))
     expect(await rows(`SELECT n.id FROM proposal_notes n JOIN proposals p ON p.id = n.proposal_id JOIN sources s ON s.id = p.source_id WHERE s.url = ?`, 'https://news.example/no-note')).toEqual([])
   })
 })
@@ -163,7 +171,7 @@ describe('POST /api/proposals: duplicates from the same source', () => {
       decider,
     )
   const submit = async (overrides: Record<string, unknown>) =>
-    (await (await post('/api/proposals', proposal({ source_url: url, ...overrides }))).json()) as { ok: boolean; duplicate: boolean; proposal_id: string | null }
+    (await (await send('/api/proposals', proposal({ source_url: url, ...overrides }))).json()) as { ok: boolean; duplicate: boolean; proposal_id: string | null }
 
   it('a pending item blocks the same person and question, whatever the quote', async () => {
     expect(await submit({ decider_id: 'bob' })).toEqual(QUEUED)
@@ -305,7 +313,7 @@ describe('POST /api/proposals: a full queue', () => {
     expect(await count(`proposals WHERE status = 'pending'`)).toBe(500)
 
     const before = await totals()
-    const res = await post('/api/proposals', proposal({ source_url: 'https://news.example/one-too-many' }))
+    const res = await send('/api/proposals', proposal({ source_url: 'https://news.example/one-too-many' }))
     expect(res.status).toBe(429)
     expect(await res.json()).toEqual({ error: 'The review queue is full right now. Please try again later.' })
     expect(await totals()).toEqual(before)
@@ -313,7 +321,7 @@ describe('POST /api/proposals: a full queue', () => {
 
   it('takes proposals again once one is reviewed', async () => {
     await env.DB.prepare(`UPDATE proposals SET status = 'reviewed' WHERE id = 'filler-0'`).run()
-    const res = await post('/api/proposals', proposal({ source_url: 'https://news.example/after-review' }))
+    const res = await send('/api/proposals', proposal({ source_url: 'https://news.example/after-review' }))
     expect(await res.json()).toEqual(QUEUED)
   })
 })
