@@ -14,6 +14,7 @@ import { Route as EditorRouteImport } from './routes/editor'
 import { Route as LatestRouteImport } from './routes/latest'
 import { Route as QuestionsRouteImport } from './routes/questions'
 import { Route as EditorIndexRouteImport } from './routes/editor.index'
+import { Route as EditorNewsRunsRouteImport } from './routes/editor.news-runs'
 import { Route as EditorPeopleIndexRouteImport } from './routes/editor.people.index'
 import { Route as EditorPeopleSlugRouteImport } from './routes/editor.people.$slug'
 import { Route as EditorPeopleNewRouteImport } from './routes/editor.people.new'
@@ -47,6 +48,11 @@ const QuestionsRoute = QuestionsRouteImport.update({
 const EditorIndexRoute = EditorIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => EditorRoute,
+} as any)
+const EditorNewsRunsRoute = EditorNewsRunsRouteImport.update({
+  id: '/news-runs',
+  path: '/news-runs',
   getParentRoute: () => EditorRoute,
 } as any)
 const EditorPeopleIndexRoute = EditorPeopleIndexRouteImport.update({
@@ -100,6 +106,7 @@ export interface FileRoutesByFullPath {
   '/editor': typeof EditorRouteWithChildren
   '/latest': typeof LatestRoute
   '/questions': typeof QuestionsRoute
+  '/editor/news-runs': typeof EditorNewsRunsRoute
   '/editor/': typeof EditorIndexRoute
   '/editor/people/$slug': typeof EditorPeopleSlugRoute
   '/editor/people/new': typeof EditorPeopleNewRoute
@@ -115,6 +122,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/latest': typeof LatestRoute
   '/questions': typeof QuestionsRoute
+  '/editor/news-runs': typeof EditorNewsRunsRoute
   '/editor': typeof EditorIndexRoute
   '/editor/people/$slug': typeof EditorPeopleSlugRoute
   '/editor/people/new': typeof EditorPeopleNewRoute
@@ -132,6 +140,7 @@ export interface FileRoutesById {
   '/editor': typeof EditorRouteWithChildren
   '/latest': typeof LatestRoute
   '/questions': typeof QuestionsRoute
+  '/editor/news-runs': typeof EditorNewsRunsRoute
   '/editor/': typeof EditorIndexRoute
   '/editor/people/$slug': typeof EditorPeopleSlugRoute
   '/editor/people/new': typeof EditorPeopleNewRoute
@@ -150,6 +159,7 @@ export interface FileRouteTypes {
     | '/editor'
     | '/latest'
     | '/questions'
+    | '/editor/news-runs'
     | '/editor/'
     | '/editor/people/$slug'
     | '/editor/people/new'
@@ -165,6 +175,7 @@ export interface FileRouteTypes {
     | '/'
     | '/latest'
     | '/questions'
+    | '/editor/news-runs'
     | '/editor'
     | '/editor/people/$slug'
     | '/editor/people/new'
@@ -181,6 +192,7 @@ export interface FileRouteTypes {
     | '/editor'
     | '/latest'
     | '/questions'
+    | '/editor/news-runs'
     | '/editor/'
     | '/editor/people/$slug'
     | '/editor/people/new'
@@ -237,6 +249,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/editor/'
       preLoaderRoute: typeof EditorIndexRouteImport
+      parentRoute: typeof EditorRoute
+    }
+    '/editor/news-runs': {
+      id: '/editor/news-runs'
+      path: '/news-runs'
+      fullPath: '/editor/news-runs'
+      preLoaderRoute: typeof EditorNewsRunsRouteImport
       parentRoute: typeof EditorRoute
     }
     '/editor/people/': {
@@ -306,6 +325,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface EditorRouteChildren {
+  EditorNewsRunsRoute: typeof EditorNewsRunsRoute
   EditorIndexRoute: typeof EditorIndexRoute
   EditorPeopleSlugRoute: typeof EditorPeopleSlugRoute
   EditorPeopleNewRoute: typeof EditorPeopleNewRoute
@@ -317,6 +337,7 @@ interface EditorRouteChildren {
 }
 
 const EditorRouteChildren: EditorRouteChildren = {
+  EditorNewsRunsRoute: EditorNewsRunsRoute,
   EditorIndexRoute: EditorIndexRoute,
   EditorPeopleSlugRoute: EditorPeopleSlugRoute,
   EditorPeopleNewRoute: EditorPeopleNewRoute,

@@ -190,7 +190,7 @@ test('evidence a reader sends reaches the editor under its question and, once ap
 
 // The rows a news search run queues for a model-read article, written through
 // the editor's party endpoint since no model runs in tests.
-async function queueModelRead(request: APIRequestContext, item: { decider_id: string; quote: string; passage: string; reading: string; weight: string; kind: string }, sourceTitle: string) {
+async function queueModelRead(request: APIRequestContext, item: { decider_id: string; quote: string; passage: string; reading: string; weight: string; kind: string; question_id?: string }, sourceTitle: string) {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
   const now = TODAY.toISOString()
   const ids = { source: `src-${stamp}`, proposal: `prop-${stamp}`, item: `item-${stamp}` }
@@ -381,6 +381,63 @@ test('the list beside the open card pages through every waiting proposal', async
   await expect(page.getByRole('article').getByRole('heading').first()).toContainText(lastTitle.match(/Paged \d+ no\. \d+/)![0])
 })
 
+test('the queue narrows to one question and what is under it, kept in the URL, and clearing it brings back every proposal', async ({ page, request }) => {
+  const stamp = Date.now()
+  const lead = (n: number, question_id: string) =>
+    queueModelRead(request, { decider_id: 'demo-bartholomew-sato', quote: `Words for narrowing ${stamp} ${n}.`, passage: `Words for narrowing ${stamp} ${n}.`, reading: 'support', weight: 'passing', kind: 'says', question_id }, `Narrowed ${stamp} no. ${n}`)
+  await Promise.all([lead(1, 'berth-fee'), lead(2, 'berth-fee'), lead(3, 'free-ferry-fiscal-note')])
+
+  // Waiting proposals with an item on a question or one under it, read in one query since each one starts wrangler.
+  const waitingOn = (id: string) =>
+    `(SELECT COUNT(DISTINCT p.id) FROM proposals p JOIN proposal_items i ON i.proposal_id = p.id JOIN questions q ON q.id = i.question_id
+      WHERE p.status = 'pending' AND (q.id = '${id}' OR q.parent_id = '${id}'))`
+  const [counts] = query<{ berthFee: number; freeFerry: number; everything: number }>(
+    `SELECT ${waitingOn('berth-fee')} AS berthFee, ${waitingOn('free-ferry')} AS freeFerry, (SELECT COUNT(*) FROM proposals WHERE status = 'pending') AS everything`,
+  )
+
+  await signInAsEditor(page)
+  const byQuestion = page.getByRole('group', { name: 'Questions with proposals waiting' })
+  const berth = byQuestion.getByRole('button', { name: /^Cruise ship berth fee/ })
+  await expect(berth).toContainText(`${counts.berthFee} waiting`)
+  const ferry = byQuestion.getByRole('button', { name: /^Fare-free ferry/ })
+  await expect(ferry).toContainText(`${counts.freeFerry} waiting`)
+  await expect(byQuestion.getByRole('button', { name: /^Fiscal note/ })).toHaveCount(0)
+
+  await berth.click()
+  await expect(page).toHaveURL(/[?&]question=berth-fee/)
+  await expect(berth).toHaveAttribute('aria-pressed', 'true')
+  const aside = page.getByRole('complementary')
+  const waiting = aside.getByRole('listitem')
+  const pages = page.getByRole('navigation', { name: 'Pages of what is waiting' })
+  // How many proposals the list holds: its own count once it runs to pages, or its rows.
+  const shownCount = async () => ((await pages.count()) ? Number((await pages.textContent())!.match(/of (\d+)/)![1]) : waiting.count())
+  await expect(waiting).toHaveCount(counts.berthFee)
+  for (const text of await waiting.allTextContents()) expect(text).not.toContain('Narrowed ' + stamp + ' no. 3')
+  await expect(aside.getByRole('button').filter({ hasText: `Narrowed ${stamp} no. 1` })).toBeVisible()
+
+  // J and K stay inside the question.
+  const isOpen = (row: Locator) => expect(row.getByRole('button')).toHaveAttribute('aria-current', 'true')
+  await isOpen(waiting.first())
+  for (let n = 1; n < counts.berthFee; n++) await page.keyboard.press('j')
+  await isOpen(waiting.last())
+  await page.keyboard.press('j')
+  await isOpen(waiting.last())
+  for (let n = 1; n < counts.berthFee; n++) await page.keyboard.press('k')
+  await isOpen(waiting.first())
+
+  // A top-level question takes in what is waiting on its sub-questions, and the choice survives a reload.
+  await page.goto('/editor?question=free-ferry')
+  await expect(ferry).toHaveAttribute('aria-pressed', 'true')
+  await expect(waiting.first()).toBeVisible()
+  expect(await shownCount()).toBe(counts.freeFerry)
+
+  await page.getByRole('button', { name: 'Show every question' }).click()
+  await expect(page).not.toHaveURL(/question=/)
+  await expect(ferry).toHaveAttribute('aria-pressed', 'false')
+  await expect(page.getByText('Showing Fare-free ferry only.')).toHaveCount(0)
+  expect(await shownCount()).toBe(counts.everything)
+})
+
 test('work on a card is kept while another card is open, and a question added from a card can be read on at once', async ({ page, request }) => {
   const stamp = Date.now()
   const first = `Kept ${stamp} first`
@@ -446,6 +503,61 @@ test('someone the article only describes can be recorded as presumed, and their 
   await expect(page.getByText(words, { exact: false }).first()).toBeVisible()
   await expect(page.getByText('Presumed, no quote of their own yet')).toBeVisible()
   expect(query(`SELECT rd.weight FROM readings rd JOIN acts a ON a.id = rd.act_id WHERE a.body = '${words}'`)).toEqual([{ weight: 'presumed' }])
+})
+
+test('a news search shows each search and article as a step, with what became of each, and carries on past one that could not be queued', async ({ page }) => {
+  // No model or search runs in tests, so the run's recorded steps are the ones the worker would write.
+  const steps = [
+    { kind: 'plan', questions: ['Fare-free ferry'], queriesPerQuestion: 2, maxReads: 15 },
+    { kind: 'searched', question: 'Fare-free ferry', query: '"Fare-free ferry" Harbor Council statement', hits: 10, named: 3 },
+    { kind: 'reading', question: 'Fare-free ferry', url: 'https://example.com/a', title: 'Council splits on the ferry' },
+    { kind: 'read', question: 'Fare-free ferry', url: 'https://example.com/a', title: 'Council splits on the ferry', outcome: 'queued', queued: 2, detail: null },
+    { kind: 'reading', question: 'Fare-free ferry', url: 'https://example.com/b', title: 'Ferry budget hearing' },
+    { kind: 'read', question: 'Fare-free ferry', url: 'https://example.com/b', title: 'Ferry budget hearing', outcome: 'failed', queued: 0, detail: 'D1 is down.' },
+    { kind: 'reading', question: 'Fare-free ferry', url: 'https://example.com/c', title: 'Fares stay for now' },
+    { kind: 'read', question: 'Fare-free ferry', url: 'https://example.com/c', title: 'Fares stay for now', outcome: 'lead', queued: 1, detail: 'The site answered 403.' },
+    { kind: 'searched', question: 'Fare-free ferry', query: '"Fare-free ferry" Harbor Council opposes', hits: 4, named: 0 },
+  ]
+  const report = { questions: [{ question: 'Fare-free ferry', hits: 14, read: 3, queued: 3, failed: 1 }], deferred: 0 }
+  await page.route('**/api/editor/news-search', (route) => route.fulfill({ json: report }))
+  await page.route('**/api/editor/news-runs/*', (route) => {
+    const id = new URL(route.request().url()).pathname.split('/').pop()
+    const run = { id, started_at: TODAY.toISOString(), started_by: 'editor', outcome: 'searched', finished_at: TODAY.toISOString(), detail: JSON.stringify(report) }
+    return route.fulfill({ json: { run, steps } })
+  })
+  await signInAsEditor(page)
+  await page.getByRole('button', { name: 'Search the news now' }).click()
+
+  const run = page.getByRole('region', { name: 'News search' })
+  await expect(run.getByRole('heading', { name: 'The news search finished' })).toBeVisible()
+  await expect(run.getByRole('progressbar', { name: 'Searches done' })).toHaveAttribute('aria-valuenow', '2')
+  await expect(run).toContainText('2 of 2 searches · 3 articles read, at most 15 a run · 3 queued · 1 not queued')
+  const rows = run.getByRole('list', { name: 'Steps' }).getByRole('listitem')
+  await expect(rows).toHaveCount(5)
+  await expect(rows.nth(1)).toContainText('Council splits on the ferryQueued 2 entries')
+  await expect(rows.nth(2)).toContainText('Not queued: D1 is down. The next run tries it again.')
+  await expect(rows.nth(3)).toContainText('Not read, queued as a lead: The site answered 403.')
+  await expect(rows.nth(4)).toContainText('4 results, 0 naming someone on the roster')
+
+  await run.getByRole('button', { name: 'Close' }).click()
+  await expect(run).toHaveCount(0)
+})
+
+test('a news search run is recorded with its steps, and the page of runs shows it', async ({ page }) => {
+  // No search can be made in tests, so the run stops at its first search and records why.
+  await signInAsEditor(page)
+  await page.getByRole('button', { name: 'Search the news now' }).click()
+  const run = page.getByRole('region', { name: 'News search' })
+  await expect(run.getByRole('heading', { name: 'The news search stopped early' })).toBeVisible({ timeout: 20_000 })
+  await expect(run.getByRole('list', { name: 'Steps' }).getByRole('listitem').last()).toContainText(/Stopped\s*Web search failed/)
+  const [recorded] = query<{ id: string; outcome: string; steps: number }>(`SELECT r.id, r.outcome, (SELECT COUNT(*) FROM news_run_steps s WHERE s.run_id = r.id) AS steps FROM news_runs r ORDER BY r.started_at DESC LIMIT 1`)
+  expect(recorded).toMatchObject({ outcome: 'stopped', steps: 2 })
+
+  await run.getByRole('link', { name: 'Every run' }).click()
+  await expect(page).toHaveURL(new RegExp(`/editor/news-runs\\?run=${recorded.id}$`))
+  await expect(page.getByRole('heading', { name: 'News search runs' })).toBeVisible()
+  await expect(page.getByRole('list', { name: 'Runs' }).getByRole('link').first()).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('region', { name: 'News search' }).getByRole('heading', { name: 'The news search stopped early' })).toBeVisible()
 })
 
 test('a lead whose article was not read says so, starts empty, and cannot be published until the words, both answers and a date are in', async ({ page, request }) => {

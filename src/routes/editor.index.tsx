@@ -1,20 +1,32 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useLiveQuery } from '@tanstack/react-db'
-import { isUnreadLead, type Proposal, type ProposalContext, type ProposalItem, type ProposalMention, type ProposalNote, type Source } from '../../shared/schema.ts'
+import { isUnreadLead, type Proposal, type ProposalContext, type ProposalItem, type ProposalMention, type ProposalNote, type Question, type Source } from '../../shared/schema.ts'
 import { db } from '../lib/db.ts'
 import { editorFetch, signOut } from '../lib/editor.ts'
 import { commit } from '../lib/review.ts'
 import { planReview, type Write } from '../lib/review-plan.ts'
 import { groupBy } from '../lib/build-tracker.ts'
 import { decisionOf, draftEntries, outlook, proposalIsAcross, verdictOf, type EntryDraft } from '../lib/review-form.ts'
+import { narrowQueue, tallyQueue, type QuestionTally } from '../lib/queue-filter.ts'
 import { useTracker } from '../lib/tracker.tsx'
-import { sourceLabel } from '../lib/position.ts'
-import { Syncing, Token } from '../components/bits.tsx'
+import { DIRECTION_LABEL, formatDate, KIND_LABEL, sourceLabel, WEIGHT_LABEL } from '../lib/position.ts'
+import { trialView, type TrialResponse, type TrialView } from '../lib/reader-trial.ts'
+import { Marked, splitPassage } from '../components/RecordItem.tsx'
+import { NotFound, ProgressBar, Syncing, Token } from '../components/bits.tsx'
+import { NewsSearch } from '../components/NewsSearch.tsx'
 import { Reveal } from '../components/review/Reveal.tsx'
 import { ReviewCard, people } from '../components/review/ReviewCard.tsx'
 
-export const Route = createFileRoute('/editor/')({ component: Queue })
+type QueueSearch = { question?: string }
+
+export const Route = createFileRoute('/editor/')({
+  component: Queue,
+  validateSearch: (s: Record<string, unknown>): QueueSearch => ({ question: typeof s.question === 'string' && s.question ? s.question : undefined }),
+})
+
+// How many questions the row above the waiting list shows before "more".
+const BUSIEST = 6
 
 // How many proposals one page of the list beside the open card holds.
 const UP_NEXT = 12
@@ -27,7 +39,10 @@ type Work = { drafts: EntryDraft[]; reviewNote: string }
 type Finish = { writes: Write[]; how: 'publishing' | 'dismissing'; message: string; work: Work }
 
 function Queue() {
+  const search = Route.useSearch()
+  const navigate = Route.useNavigate()
   const { tracker, isReady } = useTracker()
+  const question = search.question ? tracker.questionBySlug.get(search.question) : undefined
   const proposals = useLiveQuery((q) => q.from({ row: db.proposals }))
   const allItems = useLiveQuery((q) => q.from({ row: db.proposal_items }))
   const allNotes = useLiveQuery((q) => q.from({ row: db.proposal_notes }))
@@ -60,7 +75,11 @@ function Queue() {
       reviewed: proposals.data.filter((p) => p.status !== 'pending').sort((a, b) => (b.reviewed_at ?? '').localeCompare(a.reviewed_at ?? '')),
     }
   }, [proposals.data, itemsByProposal, tracker])
-  const list = tab === 'pending' ? pending : reviewed
+  const tallies = useMemo(() => tallyQueue(tracker, pending, itemsOf, new Date()), [tracker, pending, itemsByProposal])
+  // The question filter narrows only what is waiting.
+  const narrowed = useMemo(() => (question ? narrowQueue(tracker, pending, itemsOf, question.id) : pending), [tracker, pending, itemsByProposal, question])
+  const list = tab === 'pending' ? narrowed : reviewed
+  const chooseQuestion = (slug: string | undefined) => navigate({ search: { question: slug }, replace: true })
   const selected = list.find((p) => p.id === selectedId) ?? list[0]
   const selectedAt = list.findIndex((p) => p.id === selected?.id)
   const selectedSource = selected && tracker.sourceById.get(selected.source_id)
@@ -87,9 +106,19 @@ function Queue() {
   // The list turns to the page the open card is on, so J and K can be followed down it.
   useEffect(() => {
     if (selectedAt !== -1) setListPage(Math.floor(selectedAt / UP_NEXT))
-  }, [selected?.id, tab])
+  }, [selected?.id, tab, question])
 
   if (!isReady || !proposals.isReady || !allItems.isReady || !allNotes.isReady || !allContexts.isReady || !allMentions.isReady) return <Syncing />
+  if (search.question && !question) {
+    return (
+      <div className="pb-16 text-center">
+        <NotFound what="question" />
+        <Link to="/editor" search={{}} className="link">
+          See the whole queue
+        </Link>
+      </div>
+    )
+  }
 
   // The card leaves first. The writes go in once it is gone, which brings the next card up from the stack.
   function finish(proposalId: string, { writes, how, message, work }: Finish) {
@@ -121,16 +150,7 @@ function Queue() {
     <div>
       <div className="flex flex-wrap items-center gap-x-5 gap-y-4">
         <h1 className="h-page">Review queue</h1>
-        <div
-          className="h-3.5 min-w-[200px] flex-1 overflow-hidden rounded-full border-2 border-ink bg-surface sm:h-[18px]"
-          role="progressbar"
-          aria-label="Reviewed"
-          aria-valuemin={0}
-          aria-valuemax={total}
-          aria-valuenow={reviewed.length}
-        >
-          <div className="h-full bg-support transition-[width] duration-[400ms]" style={{ width: `${total ? (reviewed.length / total) * 100 : 0}%` }} />
-        </div>
+        <ProgressBar label="Reviewed" done={reviewed.length} total={total} className="h-3.5 min-w-[200px] flex-1 sm:h-[18px]" />
         <p className="tabular-nums">
           <button type="button" aria-pressed={tab === 'reviewed'} className={tabClass('reviewed')} onClick={() => (setTab('reviewed'), setListPage(0))}>
             {reviewed.length} reviewed
@@ -140,15 +160,14 @@ function Queue() {
             {pending.length} to go
           </button>
         </p>
-        <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto">
-          <NewsSearchButton />
+        <NewsSearch>
           <Link to="/editor/people" className="btn btn-sm shadow-none">
             People
           </Link>
           <button type="button" className="btn btn-sm shadow-none" onClick={signOut}>
             Sign out
           </button>
-        </div>
+        </NewsSearch>
       </div>
 
       <ReadArticleTrial />
@@ -160,10 +179,19 @@ function Queue() {
       </Reveal>
       {error && <p className="mt-5 rounded-xl border-2 border-ink bg-oppose/15 px-3.5 py-2.5 font-bold">Not saved: {error}</p>}
 
+      {tab === 'pending' && <QuestionFilter tallies={tallies} chosen={question} onChoose={chooseQuestion} />}
+
       {!selected || !selectedSource ? (
         <div className="card card-lg mt-10 bg-mint px-5 py-7 text-center sm:mt-12 sm:p-12">
-          <h2 className="text-2xl font-black sm:text-[32px]">{!selected ? (tab === 'pending' ? 'The queue is empty.' : 'Nothing reviewed yet.') : 'This proposal points at a source that no longer exists.'}</h2>
-          {!selected && tab === 'pending' && <p className="mt-2 text-[15px] sm:text-[17px]">Every lead has been reviewed. The news search runs once a day.</p>}
+          <h2 className="text-2xl font-black sm:text-[32px]">
+            {selected ? 'This proposal points at a source that no longer exists.' : tab === 'reviewed' ? 'Nothing reviewed yet.' : question ? `Nothing is waiting on ${question.short_title}.` : 'The queue is empty.'}
+          </h2>
+          {!selected && tab === 'pending' && !question && <p className="mt-2 text-[15px] sm:text-[17px]">Every lead has been reviewed. The news search runs once a day.</p>}
+          {question && (
+            <button type="button" className="link mt-3 cursor-pointer font-semibold" onClick={() => chooseQuestion(undefined)}>
+              Show every question
+            </button>
+          )}
         </div>
       ) : (
         <Desk
@@ -238,6 +266,59 @@ function Queue() {
             <br />A publish · R dismiss all
           </p>
         </Desk>
+      )}
+    </div>
+  )
+}
+
+// The questions with proposals waiting, busiest first. Choosing one narrows the queue to it and what is under it.
+function QuestionFilter({
+  tallies,
+  chosen,
+  onChoose,
+}: {
+  tallies: QuestionTally[]
+  chosen: Question | undefined
+  onChoose: (slug: string | undefined) => void
+}) {
+  const [showAll, setShowAll] = useState(false)
+  if (!tallies.length) return null
+  const shown = showAll ? tallies : tallies.filter((t, i) => i < BUSIEST || t.question.id === chosen?.id)
+  return (
+    <div role="group" aria-label="Questions with proposals waiting" className="mt-6 flex flex-col gap-2">
+      <h2 className="text-base font-black sm:text-lg">By question</h2>
+      <div className="flex flex-wrap gap-1.5">
+        {shown.map(({ question, waiting, lastDay }) => {
+          const on = question.id === chosen?.id
+          return (
+            <button
+              key={question.id}
+              type="button"
+              aria-pressed={on}
+              onClick={() => onChoose(on ? undefined : question.slug)}
+              className={`cursor-pointer rounded-[10px] border-2 border-ink px-2.5 py-1 text-left text-sm leading-tight hover:shadow-hard-md ${on ? 'bg-mint shadow-hard-md' : 'bg-surface'}`}
+            >
+              <span className="block font-bold">{question.short_title}</span>
+              <span className="block text-xs text-muted tabular-nums">
+                {waiting ? `${waiting} waiting` : 'nothing waiting'}
+                {lastDay ? `, ${lastDay} in the last day` : ''}
+              </span>
+            </button>
+          )
+        })}
+        {tallies.length > shown.length && (
+          <button type="button" className="link cursor-pointer text-sm font-semibold" onClick={() => setShowAll(true)}>
+            {tallies.length - shown.length} more
+          </button>
+        )}
+      </div>
+      {chosen && (
+        <p className="text-sm">
+          Showing <b>{chosen.short_title}</b> only.{' '}
+          <button type="button" className="link cursor-pointer font-semibold" onClick={() => onChoose(undefined)}>
+            Show every question
+          </button>
+        </p>
       )}
     </div>
   )
@@ -343,49 +424,36 @@ function Desk({
   )
 }
 
-function NewsSearchButton() {
-  const [state, setState] = useState<'idle' | 'running' | string>('idle')
-  async function run() {
-    setState('running')
-    try {
-      const res = await editorFetch('/api/editor/news-search', { method: 'POST' })
-      const report = (await res.json()) as { error?: string; questions: { queued: number }[] }
-      setState(report.error ?? `${report.questions.reduce((n, q) => n + q.queued, 0)} new leads queued`)
-    } catch {
-      setState('News search failed')
-    }
-  }
-  return (
-    <>
-      {state !== 'idle' && state !== 'running' && <span className="text-sm font-semibold">{state}</span>}
-      <button type="button" className="btn btn-sm" onClick={run} disabled={state === 'running'} title="Searches the news for questions marked as in the news">
-        {state === 'running' ? 'Searching…' : 'Search the news now'}
-      </button>
-    </>
-  )
-}
-
 // Runs the article reader on one page without queueing anything, to see what
 // the model makes of it.
 function ReadArticleTrial() {
   const { tracker } = useTracker()
-  const [result, setResult] = useState<string | null>(null)
+  const [view, setView] = useState<TrialView | null>(null)
   const [running, setRunning] = useState(false)
-  const questions = [...tracker.questionById.values()].filter((q) => !q.parent_id).sort((a, b) => a.short_title.localeCompare(b.short_title))
+  const groups = tracker.bodiesInOrder
+    .map((body) => ({ body, questions: [...tracker.questionById.values()].filter((q) => !q.parent_id && q.body_id === body.id).sort((a, b) => Number(b.is_hot) - Number(a.is_hot) || a.short_title.localeCompare(b.short_title)) }))
+    .filter((g) => g.questions.length > 0)
+  const firstHot = groups.flatMap((g) => g.questions).find((q) => q.is_hot)
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const f = new FormData(e.currentTarget)
+    const questionId = String(f.get('trial_question'))
+    setView(null)
     setRunning(true)
     try {
       const res = await editorFetch('/api/editor/read-article', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ url: f.get('trial_url'), question_id: f.get('trial_question') }),
+        body: JSON.stringify({ url: f.get('trial_url'), question_id: questionId }),
       })
-      setResult(JSON.stringify(await res.json(), null, 2))
+      const names = {
+        person: (id: string) => tracker.deciderById.get(id)?.name ?? id,
+        question: (id: string) => tracker.questionById.get(id)?.short_title ?? id,
+      }
+      setView(trialView((await res.json()) as TrialResponse, names, names.question(questionId)))
     } catch (err) {
-      setResult(String(err))
+      setView({ kind: 'message', headline: 'The reader could not try this page.', detail: String(err) })
     } finally {
       setRunning(false)
     }
@@ -394,9 +462,9 @@ function ReadArticleTrial() {
   return (
     <details className="mt-4">
       <summary className="cursor-pointer text-sm font-bold">Try the article reader on one page</summary>
-      <form onSubmit={onSubmit} className="mt-3 flex flex-col gap-3">
+      <form onSubmit={onSubmit} onInput={() => setView(null)} className="mt-3 flex flex-col gap-3">
         <p className="text-sm text-muted">Fetches the page and has the model read it for everyone on the question’s roster it names. Shows what would be queued; queues nothing.</p>
-        <div className="grid gap-3 sm:grid-cols-[1fr_16rem_auto] sm:items-end">
+        <div className="grid gap-3 sm:grid-cols-[1fr_20rem_auto] sm:items-end">
           <div>
             <label className="label" htmlFor="trial_url">
               Article URL
@@ -407,11 +475,16 @@ function ReadArticleTrial() {
             <label className="label" htmlFor="trial_question">
               Question
             </label>
-            <select id="trial_question" name="trial_question" className="field">
-              {questions.map((q) => (
-                <option key={q.id} value={q.id}>
-                  {q.short_title}
-                </option>
+            <select id="trial_question" name="trial_question" className="field" defaultValue={firstHot?.id}>
+              {groups.map(({ body, questions }) => (
+                <optgroup key={body.id} label={body.name}>
+                  {questions.map((q) => (
+                    <option key={q.id} value={q.id}>
+                      {q.short_title}
+                      {q.is_hot ? ' (in the news)' : ''}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </div>
@@ -419,8 +492,79 @@ function ReadArticleTrial() {
             {running ? 'Reading…' : 'Read it'}
           </button>
         </div>
-        {result && <pre className="max-h-96 overflow-auto rounded-[14px] border-2 border-line bg-paper p-3 text-xs whitespace-pre-wrap">{result}</pre>}
+        {running && <p className="text-sm text-muted">Fetching the page and waiting for the model. This takes up to half a minute.</p>}
+        {view && <TrialResult view={view} />}
       </form>
     </details>
+  )
+}
+
+function TrialResult({ view }: { view: TrialView }) {
+  const pageText = view.article && (
+    <details className="text-sm">
+      <summary className="cursor-pointer font-semibold">
+        What the reader got from the page ({view.article.chars.toLocaleString()} characters{view.article.truncated ? ', cut short' : ''})
+      </summary>
+      <p className="mt-2 whitespace-pre-wrap text-muted">{view.article.opening}…</p>
+    </details>
+  )
+  const readFor = view.readFor && view.readFor.length > 0 && (
+    <p className="text-sm">
+      <span className="font-semibold">Read for:</span> {view.readFor.join(', ')}. <span className="text-muted">Anyone else on the roster was not named in a way the reader recognises.</span>
+    </p>
+  )
+  if (view.kind === 'message') {
+    return (
+      <div className="flex flex-col gap-2 rounded-[14px] border-2 border-dashed border-line bg-paper p-4" role="status">
+        <p className="font-bold">{view.headline}</p>
+        <p className="text-sm text-muted">{view.detail}</p>
+        {readFor}
+        {pageText}
+      </div>
+    )
+  }
+  return (
+    <div className="flex flex-col gap-3 rounded-[14px] border-2 border-line bg-paper p-4" role="status">
+      <p className="font-bold">{view.acts.length === 0 ? 'Nothing would be queued: the model found no act in this page.' : `Would queue ${view.acts.length} ${view.acts.length === 1 ? 'entry' : 'entries'}.`}</p>
+      {readFor}
+      {view.acts.map((a, i) => {
+        const split = splitPassage(a.passage, a.quote)
+        return (
+          <article key={i} className="flex flex-col gap-1.5 rounded-[12px] border-2 border-ink bg-surface p-3">
+            <p className="text-sm">
+              <span className="font-bold">{a.person}</span> · {a.question} · {KIND_LABEL[a.kind]} · {DIRECTION_LABEL[a.position]} · {WEIGHT_LABEL[a.weight]}
+              {a.occurredOn ? ` · ${formatDate(a.occurredOn)}` : ''}
+            </p>
+            <p className="leading-relaxed text-muted">{split ? <Marked {...split} /> : <Marked before="" mark={a.quote} after="" />}</p>
+            <p className="text-xs text-muted">Model’s reason: {a.reason}</p>
+          </article>
+        )
+      })}
+      {view.dropped.length > 0 && (
+        <div className="text-sm">
+          <p className="font-semibold">Left out</p>
+          <ul className="mt-1 flex list-disc flex-col gap-1 pl-5 text-muted">
+            {view.dropped.map((d, i) => (
+              <li key={i}>
+                {d.person} on {d.question}: “{d.quote}” {d.why}.
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {view.named.length > 0 && (
+        <div className="text-sm">
+          <p className="font-semibold">Named, with nothing to record</p>
+          <ul className="mt-1 flex list-disc flex-col gap-1 pl-5 text-muted">
+            {view.named.map((n, i) => (
+              <li key={i}>
+                {n.person}: “{n.words}”
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {pageText}
+    </div>
   )
 }
