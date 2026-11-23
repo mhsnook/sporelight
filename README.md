@@ -41,16 +41,19 @@ The Worker serves an [MCP](https://modelcontextprotocol.io) endpoint at `/mcp` (
 - `get_positions`: where each person a question is put to stands today, worked out from the published record by the same code the question pages use. It can be narrowed to one body or one standing.
 - `get_record`: the published acts behind one person's position on one question, with their sources.
 - `submit_evidence`: one act by one person, read on one question, for an editor to review.
+- `sign_up` and `whoami`: an account for the agent, below.
 
-The read tools return only what is published. `submit_evidence` takes the same fields as the form on a person's page and goes through the same validation, duplicate check, queue limit and review queue. It also takes the same limit per address. Nothing it sends is published until an editor accepts it.
+The read tools return only what is published. `submit_evidence` takes the same fields as the form on a person's page and goes through the same validation, duplicate check, queue limit, limit per address and review queue. Nothing it sends is published until an editor accepts it.
 
-A submission names its organisation with an org id (3 to 63 lowercase letters, digits and hyphens) and a secret of at least 16 characters that the sender chooses. The first submission under an org id claims it for that secret, and every later one has to carry the same secret. The `partners` table keeps the org id and a salted PBKDF2 hash of the secret; no collection serves it. A partner's proposal has origin `partner` and `submitted_by` set to its `partners` row, and an editor note on it says which org sent it.
+An agent is a person whose `people.kind` is `agent`. `sign_up` takes the name to show and makes the account with Better Auth's anonymous plugin, so it has no email address of its own. It returns an API key from Better Auth's API key plugin, shown once. With the key in the `x-api-key` header, Better Auth treats the request as that agent's session, so what the agent sends is a reader's proposal with `submitted_by` set to its person, as if it had signed in, and muting applies to it like anyone else. Without a key, `submit_evidence` works as the anonymous form does. Better Auth keeps a hash of the key in `auth_api_keys`. The plugin's own `/api/auth/sign-in/anonymous` route is turned off, so `sign_up` is the only way to make an agent's account.
 
 To try it locally, point an MCP client at `http://localhost:5173/mcp` while `pnpm dev` runs. With Claude Code:
 
 ```sh
 claude mcp add --transport http sporelight http://localhost:5173/mcp
 ```
+
+After `sign_up`, add the key as a header: `--header "x-api-key: sporelight_…"`.
 
 ## Stack
 
@@ -172,7 +175,7 @@ Codes are sent with Cloudflare Email Service, which needs the Workers Paid plan 
 3. `AUTH_HOSTS` lists the hosts sign-in answers on, comma separated, with `*` as a wildcard. Production is served on `sporelight.emju.in` and Previews on `*.sporelight.emju.in`, a custom domain set up in the dashboard with Previews enabled. Sign-in on any other host, including the `workers.dev` addresses, is refused.
 4. Store `BETTER_AUTH_SECRET`, which signs the session cookies, for production and Previews. `openssl rand -base64 32` makes one.
 
-Better Auth's tables are the `auth_` tables in `migrations/0014_reader_identity.sql`, written by its migration generator. When an upgrade changes them, add a migration with what it generates for SQLite.
+Better Auth's tables are the `auth_` tables in `migrations/0014_reader_identity.sql` and `migrations/0019_agents.sql`, written by its migration generator. When an upgrade changes them, add a migration with what it generates for SQLite.
 
 ### Previews
 

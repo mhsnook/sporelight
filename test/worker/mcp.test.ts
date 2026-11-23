@@ -1,27 +1,25 @@
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { env, exports } from 'cloudflare:workers'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { allCollections } from '../../shared/schema.ts'
 import { nextIp, rows, seed } from './helpers.ts'
 
-// An MCP client talking to the Worker's /mcp, from its own address.
-async function connect(from = nextIp()) {
+// An MCP client talking to the Worker's /mcp, from its own address, with a key if it has one.
+async function connect(from = nextIp(), key?: string) {
   const client = new Client({ name: 'test-agent', version: '0.0.0' })
-  const transport = new StreamableHTTPClientTransport(new URL('http://sporelight.test/mcp'), {
+  const transport = new StreamableHTTPClientTransport(new URL('https://sporelight.test/mcp'), {
     fetch: (url, init) => exports.default.fetch(new Request(url, init)),
-    requestInit: { headers: { 'cf-connecting-ip': from } },
+    requestInit: { headers: { 'cf-connecting-ip': from, ...(key ? { 'x-api-key': key } : {}) } },
   })
   await client.connect(transport)
   return client
 }
 
 type ToolResult = { isError?: boolean; content: { type: string; text: string }[]; structuredContent?: Record<string, unknown> }
-const call = async (name: string, args: Record<string, unknown>, from?: string) => (await (await connect(from)).callTool({ name, arguments: args })) as ToolResult
+const call = async (name: string, args: Record<string, unknown>, key?: string) => (await (await connect(nextIp(), key)).callTool({ name, arguments: args })) as ToolResult
+const signUp = async (name: string) => (await call('sign_up', { name })).structuredContent as { id: string; api_key: string; kind: string }
 const textOf = (result: ToolResult) => result.content.map((c) => c.text).join('\n')
 
 const evidence = (over: Record<string, unknown> = {}) => ({
-  org: 'harbor-watch',
-  secret: 'a secret harbor watch chose',
   question_id: 'hot',
   decider_id: 'ann',
   kind: 'says',
@@ -44,11 +42,11 @@ beforeAll(async () => {
 })
 
 describe('/mcp: reading the record', () => {
-  it('offers the read tools and submit_evidence, which asks for an org id and a secret', async () => {
+  it('offers the read tools, sign_up, whoami and submit_evidence', async () => {
     const { tools } = await (await connect()).listTools()
-    expect(tools.map((t) => t.name).sort()).toEqual(['find_people', 'get_positions', 'get_record', 'list_questions', 'submit_evidence'])
+    expect(tools.map((t) => t.name).sort()).toEqual(['find_people', 'get_positions', 'get_record', 'list_questions', 'sign_up', 'submit_evidence', 'whoami'])
     const submit = tools.find((t) => t.name === 'submit_evidence')!
-    expect(submit.inputSchema.required).toEqual(expect.arrayContaining(['org', 'secret', 'question_id', 'decider_id', 'quote', 'source_url']))
+    expect(submit.inputSchema.required).toEqual(expect.arrayContaining(['question_id', 'decider_id', 'quote', 'source_url']))
     expect(submit.inputSchema.required).not.toContain('source_title')
     expect(tools.filter((t) => t.annotations?.readOnlyHint).map((t) => t.name)).not.toContain('submit_evidence')
   })
@@ -92,74 +90,83 @@ describe('/mcp: reading the record', () => {
   })
 })
 
-describe('/mcp: submit_evidence', () => {
-  it('claims an unused org id with the secret, and queues the act for review as a partner’s', async () => {
-    const result = await call('submit_evidence', evidence({ org: 'first-claim', submitter_note: 'From our council monitor.' }))
-    expect(result.isError).toBeFalsy()
-    expect(result.structuredContent).toMatchObject({ queued: true, duplicate: false, org_claimed_now: true })
-    const proposalId = result.structuredContent!.proposal_id as string
+describe('/mcp: agents sign up and send evidence as people', () => {
+  it('signs an agent up as a person labelled agent, under the name it gives, with a key shown once', async () => {
+    const agent = await signUp('Harbor Watch monitor')
+    expect(agent.kind).toBe('agent')
+    expect(agent.api_key).toMatch(/^sporelight_/)
+    expect(await rows(`SELECT kind, display_name, muted_at FROM people WHERE id = ?`, agent.id)).toEqual([{ kind: 'agent', display_name: 'Harbor Watch monitor', muted_at: null }])
+    // Better Auth keeps a hash of the key, never the key.
+    const stored = await rows<{ key: string }>(`SELECT key FROM auth_api_keys WHERE referenceId = ?`, agent.id)
+    expect(stored).toHaveLength(1)
+    expect(stored[0].key).not.toContain(agent.api_key.slice('sporelight_'.length))
+    // The session it signed up with is ended, so the key is the only way in.
+    expect(await rows(`SELECT id FROM auth_sessions WHERE userId = ?`, agent.id)).toEqual([])
+  })
 
-    const [partner] = await rows<{ id: string; secret_hash: string }>(`SELECT id, secret_hash FROM partners WHERE org = 'first-claim'`)
-    const [proposal] = await rows<{ origin: string; submitted_by: string; status: string }>(`SELECT origin, submitted_by, status FROM proposals WHERE id = ?`, proposalId)
-    expect(proposal).toEqual({ origin: 'partner', submitted_by: partner.id, status: 'pending' })
-    const notes = await rows<{ body: string }>(`SELECT body FROM proposal_notes WHERE proposal_id = ?`, proposalId)
-    expect(notes.map((n) => n.body)).toEqual(['Sent by first-claim through the MCP endpoint.\n\nFrom our council monitor.'])
+  it('knows the agent by its key', async () => {
+    const agent = await signUp('Council watcher')
+    expect((await call('whoami', {}, agent.api_key)).structuredContent).toEqual({ signed_in: true, id: agent.id, name: 'Council watcher', kind: 'agent', muted: false })
+    expect((await call('whoami', {})).structuredContent).toEqual({ signed_in: false })
+  })
+
+  it('queues what a signed-up agent sends as a reader’s proposal under its person', async () => {
+    const agent = await signUp('Ferry desk bot')
+    const result = await call('submit_evidence', evidence({ submitter_note: 'From our council monitor.' }), agent.api_key)
+    expect(result.structuredContent).toMatchObject({ queued: true, duplicate: false, sent_as: { id: agent.id, name: 'Ferry desk bot' } })
+    const proposalId = result.structuredContent!.proposal_id as string
+    expect(await rows(`SELECT origin, submitted_by, status FROM proposals WHERE id = ?`, proposalId)).toEqual([{ origin: 'reader', submitted_by: agent.id, status: 'pending' }])
+    expect((await rows<{ body: string }>(`SELECT body FROM proposal_notes WHERE proposal_id = ?`, proposalId)).map((n) => n.body)).toEqual(['From our council monitor.'])
     // Nothing reaches the record before review.
     expect(await rows(`SELECT id FROM readings WHERE act_id IN (SELECT act_id FROM proposal_items WHERE proposal_id = ?)`, proposalId)).toEqual([])
   })
 
-  it('accepts later posts under a claimed org id with the same secret', async () => {
-    await call('submit_evidence', evidence({ org: 'returning-org' }))
-    const again = await call('submit_evidence', evidence({ org: 'returning-org' }))
-    expect(again.structuredContent).toMatchObject({ queued: true, org_claimed_now: false })
-    expect(await rows(`SELECT id FROM partners WHERE org = 'returning-org'`)).toHaveLength(1)
+  it('queues evidence sent with no key as an anonymous reader’s', async () => {
+    const result = await call('submit_evidence', evidence())
+    expect(result.structuredContent).toMatchObject({ queued: true, sent_as: null })
+    expect(await rows(`SELECT origin, submitted_by FROM proposals WHERE id = ?`, result.structuredContent!.proposal_id)).toEqual([{ origin: 'reader', submitted_by: null }])
   })
 
-  it('refuses a claimed org id with another secret, and writes nothing', async () => {
-    await call('submit_evidence', evidence({ org: 'taken-org' }))
+  it('refuses a key it did not issue, rather than sending anonymously, and writes nothing', async () => {
     const before = await rows<{ n: number }>(`SELECT COUNT(*) AS n FROM proposals`)
-    const result = await call('submit_evidence', evidence({ org: 'taken-org', secret: 'somebody else’s guess at it' }))
+    const result = await call('submit_evidence', evidence(), 'sporelight_not-a-key-we-issued')
     expect(result.isError).toBe(true)
-    expect(textOf(result)).toMatch(/"taken-org" is taken/)
+    expect(textOf(result)).toMatch(/not one this site issued/)
     expect(await rows<{ n: number }>(`SELECT COUNT(*) AS n FROM proposals`)).toEqual(before)
   })
 
-  it('treats org ids that differ only in case as one id', async () => {
-    await call('submit_evidence', evidence({ org: 'case-org' }))
-    const result = await call('submit_evidence', evidence({ org: 'Case-Org', secret: 'not the secret case-org chose' }))
-    expect(textOf(result)).toMatch(/"case-org" is taken/)
+  it('does not sign up a second account on a request that already carries a key', async () => {
+    const agent = await signUp('Only once')
+    const result = await call('sign_up', { name: 'Again' }, agent.api_key)
+    expect(result.isError).toBe(true)
+    expect(await rows(`SELECT id FROM people WHERE display_name = 'Again'`)).toEqual([])
   })
 
-  it('keeps only a salted hash of the secret, in a table no collection serves', async () => {
-    await call('submit_evidence', evidence({ org: 'hashed-org', secret: 'plain words nobody should store' }))
-    const [row] = await rows<{ secret_hash: string; secret_salt: string }>(`SELECT secret_hash, secret_salt FROM partners WHERE org = 'hashed-org'`)
-    expect(row.secret_hash).toMatch(/^[0-9a-f]{64}$/)
-    expect(row.secret_salt).toMatch(/^[0-9a-f]{32}$/)
-    expect(allCollections.map((c) => c.name)).not.toContain('partners')
+  it('offers no way to make an agent account except sign_up', async () => {
+    const res = await exports.default.fetch('https://sporelight.test/api/auth/sign-in/anonymous', { method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://sporelight.test' }, body: '{}' })
+    expect(res.status).toBe(404)
   })
 
   it.each([
-    ['a short secret', { secret: 'short' }],
-    ['an org id with spaces', { org: 'harbor watch' }],
     ['a source that is not a web address', { source_url: 'ftp://news.example/story' }],
     ['a quote under ten characters', { quote: 'Yes.' }],
+    ['a reading that is not one of the four', { reading: 'lean_oppose' }],
   ])('refuses %s before anything is written', async (_, bad) => {
-    const before = await rows<{ n: number }>(`SELECT (SELECT COUNT(*) FROM proposals) + (SELECT COUNT(*) FROM partners) AS n`)
-    const result = await call('submit_evidence', evidence({ org: `bad-${crypto.randomUUID().slice(0, 8)}`, ...bad }))
+    const before = await rows<{ n: number }>(`SELECT COUNT(*) AS n FROM proposals`)
+    const result = await call('submit_evidence', evidence(bad))
     expect(result.isError).toBe(true)
-    expect(await rows<{ n: number }>(`SELECT (SELECT COUNT(*) FROM proposals) + (SELECT COUNT(*) FROM partners) AS n`)).toEqual(before)
+    expect(await rows<{ n: number }>(`SELECT COUNT(*) AS n FROM proposals`)).toEqual(before)
   })
 
   it('does not queue the same source, person and question twice', async () => {
-    const same = evidence({ org: 'dup-org' })
+    const same = evidence()
     await call('submit_evidence', same)
-    const again = await call('submit_evidence', same)
-    expect(again.structuredContent).toMatchObject({ queued: false, duplicate: true, proposal_id: null })
+    expect((await call('submit_evidence', same)).structuredContent).toMatchObject({ queued: false, duplicate: true, proposal_id: null })
   })
 
-  it('refuses an unknown person, and writes no proposal', async () => {
-    const result = await call('submit_evidence', evidence({ org: 'unknown-person-org', decider_id: 'nobody' }))
+  it('refuses an unknown person', async () => {
+    const result = await call('submit_evidence', evidence({ decider_id: 'nobody' }))
     expect(result.isError).toBe(true)
-    expect(await rows(`SELECT p.id FROM proposals p JOIN partners o ON o.id = p.submitted_by WHERE o.org = 'unknown-person-org'`)).toEqual([])
+    expect(textOf(result)).toMatch(/Unknown question or decider/)
   })
 })

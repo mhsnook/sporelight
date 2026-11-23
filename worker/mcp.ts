@@ -1,10 +1,10 @@
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server'
 import { getServerByName } from 'partyserver'
 import { z } from 'zod'
-import { proposalInputSchema, type Question } from '../shared/schema.ts'
+import { displayNameSchema, proposalInputSchema, type Person, type Question } from '../shared/schema.ts'
 import { STANDINGS } from '../src/lib/position.ts'
 import { buildTracker, isHeld, type Contender, type RecordEntry, type Tracker as TrackerView } from '../src/lib/build-tracker.ts'
-import { identifyPartner, orgIdSchema, partnerSecretSchema } from './partners.ts'
+import { auth, signedInPerson } from './auth.ts'
 import { loadRecord } from './record.ts'
 import type { Tracker } from './tracker.ts'
 
@@ -13,12 +13,12 @@ const INSTRUCTIONS = `Sporelight tracks where the people in a body (a legislatur
 
 Read with list_questions, find_people, get_positions and get_record. Everything they return is published: an editor has checked it against its source.
 
-Send evidence with submit_evidence. It is not published: it waits for an editor, who reads it against its source. Name your organisation with an org id and a secret you choose. The first submission under an org id claims it for that secret, and later submissions under it must carry the same secret.`
+Send evidence with submit_evidence. It is not published: it waits for an editor, who reads it against its source.
+
+To send evidence under a name of your own, call sign_up once with the name to show. It returns an API key, shown only then. Send it in the x-api-key header on every request after; whoami says who the key belongs to. Without a key, submit_evidence still works, as an anonymous reader's submission does.`
 
 const shape = proposalInputSchema.shape
 const evidenceInput = z.object({
-  org: orgIdSchema.describe('Your organisation’s id, such as "harbor-watch". The first submission under an id claims it.'),
-  secret: partnerSecretSchema.describe('A secret you choose the first time and send every time after. Keep it private.'),
   question_id: shape.question_id.describe('The question this act bears on: an id from list_questions, either a question or one of its sub-questions.'),
   decider_id: shape.decider_id.describe('The person who did or said it: an id from find_people or get_positions.'),
   kind: shape.kind.describe('says: words in any medium. commits: a formal, public, revocable commitment such as cosponsoring or signing a letter. does: using the office itself, such as voting.'),
@@ -42,6 +42,13 @@ function serverFor(env: Env, req: Request) {
   const findQuestion = (t: TrackerView, idOrSlug: string) => t.questionById.get(idOrSlug) ?? t.questionBySlug.get(idOrSlug)
   const questionPage = (t: TrackerView, q: Question) => `${origin}/q/${t.rootOf(q).slug}`
   const personPage = (t: TrackerView, q: Question, slug: string) => `${origin}/q/${t.rootOf(q).slug}/${slug}`
+
+  // Who sent this request: a person or an agent with a key in x-api-key, or nobody.
+  let sender: Promise<Person | null> | undefined
+  // Better Auth throws on a key it does not know; that is nobody, and the tools say so.
+  const whoSent = () => (sender ??= signedInPerson(req, env).catch(() => null))
+  const keyGiven = req.headers.has('x-api-key')
+  const tooMany = async () => !(await env.POST_LIMITER.limit({ key: req.headers.get('cf-connecting-ip') ?? 'unknown' })).success
 
   const server = new McpServer({ name: 'sporelight', version: '1.0.0' }, { instructions: INSTRUCTIONS })
 
@@ -178,30 +185,74 @@ function serverFor(env: Env, req: Request) {
       inputSchema: evidenceInput,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     },
-    async ({ org, secret, source_url, source_title, submitter_note, occurred_on, ...item }) => {
-      // The same limit per address as the public forms, checked before the secret, which is slow to hash on purpose.
-      const address = req.headers.get('cf-connecting-ip') ?? 'unknown'
-      if (!(await env.POST_LIMITER.limit({ key: address })).success) return refusal('That is a lot of posts in a short time. Give it a minute.')
-      const partner = await identifyPartner(env.DB, org, secret)
-      if (!partner) return refusal(`The org id "${org}" is taken, and that secret is not the one it was claimed with.`)
+    async ({ source_url, source_title, submitter_note, occurred_on, ...item }) => {
+      if (await tooMany()) return refusal('That is a lot of posts in a short time. Give it a minute.')
+      const person = await whoSent()
+      if (keyGiven && !person) return refusal('The key in x-api-key is not one this site issued, or it has been revoked. Leave the header out to send anonymously.')
       const room = await getServerByName<Env, Tracker>(env.Tracker, 'main')
       const result = await room.propose(
-        {
-          source: { url: source_url, title: source_title ?? null },
-          note: [`Sent by ${partner.org} through the MCP endpoint.`, submitter_note].filter(Boolean).join('\n\n'),
-          items: [{ ...item, occurred_on: occurred_on ?? null }],
-        },
-        'partner',
-        partner.id,
+        { source: { url: source_url, title: source_title ?? null }, note: submitter_note ?? null, items: [{ ...item, occurred_on: occurred_on ?? null }] },
+        'reader',
+        person?.id ?? null,
       )
       if (!result.ok) return refusal(result.error)
       return json({
         queued: result.queued > 0,
         duplicate: result.queued === 0,
         proposal_id: result.proposal_id,
-        org_claimed_now: partner.claimed,
+        sent_as: person ? { id: person.id, name: person.display_name } : null,
         url: result.proposal_id ? `${origin}/latest?proposal=${result.proposal_id}` : null,
       })
+    },
+  )
+
+  server.registerTool(
+    'sign_up',
+    {
+      description:
+        'Make an account for this agent, under the name to show beside what it sends. Returns an API key, shown only this once: send it in the x-api-key header on every request after. An agent is listed as an agent wherever its name is shown.',
+      inputSchema: z.object({ name: displayNameSchema.describe('The name to show, such as "Harbor Watch monitor".') }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    },
+    async ({ name }) => {
+      if (keyGiven) return refusal('This request already carries a key in x-api-key. whoami says whose it is.')
+      if (await tooMany()) return refusal('That is a lot of sign-ups in a short time. Give it a minute.')
+      const betterAuth = auth(env)
+      // The agent signs in anonymously and makes its own key with that session, as
+      // a browser would; then the session is ended, so only the key is left.
+      // MCP clients send no Origin, which Better Auth's CSRF check refuses. These
+      // calls are the Worker's own, so they carry the site's origin.
+      const authRequest = new Request(req.url, { method: 'POST', headers: { origin, 'cf-connecting-ip': req.headers.get('cf-connecting-ip') ?? '' } })
+      const signIn = await betterAuth.api.signInAnonymous({ headers: authRequest.headers, request: authRequest, asResponse: true })
+      if (!signIn.ok) return refusal(`Could not sign up (${signIn.status}): ${(await signIn.text()).slice(0, 200)}`)
+      const { user } = (await signIn.json()) as { user: { id: string } }
+      const asAgent = new Headers(authRequest.headers)
+      asAgent.set('cookie', signIn.headers.getSetCookie().map((c) => c.split(';')[0]).join('; '))
+      await (await getServerByName<Env, Tracker>(env.Tracker, 'main')).setDisplayName(user.id, name)
+      const created = await betterAuth.api.createApiKey({ body: { name: 'mcp' }, headers: asAgent, request: authRequest, asResponse: false })
+      await betterAuth.api.signOut({ headers: asAgent, request: authRequest })
+      return json({
+        id: user.id,
+        name,
+        kind: 'agent',
+        api_key: created.key,
+        header: 'x-api-key',
+        note: 'Keep the key private. It is not shown again, and anything sent with it is sent under this name.',
+      })
+    },
+  )
+
+  server.registerTool(
+    'whoami',
+    {
+      description: 'Who the key in x-api-key belongs to, or that the request carries none.',
+      inputSchema: z.object({}),
+      annotations: { readOnlyHint: true },
+    },
+    async () => {
+      const person = await whoSent()
+      if (keyGiven && !person) return refusal('The key in x-api-key is not one this site issued, or it has been revoked.')
+      return json(person ? { signed_in: true, id: person.id, name: person.display_name, kind: person.kind, muted: person.muted_at !== null } : { signed_in: false })
     },
   )
 

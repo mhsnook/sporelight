@@ -141,8 +141,8 @@ export class Tracker extends PartyDbServer<Env> {
     return archiveUrl
   }
 
-  async addPerson(id: string, createdAt: string) {
-    const person: Person = { id, display_name: null, muted_at: null, created_at: createdAt }
+  async addPerson(id: string, createdAt: string, kind: Person['kind'] = 'person') {
+    const person: Person = { id, kind, display_name: null, muted_at: null, created_at: createdAt }
     await this.commit([{ channel: 'people', ops: [{ type: 'insert', value: person }] }])
   }
 

@@ -1,4 +1,6 @@
 import { betterAuth } from 'better-auth'
+import { apiKey } from '@better-auth/api-key'
+import { anonymous } from 'better-auth/plugins/anonymous'
 import { emailOTP } from 'better-auth/plugins/email-otp'
 import { waitUntil } from 'cloudflare:workers'
 import { getServerByName } from 'partyserver'
@@ -13,7 +15,11 @@ const MODELS = {
   account: 'auth_accounts',
   verification: 'auth_verifications',
   rateLimit: 'auth_rate_limits',
+  apikey: 'auth_api_keys',
 } as const
+
+// The prefix every agent's key starts with, so a leaked one is easy to recognise.
+export const AGENT_KEY_PREFIX = 'sporelight_'
 
 export function authOptions(env: Env) {
   return {
@@ -37,12 +43,23 @@ export function authOptions(env: Env) {
           waitUntil(sendCode(env, email, otp))
         },
       }),
+      // An agent's account: no email address of its own. The Worker refuses the
+      // plugin's own routes, so the only way in is the MCP endpoint's sign_up tool.
+      anonymous({ emailDomainName: 'agents.sporelight.invalid' }),
+      // A key in x-api-key stands for its owner's session, so signedInPerson
+      // knows an agent the way it knows someone signed in with a cookie.
+      apiKey({
+        enableSessionForAPIKeys: true,
+        defaultPrefix: AGENT_KEY_PREFIX,
+        schema: { apikey: { modelName: MODELS.apikey } },
+        rateLimit: { enabled: true, timeWindow: 60_000, maxRequests: 120 },
+      }),
     ],
     databaseHooks: {
       user: {
         create: {
-          after: async (user: { id: string; createdAt: Date }) => {
-            await (await getServerByName<Env, Tracker>(env.Tracker, 'main')).addPerson(user.id, user.createdAt.toISOString())
+          after: async (user: { id: string; createdAt: Date; isAnonymous?: boolean | null }) => {
+            await (await getServerByName<Env, Tracker>(env.Tracker, 'main')).addPerson(user.id, user.createdAt.toISOString(), user.isAnonymous ? 'agent' : 'person')
           },
         },
       },
@@ -77,5 +94,5 @@ async function sendCode(env: Env, email: string, code: string) {
 export async function signedInPerson(req: Request, env: Env): Promise<Person | null> {
   const session = await auth(env).api.getSession({ headers: req.headers, request: req, asResponse: false })
   if (!session) return null
-  return env.DB.prepare(`SELECT id, display_name, muted_at, created_at FROM people WHERE id = ?`).bind(session.user.id).first<Person>()
+  return env.DB.prepare(`SELECT id, kind, display_name, muted_at, created_at FROM people WHERE id = ?`).bind(session.user.id).first<Person>()
 }

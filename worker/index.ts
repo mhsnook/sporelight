@@ -89,6 +89,8 @@ async function handleDisplayName(req: Request, env: Env): Promise<Response> {
 export default {
   async fetch(req, env, ctx) {
     const url = new URL(req.url)
+    // The anonymous plugin's own routes. Agents sign up only through /mcp, which names them and hands out their key.
+    if (url.pathname === '/api/auth/sign-in/anonymous' || url.pathname === '/api/auth/delete-anonymous-user') return new Response('not found', { status: 404 })
     if (url.pathname.startsWith('/api/auth/')) {
       // Each code sent is an email from our domain, so sending one counts as a post.
       if (url.pathname === '/api/auth/email-otp/send-verification-otp' && (await overLimit(req, env))) return tooMany()
