@@ -10,7 +10,9 @@ import { groupBy } from '../lib/build-tracker.ts'
 import { decisionOf, draftEntries, outlook, proposalIsAcross, verdictOf, type EntryDraft } from '../lib/review-form.ts'
 import { narrowQueue, tallyQueue, type QuestionTally } from '../lib/queue-filter.ts'
 import { useTracker } from '../lib/tracker.tsx'
-import { sourceLabel } from '../lib/position.ts'
+import { DIRECTION_LABEL, formatDate, KIND_LABEL, sourceLabel, WEIGHT_LABEL } from '../lib/position.ts'
+import { trialView, type TrialResponse, type TrialView } from '../lib/reader-trial.ts'
+import { Marked, splitPassage } from '../components/RecordItem.tsx'
 import { NotFound, ProgressBar, Syncing, Token } from '../components/bits.tsx'
 import { NewsSearch } from '../components/NewsSearch.tsx'
 import { Reveal } from '../components/review/Reveal.tsx'
@@ -423,23 +425,32 @@ function Desk({
 // the model makes of it.
 function ReadArticleTrial() {
   const { tracker } = useTracker()
-  const [result, setResult] = useState<string | null>(null)
+  const [view, setView] = useState<TrialView | null>(null)
   const [running, setRunning] = useState(false)
-  const questions = [...tracker.questionById.values()].filter((q) => !q.parent_id).sort((a, b) => a.short_title.localeCompare(b.short_title))
+  const groups = tracker.bodiesInOrder
+    .map((body) => ({ body, questions: [...tracker.questionById.values()].filter((q) => !q.parent_id && q.body_id === body.id).sort((a, b) => Number(b.is_hot) - Number(a.is_hot) || a.short_title.localeCompare(b.short_title)) }))
+    .filter((g) => g.questions.length > 0)
+  const firstHot = groups.flatMap((g) => g.questions).find((q) => q.is_hot)
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const f = new FormData(e.currentTarget)
+    const questionId = String(f.get('trial_question'))
+    setView(null)
     setRunning(true)
     try {
       const res = await editorFetch('/api/editor/read-article', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ url: f.get('trial_url'), question_id: f.get('trial_question') }),
+        body: JSON.stringify({ url: f.get('trial_url'), question_id: questionId }),
       })
-      setResult(JSON.stringify(await res.json(), null, 2))
+      const names = {
+        person: (id: string) => tracker.deciderById.get(id)?.name ?? id,
+        question: (id: string) => tracker.questionById.get(id)?.short_title ?? id,
+      }
+      setView(trialView((await res.json()) as TrialResponse, names, names.question(questionId)))
     } catch (err) {
-      setResult(String(err))
+      setView({ kind: 'message', headline: 'The reader could not try this page.', detail: String(err) })
     } finally {
       setRunning(false)
     }
@@ -448,9 +459,9 @@ function ReadArticleTrial() {
   return (
     <details className="mt-4">
       <summary className="cursor-pointer text-sm font-bold">Try the article reader on one page</summary>
-      <form onSubmit={onSubmit} className="mt-3 flex flex-col gap-3">
+      <form onSubmit={onSubmit} onInput={() => setView(null)} className="mt-3 flex flex-col gap-3">
         <p className="text-sm text-muted">Fetches the page and has the model read it for everyone on the question’s roster it names. Shows what would be queued; queues nothing.</p>
-        <div className="grid gap-3 sm:grid-cols-[1fr_16rem_auto] sm:items-end">
+        <div className="grid gap-3 sm:grid-cols-[1fr_20rem_auto] sm:items-end">
           <div>
             <label className="label" htmlFor="trial_url">
               Article URL
@@ -461,11 +472,16 @@ function ReadArticleTrial() {
             <label className="label" htmlFor="trial_question">
               Question
             </label>
-            <select id="trial_question" name="trial_question" className="field">
-              {questions.map((q) => (
-                <option key={q.id} value={q.id}>
-                  {q.short_title}
-                </option>
+            <select id="trial_question" name="trial_question" className="field" defaultValue={firstHot?.id}>
+              {groups.map(({ body, questions }) => (
+                <optgroup key={body.id} label={body.name}>
+                  {questions.map((q) => (
+                    <option key={q.id} value={q.id}>
+                      {q.short_title}
+                      {q.is_hot ? ' (in the news)' : ''}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </div>
@@ -473,8 +489,79 @@ function ReadArticleTrial() {
             {running ? 'Reading…' : 'Read it'}
           </button>
         </div>
-        {result && <pre className="max-h-96 overflow-auto rounded-[14px] border-2 border-line bg-paper p-3 text-xs whitespace-pre-wrap">{result}</pre>}
+        {running && <p className="text-sm text-muted">Fetching the page and waiting for the model. This takes up to half a minute.</p>}
+        {view && <TrialResult view={view} />}
       </form>
     </details>
+  )
+}
+
+function TrialResult({ view }: { view: TrialView }) {
+  const pageText = view.article && (
+    <details className="text-sm">
+      <summary className="cursor-pointer font-semibold">
+        What the reader got from the page ({view.article.chars.toLocaleString()} characters{view.article.truncated ? ', cut short' : ''})
+      </summary>
+      <p className="mt-2 whitespace-pre-wrap text-muted">{view.article.opening}…</p>
+    </details>
+  )
+  const readFor = view.readFor && view.readFor.length > 0 && (
+    <p className="text-sm">
+      <span className="font-semibold">Read for:</span> {view.readFor.join(', ')}. <span className="text-muted">Anyone else on the roster was not named in a way the reader recognises.</span>
+    </p>
+  )
+  if (view.kind === 'message') {
+    return (
+      <div className="flex flex-col gap-2 rounded-[14px] border-2 border-dashed border-line bg-paper p-4" role="status">
+        <p className="font-bold">{view.headline}</p>
+        <p className="text-sm text-muted">{view.detail}</p>
+        {readFor}
+        {pageText}
+      </div>
+    )
+  }
+  return (
+    <div className="flex flex-col gap-3 rounded-[14px] border-2 border-line bg-paper p-4" role="status">
+      <p className="font-bold">{view.acts.length === 0 ? 'Nothing would be queued: the model found no act in this page.' : `Would queue ${view.acts.length} ${view.acts.length === 1 ? 'entry' : 'entries'}.`}</p>
+      {readFor}
+      {view.acts.map((a, i) => {
+        const split = splitPassage(a.passage, a.quote)
+        return (
+          <article key={i} className="flex flex-col gap-1.5 rounded-[12px] border-2 border-ink bg-surface p-3">
+            <p className="text-sm">
+              <span className="font-bold">{a.person}</span> · {a.question} · {KIND_LABEL[a.kind]} · {DIRECTION_LABEL[a.position]} · {WEIGHT_LABEL[a.weight]}
+              {a.occurredOn ? ` · ${formatDate(a.occurredOn)}` : ''}
+            </p>
+            <p className="leading-relaxed text-muted">{split ? <Marked {...split} /> : <Marked before="" mark={a.quote} after="" />}</p>
+            <p className="text-xs text-muted">Model’s reason: {a.reason}</p>
+          </article>
+        )
+      })}
+      {view.dropped.length > 0 && (
+        <div className="text-sm">
+          <p className="font-semibold">Left out</p>
+          <ul className="mt-1 flex list-disc flex-col gap-1 pl-5 text-muted">
+            {view.dropped.map((d, i) => (
+              <li key={i}>
+                {d.person} on {d.question}: “{d.quote}” {d.why}.
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {view.named.length > 0 && (
+        <div className="text-sm">
+          <p className="font-semibold">Named, with nothing to record</p>
+          <ul className="mt-1 flex list-disc flex-col gap-1 pl-5 text-muted">
+            {view.named.map((n, i) => (
+              <li key={i}>
+                {n.person}: “{n.words}”
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {pageText}
+    </div>
   )
 }
