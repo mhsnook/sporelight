@@ -190,12 +190,17 @@ test('evidence a reader sends reaches the editor under its question and, once ap
 
 // The rows a news search run queues for a model-read article, written through
 // the editor's party endpoint since no model runs in tests.
-async function queueModelRead(request: APIRequestContext, item: { decider_id: string; quote: string; passage: string; reading: string; weight: string; kind: string; question_id?: string }, sourceTitle: string) {
+async function queueModelRead(
+  request: APIRequestContext,
+  item: { decider_id: string; quote: string; passage: string; reading: string; weight: string; kind: string; question_id?: string },
+  sourceTitle: string,
+  dated: { published_on: string | null; published_on_from: string | null } = { published_on: null, published_on_from: null },
+) {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
   const now = TODAY.toISOString()
   const ids = { source: `src-${stamp}`, proposal: `prop-${stamp}`, item: `item-${stamp}` }
   const write = await partyWrite(request, [
-    { channel: 'sources', ops: [{ type: 'insert', value: { id: ids.source, url: `https://example.com/harbor-ledger/model-${stamp}`, title: sourceTitle, publisher: null, published_on: null, kind: null, archive_url: null, stored_copy: null, created_at: now } }] },
+    { channel: 'sources', ops: [{ type: 'insert', value: { id: ids.source, url: `https://example.com/harbor-ledger/model-${stamp}`, title: sourceTitle, publisher: null, ...dated, kind: null, archive_url: null, stored_copy: null, created_at: now } }] },
     { channel: 'proposals', ops: [{ type: 'insert', value: { id: ids.proposal, source_id: ids.source, origin: 'model', submitted_by: null, status: 'pending', unread: null, created_at: now, reviewed_at: null } }] },
     { channel: 'proposal_items', ops: [{ type: 'insert', value: { id: ids.item, proposal_id: ids.proposal, sort: 0, question_id: 'free-ferry', act_id: `act-${stamp}`, occurred_on: '2026-11-15', status: 'pending', ...item } }] },
     {
@@ -270,6 +275,62 @@ test('an entry read by a model shows its words marked in the passage, opens the 
   await expect(story.getByText('Sato was plain about it.')).toBeVisible()
   await expect(story.getByText('Free for city card holders')).toBeVisible()
   await expect(story.getByText('Fare-free ferry')).toBeVisible()
+})
+
+test('an old article leads with its publish date on the card, in the queue and on Latest, with the read date after it', async ({ page, request }) => {
+  const quote = 'I have backed a free ferry since the day I took office.'
+  const sourceTitle = `Sato on the ferry, from the archive ${Date.now()}`
+  const other = `Sato on the ferry, undated ${Date.now()}`
+  const old = await queueModelRead(request, { decider_id: 'demo-bartholomew-sato', quote, passage: quote, reading: 'support', weight: 'clear', kind: 'says' }, sourceTitle, { published_on: '2018-07-19', published_on_from: 'page' })
+  const undated = await queueModelRead(request, { decider_id: 'demo-bartholomew-sato', quote: `${quote} Still.`, passage: `${quote} Still.`, reading: 'support', weight: 'clear', kind: 'says' }, other)
+
+  await openCard(page, sourceTitle)
+  const card = page.getByRole('article', { name: sourceTitle })
+  const published = card.getByTestId('published')
+  await expect(published).toHaveText('Published Jul 19, 2018')
+  await expect(card.getByText('8 years ago', { exact: true })).toBeVisible()
+  await expect(card.getByText('from the page', { exact: true })).toBeVisible()
+  // The read date is there, below the publish date.
+  const read = card.getByText('Read by a model on Nov 19, 2026')
+  await expect(read).toBeVisible()
+  expect((await published.boundingBox())!.y).toBeLessThan((await read.boundingBox())!.y)
+  await expect(page.getByRole('complementary').getByRole('button').filter({ hasText: sourceTitle })).toContainText('Published Jul 19, 2018 · 8 years ago')
+  await expect(page.getByRole('complementary').getByRole('button').filter({ hasText: other })).toContainText('Publish date not known')
+
+  await page.goto(`/latest?proposal=${old.proposal}`)
+  const waiting = page.getByRole('article', { name: `Not checked yet: ${sourceTitle}` })
+  await expect(waiting.getByTestId('published')).toHaveText('Published Jul 19, 2018 · 8 years ago')
+  await expect(waiting.getByText('Published Jul 19, 2018. Read from the article by a model on Nov 19, 2026.')).toBeVisible()
+  await page.goto(`/latest?proposal=${undated.proposal}`)
+  await expect(page.getByRole('article', { name: `Not checked yet: ${other}` }).getByTestId('published')).toHaveText('Publish date not known')
+})
+
+test('an editor sets the publish date of an undated article on the card, and it is saved when the card is published', async ({ page, request }) => {
+  const quote = 'The ferry should cost nothing, and I will vote that way.'
+  const sourceTitle = `Sato on the ferry, date set by hand ${Date.now()}`
+  const ids = await queueModelRead(request, { decider_id: 'demo-bartholomew-sato', quote, passage: quote, reading: 'support', weight: 'clear', kind: 'says' }, sourceTitle)
+
+  await openCard(page, sourceTitle)
+  const card = page.getByRole('article', { name: sourceTitle })
+  await expect(card.getByTestId('published')).toHaveText('Publish date not known')
+  await expect(card.getByText(/ ago$/)).toHaveCount(0)
+  await card.getByText('Set the date').click()
+  await card.getByLabel('Publish date').fill('2025-01-02')
+  await expect(card.getByTestId('published')).toHaveText('Published Jan 2, 2025')
+  await expect(card.getByText('set by an editor')).toBeVisible()
+  await expect(card.getByText('1 year ago', { exact: true })).toBeVisible()
+  // Not written until the card is.
+  expect(query(`SELECT published_on, published_on_from FROM sources WHERE id = '${ids.source}'`)).toEqual([{ published_on: null, published_on_from: null }])
+
+  // Later than every other story the flows publish at TODAY, so it is first on Latest.
+  await page.clock.setFixedTime(new Date(TODAY.getTime() + 60 * 60 * 1000))
+  await page.getByRole('button', { name: /Publish 1 person/ }).click()
+  await expect(page.getByRole('status')).toContainText('Published 1 person')
+  await expect.poll(() => query(`SELECT published_on, published_on_from FROM sources WHERE id = '${ids.source}'`)).toEqual([{ published_on: '2025-01-02', published_on_from: 'editor' }])
+
+  await page.goto('/latest?question=free-ferry')
+  const story = page.getByRole('article', { name: sourceTitle })
+  await expect(story.getByTestId('published')).toHaveText('Published Jan 2, 2025 · 1 year ago')
 })
 
 test('a reading across from a position editors set makes a decision card, and lifting the position shows what the record works out to', async ({ page, request }) => {
@@ -565,7 +626,7 @@ test('a lead whose article was not read says so, starts empty, and cannot be pub
   const now = TODAY.toISOString()
   const sourceTitle = `Bayport hearing ${stamp}`
   const write = await partyWrite(request, [
-    { channel: 'sources', ops: [{ type: 'insert', value: { id: `src-${stamp}`, url: `https://example.com/bayport/${stamp}`, title: sourceTitle, publisher: null, published_on: null, kind: null, archive_url: null, stored_copy: null, created_at: now } }] },
+    { channel: 'sources', ops: [{ type: 'insert', value: { id: `src-${stamp}`, url: `https://example.com/bayport/${stamp}`, title: sourceTitle, publisher: null, published_on: '2026-11-12', published_on_from: 'search', kind: null, archive_url: null, stored_copy: null, created_at: now } }] },
     { channel: 'proposals', ops: [{ type: 'insert', value: { id: `prop-${stamp}`, source_id: `src-${stamp}`, origin: 'news_search', submitted_by: null, status: 'pending', unread: 'refused', created_at: now, reviewed_at: null } }] },
     {
       channel: 'proposal_items',
@@ -590,9 +651,10 @@ test('a lead whose article was not read says so, starts empty, and cannot be pub
   await expect(publish).toHaveText(/Publish needs both answers/)
   await direction.getByRole('radio', { name: 'Against' }).click()
   await weight.getByRole('radio', { name: 'Clear' }).click()
-  // The lead came with no date, and none is assumed.
+  // The lead came with no date, and none is assumed. The search result's date is offered, named as such.
   await expect(publish).toHaveText(/Publish needs the date/)
-  await entry.getByRole('button', { name: /^Use .*, the day this was put forward$/ }).click()
+  await expect(page.getByRole('article', { name: sourceTitle }).getByTestId('published')).toHaveText('Search result dated Nov 12, 2026')
+  await entry.getByRole('button', { name: 'Use Nov 12, 2026, the search result’s date' }).click()
   await expect(publish).toBeEnabled()
   await expect(publish).toHaveText(/Publish 1 person/)
 })

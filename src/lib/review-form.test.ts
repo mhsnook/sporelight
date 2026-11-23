@@ -379,14 +379,13 @@ describe('decisionOf', () => {
 })
 
 describe('dateOffer', () => {
-  const put = proposal('p1', 'article', { created_at: '2026-11-17T23:30:00.000Z' })
-
-  it('offers the day the source was published when that is known', () => {
-    expect(dateOffer(put, source('article', { published_on: '2026-11-03' }))).toEqual({ date: '2026-11-03', from: 'source' })
+  it('offers the day the source was published, with where that date came from', () => {
+    expect(dateOffer(source('article', { published_on: '2018-07-19', published_on_from: 'page' }))).toEqual({ date: '2018-07-19', from: 'page' })
   })
 
-  it('offers the day the proposal was put forward otherwise, and says which it is', () => {
-    expect(dateOffer(put, source('article'))).toEqual({ date: '2026-11-17', from: 'proposal' })
+  it('offers nothing when the publish date is not known, rather than the day the article was read', () => {
+    expect(dateOffer(source('article'))).toBeNull()
+    expect(dateOffer(source('article', { published_on: null, published_on_from: 'editor' }))).toBeNull()
   })
 })
 

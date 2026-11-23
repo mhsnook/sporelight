@@ -3,7 +3,7 @@ import { getServerByName } from 'partyserver'
 import { beforeAll, describe, expect, it } from 'vitest'
 import type { ProposalDraft } from '../../shared/schema.ts'
 import type { Tracker } from '../../worker/tracker.ts'
-import { EDITOR_TOKEN, type Frame, mailbox, partySocket, partyWrite, post, proposal, rows, seed, signIn, until } from './helpers.ts'
+import { EDITOR_TOKEN, type Frame, mailbox, partySocket, partyWrite, post, proposal, rows, seed, signIn, until, noOutsidePages } from './helpers.ts'
 
 const body = { id: 'new-body', slug: 'new-body', name: 'New Body', jurisdiction: null, description: null, is_demo: false, sort: 9, next_term_on: null, next_term_label: null }
 const rowsOn = (frames: Frame[], channel: string) => frames.filter((f) => f.channel === channel).flatMap((f) => f.ops.map((op) => op.value))
@@ -35,6 +35,7 @@ const readDraft = (name: string): ProposalDraft => ({
 const EDITOR_ONLY = ['proposal_notes', 'proposal_contexts', 'proposal_mentions']
 
 beforeAll(async () => {
+  noOutsidePages()
   await seed()
   // One proposal with a submitter note and one read from an article, so each
   // editor-only table has a row to withhold.

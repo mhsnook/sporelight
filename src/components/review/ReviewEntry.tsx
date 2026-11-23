@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import { ACT_KINDS, isUnreadLead, DIRECTIONS, POSITIONS, WEIGHTS, type Direction, type Position, type Proposal, type Question, type Source } from '../../../shared/schema.ts'
+import { ACT_KINDS, isUnreadLead, DIRECTIONS, POSITIONS, WEIGHTS, type Direction, type Position, type Proposal, type PublishedOnFrom, type Question, type Source } from '../../../shared/schema.ts'
 import { useTracker } from '../../lib/tracker.tsx'
 import { commit } from '../../lib/review.ts'
 import { questionInserts, relatedQuestionRows } from '../../lib/question-form.ts'
@@ -22,6 +22,12 @@ const WORDS_LABEL: Record<Proposal['origin'], string> = {
   news_search: 'Your words from the source',
   partner: 'Partner’s words, not checked against the source',
   model: 'Found in the article text by a model',
+}
+
+const OFFER_FROM: Record<PublishedOnFrom, string> = {
+  page: 'the date the page gives',
+  search: 'the search result’s date',
+  editor: 'the source’s date',
 }
 
 const RELATED_BADGE: Record<RelatedChoice['kind'], string> = {
@@ -155,7 +161,7 @@ export function ReviewEntry({
   const noun = KIND_NOUN[entry.kind]
   const record = decider ? tracker.recordFor(question, decider.id) : []
   const onFile = tracker.actById.has(entry.act_id)
-  const offer = dateOffer(proposal, source)
+  const offer = dateOffer(source)
   const root = tracker.rootOf(question)
   const offered = new Set(choices.map((c) => c.question.id))
   // A reading the proposal came with, on a question that is not offered any more.
@@ -348,9 +354,9 @@ export function ReviewEntry({
                 {KIND_LABEL[entry.kind]} · {entry.occurred_on ? formatDate(entry.occurred_on) : <b className="text-oppose">no date yet</b>}
                 {onFile && ' · an act already on the record'}
               </span>
-              {!readOnly && !entry.occurred_on && (
+              {!readOnly && !entry.occurred_on && offer && (
                 <button type="button" onClick={() => onChange({ occurred_on: offer.date })} className={LINK_SMALL}>
-                  Use {formatDate(offer.date)}, {offer.from === 'source' ? 'the source’s date' : 'the day this was put forward'}
+                  Use {formatDate(offer.date)}, {OFFER_FROM[offer.from]}
                 </button>
               )}
               {!readOnly && (

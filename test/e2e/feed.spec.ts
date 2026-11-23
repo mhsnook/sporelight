@@ -67,7 +67,7 @@ test('an article with several people in it is one story, with the people as repl
   const ids = people.map((_, i) => ({ act: `act-${stamp}-${i}`, report: `rep-${stamp}-${i}`, reading: `rd-${stamp}-${i}` }))
   const positions = ['support', 'oppose', 'mixed', 'lean_support']
   const write = await partyWrite(request, [
-    { channel: 'sources', ops: [{ type: 'insert', value: { id: `src-${stamp}`, url: `https://example.com/ledger-${stamp}`, title, publisher: null, published_on: null, kind: 'article', archive_url: null, stored_copy: null, created_at: at } }] },
+    { channel: 'sources', ops: [{ type: 'insert', value: { id: `src-${stamp}`, url: `https://example.com/ledger-${stamp}`, title, publisher: null, published_on: null, published_on_from: null, kind: 'article', archive_url: null, stored_copy: null, created_at: at } }] },
     {
       channel: 'acts',
       ops: people.map((decider_id, i) => ({ type: 'insert', value: { id: ids[i].act, decider_id, kind: 'says', occurred_on: '2026-11-18', body: `Words from person ${i} (${stamp})`, primary_source_id: null, withdrawn_on: null, created_at: at } })),
@@ -136,7 +136,7 @@ test('what is waiting shows in the feed as a short unchecked line that opens to 
     type: 'insert',
     value: { id, proposal_id: proposal, sort: 0, decider_id: 'demo-bartholomew-sato', question_id: 'free-ferry', act_id: `act-${id}`, kind: 'says', occurred_on: null, quote, reading, bearing: 'direct', position: null, summary: null, status },
   })
-  const source = (id: string) => ({ type: 'insert', value: { id, url: `https://example.com/${id}`, title: id, publisher: null, published_on: null, kind: null, archive_url: null, stored_copy: null, created_at: now } })
+  const source = (id: string) => ({ type: 'insert', value: { id, url: `https://example.com/${id}`, title: id, publisher: null, published_on: null, published_on_from: null, kind: null, archive_url: null, stored_copy: null, created_at: now } })
   const proposal = (id: string, sourceId: string, origin: string) => ({ type: 'insert', value: { id, source_id: sourceId, origin, submitted_by: null, status: 'pending', created_at: now, reviewed_at: null } })
   const write = await partyWrite(request, [
     { channel: 'sources', ops: names.map((n) => source(`${n}-${stamp}`)) },

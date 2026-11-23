@@ -64,6 +64,7 @@ DELETE FROM sources WHERE id IN (SELECT id FROM removed_sources)
   AND NOT EXISTS (SELECT 1 FROM reports r WHERE r.source_id = sources.id)
   AND NOT EXISTS (SELECT 1 FROM acts a WHERE a.primary_source_id = sources.id)
   AND NOT EXISTS (SELECT 1 FROM proposals p WHERE p.source_id = sources.id)
+  AND NOT EXISTS (SELECT 1 FROM article_reads r WHERE r.source_id = sources.id)
   AND NOT EXISTS (SELECT 1 FROM office_holders h WHERE h.source_id = sources.id);
 DELETE FROM archive_attempts WHERE source_id IN (SELECT id FROM removed_sources) AND source_id NOT IN (SELECT id FROM sources);
 DELETE FROM bodies WHERE id IN (SELECT id FROM removed_bodies);

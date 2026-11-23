@@ -89,7 +89,7 @@ describe('modelPrompt with a smaller step linked to the question', () => {
     const step = { id: 'at-55', title: 'Lower the age to 55?', short_title: 'At 55', description: null, kind: 'position' as const, relation: 'smaller_step' as const }
     const prompt = modelPrompt(
       { question: { id: 'hot', title: 'Hot question?', short_title: 'Hot', description: null, kind: 'position' }, subQuestions: [], relatedQuestions: [step], people: [{ id: 'ann', name: 'Ann Alpha', questions: ['hot', 'at-55'] }] },
-      { url: 'https://news.example/a', title: null, date: null, text: 'Text.' },
+      { url: 'https://news.example/a', title: null, published: null, text: 'Text.' },
       '2026-11-19',
     )
     expect(prompt.messages[1].content).toMatch(/"question_id": "at-55"[^}]*"relation_to_main_question": "smaller_step"/)
@@ -104,14 +104,14 @@ describe('an answer that leaves out the people only named', () => {
   })
 
   it('is still asked for in the shape the model is given', () => {
-    const { response_format } = modelPrompt({ question: { id: 'hot', title: 'Hot question?', short_title: 'Hot', description: null, kind: 'position' }, subQuestions: [], relatedQuestions: [], people: [] }, { url: 'https://news.example/a', title: null, date: null, text: 'Text.' }, '2026-11-19')
+    const { response_format } = modelPrompt({ question: { id: 'hot', title: 'Hot question?', short_title: 'Hot', description: null, kind: 'position' }, subQuestions: [], relatedQuestions: [], people: [] }, { url: 'https://news.example/a', title: null, published: null, text: 'Text.' }, '2026-11-19')
     expect((response_format.json_schema.schema as { required: string[] }).required).toEqual(['acts', 'named_only'])
   })
 })
 
 describe('modelPrompt', () => {
   const context = { question: { id: 'hot', title: 'Hot question?', short_title: 'Hot', description: null, kind: 'position' as const }, subQuestions: [], relatedQuestions: [], people: [{ id: 'ann', name: 'Ann Alpha', questions: ['hot'] }] }
-  const prompt = modelPrompt(context, { url: 'https://news.example/a', title: 'A', date: null, text: ARTICLE }, '2026-11-19')
+  const prompt = modelPrompt(context, { url: 'https://news.example/a', title: 'A', published: null, text: ARTICLE }, '2026-11-19')
 
   it('gives the model the people it may name and the whole article', () => {
     expect(prompt.messages[1].content).toContain('"person_id": "ann"')
@@ -143,7 +143,7 @@ const context: ReadingContext = {
   people: [{ id: 'ann', name: 'Ann Alpha', questions: ['hot', ...Array.from({ length: 12 }, (_, i) => `sub-${i}`)] }],
 }
 const answering = (answer: unknown) => ({ AI: { run: async () => ({ choices: [{ message: { content: JSON.stringify(answer) } }] }) }, AI_GATEWAY: 'gw' }) as unknown as Env
-const read = (answer: unknown, text = ARTICLE, readFor = context) => readArticle(answering(answer), readFor, { url: 'https://news.example/a', title: null, date: null, text }, '2026-11-19')
+const read = (answer: unknown, text = ARTICLE, readFor = context) => readArticle(answering(answer), readFor, { url: 'https://news.example/a', title: null, published: null, text }, '2026-11-19')
 // The same question with Bob read for as well.
 const withBob: ReadingContext = { ...context, people: [...context.people, { id: 'bob', name: 'Bob Beta', questions: ['hot'] }] }
 
@@ -303,7 +303,7 @@ describe('draftFromReading', () => {
   const acts: ModelAct[] = modelOutputSchema.parse(answer([act(), act({ person_id: 'bob', kind: 'does', weight: 'passing' })])).acts.map((a) => ({ ...a, ...found }))
 
   it('makes one proposal with an item per act, the reason in each item note, and the model in the proposal note', () => {
-    const draft = draftFromReading({ url: 'https://news.example/a', title: 'A' }, acts, [{ act: { person_id: 'ann', question_id: 'hot', quote: 'made up' }, why: 'quotes words that are not in the article' }], 'q')
+    const draft = draftFromReading({ url: 'https://news.example/a', title: 'A', published: null }, acts, [{ act: { person_id: 'ann', question_id: 'hot', quote: 'made up' }, why: 'quotes words that are not in the article' }], 'q')
     expect(draft.items).toMatchObject([
       { decider_id: 'ann', kind: 'says', reading: 'support', weight: 'clear', note: expect.stringContaining('A direct statement of how she will vote.') },
       { decider_id: 'bob', kind: 'does', weight: 'passing' },
@@ -313,7 +313,7 @@ describe('draftFromReading', () => {
   })
 
   it('gives each item the passage its words sit in and the text either side', () => {
-    const draft = draftFromReading({ url: 'https://news.example/a', title: 'A' }, acts, [], null)
+    const draft = draftFromReading({ url: 'https://news.example/a', title: 'A', published: null }, acts, [], null)
     expect(draft.items.map((i) => [i.passage, i.context])).toEqual([
       [found.passage, found.context],
       [found.passage, found.context],
@@ -321,14 +321,14 @@ describe('draftFromReading', () => {
   })
 
   it('lists the people the article only names, and nobody when none are given', () => {
-    const article = { url: 'https://news.example/a', title: 'A' }
+    const article = { url: 'https://news.example/a', title: 'A', published: null }
     expect(draftFromReading(article, acts, [], null, [{ person_id: 'cy', words: 'was absent' }]).mentions).toEqual([{ decider_id: 'cy', words: 'was absent' }])
     expect(draftFromReading(article, acts, [], null).mentions).toEqual([])
   })
 
   it('keeps the note short however many acts were dropped', () => {
     const dropped = Array.from({ length: 300 }, (_, i) => ({ act: { person_id: 'ann', question_id: 'hot', quote: `made up ${i} `.repeat(20) }, why: 'quotes words that are not in the article' }))
-    const draft = draftFromReading({ url: 'https://news.example/a', title: 'A' }, [], dropped, 'q')
+    const draft = draftFromReading({ url: 'https://news.example/a', title: 'A', published: null }, [], dropped, 'q')
     expect(draft.note!.length).toBeLessThan(1000)
     expect(draft.note).toContain('300')
   })

@@ -1,7 +1,7 @@
 import { fetchArticle } from './article.ts'
-import { hitDate, leadFromHit, peopleInHit, rosterMatcher, type RosterEntry, type SearchHit } from './leads.ts'
-import { draftFromReading, MODEL, readArticle, readingContext, type Dropped, type ModelAct, type ReadingContext } from './reader.ts'
-import { sourceUrl, type Proposal, type ProposalDraft, type UnreadReason } from '../shared/schema.ts'
+import { hitPublished, leadFromHit, peopleInHit, rosterMatcher, type RosterEntry, type SearchHit } from './leads.ts'
+import { draftFromReading, MODEL, readArticle, readingContext, type ArticleRef, type Dropped, type ModelAct, type ReadingContext } from './reader.ts'
+import { sourceUrl, type FoundPublishedOn, type Proposal, type ProposalDraft, type UnreadReason } from '../shared/schema.ts'
 import type { NewsReport, NewsRun, NewsStep, ReadOutcome, RunOutcome, RunStarter } from '../shared/news-run.ts'
 import type { SubmitResult } from './tracker.ts'
 
@@ -18,7 +18,10 @@ export const NEWS_CRON = '17 14 * * *'
 
 type HotQuestion = { id: string; short_title: string; body_id: string; body_name: string }
 
-export type Submitter = { propose(draft: ProposalDraft, origin: Proposal['origin']): Promise<SubmitResult> }
+export type Submitter = {
+  propose(draft: ProposalDraft, origin: Proposal['origin']): Promise<SubmitResult>
+  catalogue(source: ProposalDraft['source']): Promise<string>
+}
 
 function queriesFor(question: HotQuestion, now: Date): string[] {
   const month = now.toLocaleString('en', { month: 'long', year: 'numeric', timeZone: 'UTC' })
@@ -39,14 +42,16 @@ function roster(db: D1Database, question: { id: string; body_id: string }) {
 
 export type ArticleOutcome =
   | { outcome: 'acts'; context: ReadingContext; acts: ModelAct[]; dropped: Dropped[]; draft: ProposalDraft }
-  | { outcome: 'no_acts'; context: ReadingContext; dropped: Dropped[] }
-  | { outcome: 'not_read'; reason: string; unread: UnreadReason; modelCallFailed?: boolean }
+  | { outcome: 'no_acts'; context: ReadingContext; dropped: Dropped[]; published: FoundPublishedOn | null }
+  // `published` is the page's own date, when the page was fetched and gave one.
+  | { outcome: 'not_read'; reason: string; unread: UnreadReason; modelCallFailed?: boolean; published?: FoundPublishedOn | null }
 
 // Fetches one article and has the model read it for these people on this
-// question. Writes nothing.
+// question. Writes nothing. The page's own publish date, when it has one,
+// takes the place of the date the article came with.
 export async function readOneArticle(
   env: Env,
-  article: { url: string; title: string | null; date: string | null },
+  given: ArticleRef,
   questionId: string,
   people: RosterEntry[],
   today: string,
@@ -54,16 +59,19 @@ export async function readOneArticle(
   text?: string,
 ): Promise<ArticleOutcome> {
   let body = text
+  let pageDated: FoundPublishedOn | null = null
   if (body === undefined) {
-    const fetched = await fetchArticle(env, article.url)
-    if (!fetched.ok) return { outcome: 'not_read', reason: fetched.reason, unread: fetched.unread }
+    const fetched = await fetchArticle(env, given.url, today)
+    pageDated = fetched.published ?? null
+    if (!fetched.ok) return { outcome: 'not_read', reason: fetched.reason, unread: fetched.unread, published: pageDated }
     body = fetched.text
   }
+  const article = { ...given, published: pageDated ?? given.published }
   const context = await readingContext(env.DB, questionId, people, today)
-  if (!context) return { outcome: 'not_read', reason: 'The question no longer exists.', unread: 'model_failed' }
+  if (!context) return { outcome: 'not_read', reason: 'The question no longer exists.', unread: 'model_failed', published: pageDated }
   const reading = await readArticle(env, context, { ...article, text: body }, today)
-  if (!reading.ok) return { outcome: 'not_read', reason: reading.reason, unread: 'model_failed', modelCallFailed: reading.callFailed }
-  if (reading.acts.length === 0) return { outcome: 'no_acts', context, dropped: reading.dropped }
+  if (!reading.ok) return { outcome: 'not_read', reason: reading.reason, unread: 'model_failed', modelCallFailed: reading.callFailed, published: pageDated }
+  if (reading.acts.length === 0) return { outcome: 'no_acts', context, dropped: reading.dropped, published: article.published }
   return { outcome: 'acts', context, acts: reading.acts, dropped: reading.dropped, draft: draftFromReading(article, reading.acts, reading.dropped, query, reading.mentions) }
 }
 
@@ -73,7 +81,7 @@ export async function readOneArticle(
 async function alreadyHandled(db: D1Database, url: string, questionId: string): Promise<boolean> {
   const row = await db
     .prepare(
-      `SELECT 1 FROM article_reads WHERE url = ?1 AND question_id = ?2
+      `SELECT 1 FROM article_reads r JOIN sources s ON s.id = r.source_id WHERE s.url = ?1 AND r.question_id = ?2
        UNION ALL
        SELECT 1 FROM proposal_items i JOIN proposals p ON p.id = i.proposal_id JOIN sources s ON s.id = p.source_id JOIN questions q ON q.id = i.question_id
        WHERE s.url = ?1 AND (q.id = ?2 OR q.parent_id = ?2)
@@ -84,10 +92,10 @@ async function alreadyHandled(db: D1Database, url: string, questionId: string): 
   return row !== null
 }
 
-function recordRead(db: D1Database, url: string, questionId: string, now: Date, outcome: 'queued' | 'no_acts' | 'not_read', model: string | null, detail: string | null) {
+function recordRead(db: D1Database, sourceId: string, questionId: string, now: Date, outcome: 'queued' | 'no_acts' | 'not_read', model: string | null, detail: string | null) {
   return db
-    .prepare(`INSERT OR REPLACE INTO article_reads (url, question_id, read_at, outcome, model, detail) VALUES (?, ?, ?, ?, ?, ?)`)
-    .bind(url, questionId, now.toISOString(), outcome, model, detail?.slice(0, 2000) ?? null)
+    .prepare(`INSERT OR REPLACE INTO article_reads (source_id, question_id, read_at, outcome, model, detail) VALUES (?, ?, ?, ?, ?, ?)`)
+    .bind(sourceId, questionId, now.toISOString(), outcome, model, detail?.slice(0, 2000) ?? null)
     .run()
 }
 
@@ -152,7 +160,7 @@ export async function searchNews(env: Env, tracker: Submitter, now: Date = new D
         tally.read++
         tried.add(key)
 
-        const article = { url, title: hit.title || null, date: hitDate(hit) }
+        const article: ArticleRef = { url, title: hit.title || null, published: hitPublished(hit) }
         const finished = (outcome: ReadOutcome, queued: number, detail: string | null) =>
           onStep({ kind: 'read', question: question.short_title, url, title: article.title, outcome, queued, detail })
         onStep({ kind: 'reading', question: question.short_title, url, title: article.title })
@@ -163,7 +171,14 @@ export async function searchNews(env: Env, tracker: Submitter, now: Date = new D
           draft = result.draft
           origin = 'model'
         } else if (result.outcome === 'no_acts') {
-          await recordRead(env.DB, url, question.id, now, 'no_acts', MODEL, droppedDetail(result.dropped))
+          const catalogued = await tracker.catalogue({ url, title: article.title, published: result.published }).catch((e: unknown) => new Error(String(e).slice(0, 200)))
+          // Not recorded, so the next run reads it again.
+          if (catalogued instanceof Error) {
+            tally.failed++
+            finished('failed', 0, catalogued.message)
+            continue
+          }
+          await recordRead(env.DB, catalogued, question.id, now, 'no_acts', MODEL, droppedDetail(result.dropped))
           finished('nothing', 0, null)
           continue
         } else {
@@ -172,7 +187,7 @@ export async function searchNews(env: Env, tracker: Submitter, now: Date = new D
             report.error = `Stopped reading articles: ${result.reason}`
             onStep({ kind: 'stopped_reading', reason: result.reason })
           }
-          draft = leadFromHit(hit, question.id, query, match, { unread: result.unread, why: `The article was not read: ${result.reason}` })
+          draft = leadFromHit(hit, question.id, query, match, { unread: result.unread, why: `The article was not read: ${result.reason}` }, result.published ?? undefined)
           origin = 'news_search'
         }
         if (!draft) {
@@ -189,14 +204,14 @@ export async function searchNews(env: Env, tracker: Submitter, now: Date = new D
         }
         tally.queued += submitted.queued
         if (result.outcome !== 'acts') {
-          await recordRead(env.DB, url, question.id, now, 'not_read', null, result.reason)
+          await recordRead(env.DB, submitted.source_id, question.id, now, 'not_read', null, result.reason)
           finished('lead', submitted.queued, result.reason)
         } else if (submitted.queued > 0) {
-          await recordRead(env.DB, url, question.id, now, 'queued', MODEL, droppedDetail(result.dropped))
+          await recordRead(env.DB, submitted.source_id, question.id, now, 'queued', MODEL, droppedDetail(result.dropped))
           finished('queued', submitted.queued, null)
         } else {
           const alreadyProposed = 'Every act found was already proposed from this source.'
-          await recordRead(env.DB, url, question.id, now, 'no_acts', MODEL, alreadyProposed)
+          await recordRead(env.DB, submitted.source_id, question.id, now, 'no_acts', MODEL, alreadyProposed)
           finished('nothing', 0, alreadyProposed)
         }
       }
@@ -215,7 +230,7 @@ export async function dryRunArticle(env: Env, url: string, questionId: string, n
   const today = now.toISOString().slice(0, 10)
   const question = await env.DB.prepare(`SELECT id, body_id FROM questions WHERE id = ?`).bind(questionId).first<{ id: string; body_id: string }>()
   if (!question) return { error: 'Unknown question.' }
-  const fetched = await fetchArticle(env, url)
+  const fetched = await fetchArticle(env, url, today)
   if (!fetched.ok) return { outcome: 'not_read' as const, reason: fetched.reason, unread: fetched.unread, model: MODEL }
   const members = (await roster(env.DB, question)).results
   const match = rosterMatcher(members)
@@ -225,7 +240,7 @@ export async function dryRunArticle(env: Env, url: string, questionId: string, n
     .map((id) => byId.get(id)!)
   const article = { chars: fetched.text.length, truncated: fetched.truncated, opening: fetched.text.slice(0, 600) }
   if (people.length === 0) return { outcome: 'no_people' as const, model: MODEL, article }
-  const result = await readOneArticle(env, { url: sourceUrl(url), title: null, date: null }, question.id, people, today, null, fetched.text)
+  const result = await readOneArticle(env, { url: sourceUrl(url), title: null, published: fetched.published }, question.id, people, today, null, fetched.text)
   return { ...result, model: MODEL, article, people: people.map((p) => p.name) }
 }
 
