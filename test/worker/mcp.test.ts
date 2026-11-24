@@ -1,7 +1,8 @@
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { env, exports } from 'cloudflare:workers'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { nextIp, rows, seed } from './helpers.ts'
+import { AGENT_KEY_PREFIX } from '../../worker/auth.ts'
+import { nextIp, post, rows, seed } from './helpers.ts'
 
 // An MCP client talking to the Worker's /mcp, from its own address, with a key if it has one.
 async function connect(from = nextIp(), key?: string) {
@@ -94,12 +95,12 @@ describe('/mcp: agents sign up and send evidence as people', () => {
   it('signs an agent up as a person labelled agent, under the name it gives, with a key shown once', async () => {
     const agent = await signUp('Harbor Watch monitor')
     expect(agent.kind).toBe('agent')
-    expect(agent.api_key).toMatch(/^sporelight_/)
+    expect(agent.api_key.startsWith(AGENT_KEY_PREFIX)).toBe(true)
     expect(await rows(`SELECT kind, display_name, muted_at FROM people WHERE id = ?`, agent.id)).toEqual([{ kind: 'agent', display_name: 'Harbor Watch monitor', muted_at: null }])
     // Better Auth keeps a hash of the key, never the key.
     const stored = await rows<{ key: string }>(`SELECT key FROM auth_api_keys WHERE referenceId = ?`, agent.id)
     expect(stored).toHaveLength(1)
-    expect(stored[0].key).not.toContain(agent.api_key.slice('sporelight_'.length))
+    expect(stored[0].key).not.toContain(agent.api_key.slice(AGENT_KEY_PREFIX.length))
     // The session it signed up with is ended, so the key is the only way in.
     expect(await rows(`SELECT id FROM auth_sessions WHERE userId = ?`, agent.id)).toEqual([])
   })
@@ -129,10 +130,19 @@ describe('/mcp: agents sign up and send evidence as people', () => {
 
   it('refuses a key it did not issue, rather than sending anonymously, and writes nothing', async () => {
     const before = await rows<{ n: number }>(`SELECT COUNT(*) AS n FROM proposals`)
-    const result = await call('submit_evidence', evidence(), 'sporelight_not-a-key-we-issued')
+    const result = await call('submit_evidence', evidence(), `${AGENT_KEY_PREFIX}not-a-key-we-issued`)
     expect(result.isError).toBe(true)
-    expect(textOf(result)).toMatch(/not one this site issued/)
+    expect(textOf(result)).toMatch(/key in x-api-key was refused: Invalid API key/)
     expect(await rows<{ n: number }>(`SELECT COUNT(*) AS n FROM proposals`)).toEqual(before)
+  })
+
+  it('tells an agent over its key’s rate limit to wait, not that its key is bad', async () => {
+    const agent = await signUp('Busy bot')
+    await env.DB.prepare(`UPDATE auth_api_keys SET rateLimitMax = 1 WHERE referenceId = ?`).bind(agent.id).run()
+    expect((await call('whoami', {}, agent.api_key)).structuredContent).toMatchObject({ signed_in: true, id: agent.id })
+    const limited = await call('whoami', {}, agent.api_key)
+    expect(limited.isError).toBe(true)
+    expect(textOf(limited)).toMatch(/^Too many requests with this key\. Try again in \d+ seconds\.$/)
   })
 
   it('does not sign up a second account on a request that already carries a key', async () => {
@@ -168,5 +178,37 @@ describe('/mcp: agents sign up and send evidence as people', () => {
     const result = await call('submit_evidence', evidence({ decider_id: 'nobody' }))
     expect(result.isError).toBe(true)
     expect(textOf(result)).toMatch(/Unknown question or decider/)
+  })
+})
+
+describe('a key in x-api-key on the reader routes', () => {
+  const evidenceForm = (url: string) => ({ ...evidence({ source_url: url }), source_title: null, occurred_on: null, submitter_note: null })
+  // post() sends no x-api-key, so these call the Worker with the header themselves.
+  const postWithKey = (path: string, body: unknown, key: string) =>
+    exports.default.fetch(`https://sporelight.test${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'cf-connecting-ip': nextIp(), 'x-api-key': key },
+      body: JSON.stringify(body),
+    })
+
+  it('answers a key it did not issue with a 401 and writes nothing', async () => {
+    const url = `https://news.example/bad-key-${crypto.randomUUID()}`
+    const res = await postWithKey('/api/proposals', evidenceForm(url), `${AGENT_KEY_PREFIX}not-a-key-we-issued`)
+    expect(res.status).toBe(401)
+    expect(await res.json()).toEqual({ error: 'The key in x-api-key was refused: Invalid API key.' })
+    expect(await rows(`SELECT id FROM sources WHERE url = ?`, url)).toEqual([])
+  })
+
+  it('posts a proposal under the agent whose key it is', async () => {
+    const agent = await signUp('Form-posting bot')
+    const res = await postWithKey('/api/proposals', evidenceForm(`https://news.example/keyed-${crypto.randomUUID()}`), agent.api_key)
+    expect(res.status).toBe(200)
+    const { proposal_id } = (await res.json()) as { proposal_id: string }
+    expect(await rows(`SELECT submitted_by FROM proposals WHERE id = ?`, proposal_id)).toEqual([{ submitted_by: agent.id }])
+  })
+
+  it('still posts anonymously with no key', async () => {
+    const res = await post('/api/proposals', evidenceForm(`https://news.example/no-key-${crypto.randomUUID()}`))
+    expect(res.status).toBe(200)
   })
 })

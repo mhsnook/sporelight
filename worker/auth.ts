@@ -90,9 +90,35 @@ async function sendCode(env: Env, email: string, code: string) {
   }
 }
 
-// Who sent this request, if they are signed in.
+// Better Auth refused the key in x-api-key: unknown, disabled, expired, or over its rate limit.
+export class KeyRefused extends Error {
+  constructor(
+    readonly status: 401 | 429,
+    message: string,
+  ) {
+    super(message)
+  }
+}
+
+type BetterAuthError = { statusCode?: number; body?: { message?: string; details?: { tryAgainIn?: number } } }
+
+// Who sent this request, if they are signed in. Throws KeyRefused for a key
+// Better Auth will not accept, so a bad key is never taken for nobody.
 export async function signedInPerson(req: Request, env: Env): Promise<Person | null> {
-  const session = await auth(env).api.getSession({ headers: req.headers, request: req, asResponse: false })
+  let session
+  try {
+    session = await auth(env).api.getSession({ headers: req.headers, request: req, asResponse: false })
+  } catch (e) {
+    const { statusCode, body } = e as BetterAuthError
+    if (!req.headers.has('x-api-key')) throw e
+    if (statusCode === 429) {
+      const seconds = Math.ceil((body?.details?.tryAgainIn ?? 60_000) / 1000)
+      throw new KeyRefused(429, `Too many requests with this key. Try again in ${seconds} seconds.`)
+    }
+    // Better Auth answers an unknown key with 403 on this path and a disabled or expired one with 401.
+    if (statusCode === 401 || statusCode === 403) throw new KeyRefused(401, `The key in x-api-key was refused: ${body?.message ?? 'it is not valid'}`)
+    throw e
+  }
   if (!session) return null
   return env.DB.prepare(`SELECT id, kind, display_name, muted_at, created_at FROM people WHERE id = ?`).bind(session.user.id).first<Person>()
 }

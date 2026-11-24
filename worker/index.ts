@@ -2,7 +2,7 @@ import { getServerByName, routePartykitRequest } from 'partyserver'
 import { ARCHIVE_CRON, archiveNow, archiveSources, type Archiver } from './archive.ts'
 import { commentInputSchema, displayNameSchema, proposalInputSchema } from '../shared/schema.ts'
 import { RUN_ID } from '../shared/news-run.ts'
-import { auth, signedInPerson } from './auth.ts'
+import { auth, KeyRefused, signedInPerson } from './auth.ts'
 import { handleMcp } from './mcp.ts'
 import { isEditorRequest } from './editor.ts'
 import { atomResponse } from './feed.ts'
@@ -86,54 +86,63 @@ async function handleDisplayName(req: Request, env: Env): Promise<Response> {
   return Response.json({ ok: true })
 }
 
+async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const url = new URL(req.url)
+  // The anonymous plugin's own routes. Agents sign up only through /mcp, which names them and hands out their key.
+  if (url.pathname === '/api/auth/sign-in/anonymous' || url.pathname === '/api/auth/delete-anonymous-user') return new Response('not found', { status: 404 })
+  if (url.pathname.startsWith('/api/auth/')) {
+    // Each code sent is an email from our domain, so sending one counts as a post.
+    if (url.pathname === '/api/auth/email-otp/send-verification-otp' && (await overLimit(req, env))) return tooMany()
+    return auth(env).handler(req)
+  }
+  if (url.pathname === '/api/me/name' && req.method === 'POST') return handleDisplayName(req, env)
+  if (url.pathname === '/feed.xml' && req.method === 'GET') return atomResponse(req, env, ctx)
+  if (url.pathname === '/api/proposals' && req.method === 'POST') return handleProposal(req, env)
+  if (url.pathname === '/api/comments' && req.method === 'POST') return handleComment(req, env)
+  if (url.pathname === '/mcp') return handleMcp(req, env)
+  if (url.pathname === '/api/editor/session') {
+    return (await isEditorRequest(req, env)) ? Response.json({ ok: true }) : new Response('unauthorized', { status: 401 })
+  }
+  if (url.pathname === '/api/editor/news-search' && req.method === 'POST') {
+    if (!(await isEditorRequest(req, env))) return new Response('unauthorized', { status: 401 })
+    return startNewsSearch(req, env, ctx)
+  }
+  if (url.pathname === '/api/editor/news-runs' && req.method === 'GET') {
+    if (!(await isEditorRequest(req, env))) return new Response('unauthorized', { status: 401 })
+    return Response.json({ runs: await listRuns(env.DB) })
+  }
+  const runPath = url.pathname.match(/^\/api\/editor\/news-runs\/([^/]+)$/)
+  if (runPath && req.method === 'GET') {
+    if (!(await isEditorRequest(req, env))) return new Response('unauthorized', { status: 401 })
+    const found = await runWithSteps(env.DB, runPath[1])
+    return found ? Response.json(found) : Response.json({ error: 'No run has that id yet.' }, { status: 404 })
+  }
+  if (url.pathname === '/api/editor/read-article' && req.method === 'POST') {
+    if (!(await isEditorRequest(req, env))) return new Response('unauthorized', { status: 401 })
+    const body = (await req.json().catch(() => null)) as { url?: unknown; question_id?: unknown } | null
+    const target = typeof body?.url === 'string' && /^https?:\/\//.test(body.url) ? body.url : null
+    if (!target || typeof body?.question_id !== 'string') return Response.json({ error: 'Expected a url and a question_id.' }, { status: 400 })
+    const result = await dryRunArticle(env, target, body.question_id)
+    return Response.json(result, { status: 'error' in result ? 404 : 200 })
+  }
+  if (url.pathname === '/api/editor/archive' && req.method === 'POST') {
+    if (!(await isEditorRequest(req, env))) return new Response('unauthorized', { status: 401 })
+    const body = (await req.json().catch(() => null)) as { source_id?: unknown } | null
+    if (typeof body?.source_id !== 'string') return Response.json({ error: 'Expected a source_id.' }, { status: 400 })
+    const result = await archiveNow(env, roomForLongRun(env), body.source_id)
+    return 'error' in result ? Response.json({ error: result.error }, { status: result.status }) : Response.json(result)
+  }
+  return (await routePartykitRequest(req, env)) ?? new Response('not found', { status: 404 })
+}
+
 export default {
   async fetch(req, env, ctx) {
-    const url = new URL(req.url)
-    // The anonymous plugin's own routes. Agents sign up only through /mcp, which names them and hands out their key.
-    if (url.pathname === '/api/auth/sign-in/anonymous' || url.pathname === '/api/auth/delete-anonymous-user') return new Response('not found', { status: 404 })
-    if (url.pathname.startsWith('/api/auth/')) {
-      // Each code sent is an email from our domain, so sending one counts as a post.
-      if (url.pathname === '/api/auth/email-otp/send-verification-otp' && (await overLimit(req, env))) return tooMany()
-      return auth(env).handler(req)
+    try {
+      return await route(req, env, ctx)
+    } catch (e) {
+      if (e instanceof KeyRefused) return Response.json({ error: e.message }, { status: e.status })
+      throw e
     }
-    if (url.pathname === '/api/me/name' && req.method === 'POST') return handleDisplayName(req, env)
-    if (url.pathname === '/feed.xml' && req.method === 'GET') return atomResponse(req, env, ctx)
-    if (url.pathname === '/api/proposals' && req.method === 'POST') return handleProposal(req, env)
-    if (url.pathname === '/api/comments' && req.method === 'POST') return handleComment(req, env)
-    if (url.pathname === '/mcp') return handleMcp(req, env)
-    if (url.pathname === '/api/editor/session') {
-      return (await isEditorRequest(req, env)) ? Response.json({ ok: true }) : new Response('unauthorized', { status: 401 })
-    }
-    if (url.pathname === '/api/editor/news-search' && req.method === 'POST') {
-      if (!(await isEditorRequest(req, env))) return new Response('unauthorized', { status: 401 })
-      return startNewsSearch(req, env, ctx)
-    }
-    if (url.pathname === '/api/editor/news-runs' && req.method === 'GET') {
-      if (!(await isEditorRequest(req, env))) return new Response('unauthorized', { status: 401 })
-      return Response.json({ runs: await listRuns(env.DB) })
-    }
-    const runPath = url.pathname.match(/^\/api\/editor\/news-runs\/([^/]+)$/)
-    if (runPath && req.method === 'GET') {
-      if (!(await isEditorRequest(req, env))) return new Response('unauthorized', { status: 401 })
-      const found = await runWithSteps(env.DB, runPath[1])
-      return found ? Response.json(found) : Response.json({ error: 'No run has that id yet.' }, { status: 404 })
-    }
-    if (url.pathname === '/api/editor/read-article' && req.method === 'POST') {
-      if (!(await isEditorRequest(req, env))) return new Response('unauthorized', { status: 401 })
-      const body = (await req.json().catch(() => null)) as { url?: unknown; question_id?: unknown } | null
-      const target = typeof body?.url === 'string' && /^https?:\/\//.test(body.url) ? body.url : null
-      if (!target || typeof body?.question_id !== 'string') return Response.json({ error: 'Expected a url and a question_id.' }, { status: 400 })
-      const result = await dryRunArticle(env, target, body.question_id)
-      return Response.json(result, { status: 'error' in result ? 404 : 200 })
-    }
-    if (url.pathname === '/api/editor/archive' && req.method === 'POST') {
-      if (!(await isEditorRequest(req, env))) return new Response('unauthorized', { status: 401 })
-      const body = (await req.json().catch(() => null)) as { source_id?: unknown } | null
-      if (typeof body?.source_id !== 'string') return Response.json({ error: 'Expected a source_id.' }, { status: 400 })
-      const result = await archiveNow(env, roomForLongRun(env), body.source_id)
-      return 'error' in result ? Response.json({ error: result.error }, { status: result.status }) : Response.json(result)
-    }
-    return (await routePartykitRequest(req, env)) ?? new Response('not found', { status: 404 })
   },
 
   // Awaited, not left to waitUntil: a run reads articles or waits on capture

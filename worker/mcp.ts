@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { displayNameSchema, proposalInputSchema, type Person, type Question } from '../shared/schema.ts'
 import { STANDINGS } from '../src/lib/position.ts'
 import { buildTracker, isHeld, type Contender, type RecordEntry, type Tracker as TrackerView } from '../src/lib/build-tracker.ts'
-import { auth, signedInPerson } from './auth.ts'
+import { auth, KeyRefused, signedInPerson } from './auth.ts'
 import { loadRecord } from './record.ts'
 import type { Tracker } from './tracker.ts'
 
@@ -43,10 +43,17 @@ function serverFor(env: Env, req: Request) {
   const questionPage = (t: TrackerView, q: Question) => `${origin}/q/${t.rootOf(q).slug}`
   const personPage = (t: TrackerView, q: Question, slug: string) => `${origin}/q/${t.rootOf(q).slug}/${slug}`
 
-  // Who sent this request: a person or an agent with a key in x-api-key, or nobody.
-  let sender: Promise<Person | null> | undefined
-  // Better Auth throws on a key it does not know; that is nobody, and the tools say so.
-  const whoSent = () => (sender ??= signedInPerson(req, env).catch(() => null))
+  // Who sent this request: a person or an agent with a key in x-api-key, or
+  // nobody. A key Better Auth refuses comes back as the reason, for the agent.
+  let sender: Promise<{ person: Person | null } | { refused: string }> | undefined
+  const whoSent = () =>
+    (sender ??= signedInPerson(req, env).then(
+      (person) => ({ person }),
+      (e) => {
+        if (e instanceof KeyRefused) return { refused: e.message }
+        throw e
+      },
+    ))
   const keyGiven = req.headers.has('x-api-key')
   const tooMany = async () => !(await env.POST_LIMITER.limit({ key: req.headers.get('cf-connecting-ip') ?? 'unknown' })).success
 
@@ -187,8 +194,9 @@ function serverFor(env: Env, req: Request) {
     },
     async ({ source_url, source_title, submitter_note, occurred_on, ...item }) => {
       if (await tooMany()) return refusal('That is a lot of posts in a short time. Give it a minute.')
-      const person = await whoSent()
-      if (keyGiven && !person) return refusal('The key in x-api-key is not one this site issued, or it has been revoked. Leave the header out to send anonymously.')
+      const sent = await whoSent()
+      if ('refused' in sent) return refusal(sent.refused)
+      const { person } = sent
       const room = await getServerByName<Env, Tracker>(env.Tracker, 'main')
       const result = await room.propose(
         { source: { url: source_url, title: source_title ?? null }, note: submitter_note ?? null, items: [{ ...item, occurred_on: occurred_on ?? null }] },
@@ -250,8 +258,9 @@ function serverFor(env: Env, req: Request) {
       annotations: { readOnlyHint: true },
     },
     async () => {
-      const person = await whoSent()
-      if (keyGiven && !person) return refusal('The key in x-api-key is not one this site issued, or it has been revoked.')
+      const sent = await whoSent()
+      if ('refused' in sent) return refusal(sent.refused)
+      const { person } = sent
       return json(person ? { signed_in: true, id: person.id, name: person.display_name, kind: person.kind, muted: person.muted_at !== null } : { signed_in: false })
     },
   )
