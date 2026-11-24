@@ -552,8 +552,15 @@ describe('readingsFrom', () => {
     }
   })
 
-  it('implies on the parent from what the reviews come to, not from any one review', () => {
+  it("implies on the parent from each reviewer's own review, so only a review of support says anything there", () => {
     const reviews = [review('a', 'bill', 'support', 'concrete', 'one'), review('a', 'bill', 'oppose', 'concrete', 'two')]
-    expect(shown(reviews)).toEqual([['a', 'bill', 'mixed', 'concrete', null]])
+    expect(shown(reviews)).toEqual([
+      ['a', 'bill', 'mixed', 'concrete', null],
+      ['a', 'policy', 'support', 'concrete', 'bill'],
+    ])
+  })
+
+  it("puts the editors' implied reading on the parent ahead of a person's review there", () => {
+    expect(shown([review('a', 'bill', 'support', 'concrete'), review('a', 'policy', 'oppose', 'clear', 'a-reader')])).toContainEqual(['a', 'policy', 'support', 'concrete', 'bill'])
   })
 })

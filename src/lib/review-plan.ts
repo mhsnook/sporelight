@@ -118,24 +118,17 @@ export function planReview(
   const actIds = new Set(published.acts.map((a) => a.id))
   const reported = new Set(published.reports.map((r) => `${r.source_id} ${r.act_id}`))
   const editorsReview = new Map(published.reviews.filter((r) => r.reviewer_id === EDITORS_ID).map((r) => [`${r.act_id} ${r.question_id}`, r]))
-  const newReviews = new Map<string, Review>()
   const setPositionIds = new Set(published.setPositions.map((s) => s.id))
   let nextSort = Math.max(-1, ...verdict.entries.flatMap((e) => e.items.map((i) => i.sort))) + 1
 
   // Publishing is the editors' review of the act on each question it is read on.
   const review = (actId: string, questionId: string, position: Direction, weight: Weight) => {
     const key = `${actId} ${questionId}`
-    const mine = newReviews.get(key)
     const existing = editorsReview.get(key)
-    if (mine) {
-      Object.assign(mine, { position, weight })
-    } else if (!existing) {
-      const row: Review = { id: newId(), reviewer_id: EDITORS_ID, act_id: actId, question_id: questionId, position, weight, based_on: null, created_at: now, updated_at: now }
-      newReviews.set(key, row)
-      writes.push({ on: 'reviews', type: 'insert', row })
-    } else if (existing.position !== position || existing.weight !== weight) {
-      writes.push({ on: 'reviews', type: 'update', id: existing.id, changes: { position, weight, updated_at: now } })
-    }
+    if (existing?.position === position && existing.weight === weight) return
+    const row: Review = existing ? { ...existing, position, weight, updated_at: now } : { id: newId(), reviewer_id: EDITORS_ID, act_id: actId, question_id: questionId, position, weight, based_on: null, created_at: now, updated_at: now }
+    editorsReview.set(key, row)
+    writes.push(existing ? { on: 'reviews', type: 'update', id: row.id, changes: { position, weight, updated_at: now } } : { on: 'reviews', type: 'insert', row })
   }
 
   const note = (body: string, itemId: string | null) =>
@@ -225,7 +218,8 @@ export function planReview(
 
 // Folds one act into another when both turn out to be the same real-world
 // thing. Reports and reviews move to the survivor; where the survivor already
-// has a report from that source or a reading on that question, its own stands
+// has a report from that source, or a review by the same reviewer on that
+// question, its own stands
 // and the duplicate is deleted. The dropped act goes last, once nothing points
 // at it.
 export function planMerge(published: Pick<Published, 'acts' | 'reports' | 'reviews'> & { proposalItems: ProposalItem[] }, keepId: string, dropId: string): Write[] {

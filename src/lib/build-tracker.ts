@@ -1,6 +1,6 @@
 import type { Act, Body, Decider, Office, OfficeHolder, Position, Question, QuestionBody, QuestionDecider, QuestionOffice, QuestionRelation, Reading, Report, Review, Role, Seat, SetPosition, Source } from '../../shared/schema.ts'
 import { EDITORS_ID, carriesUp, inEffect, isOpenOn, pairId, stillAhead, type Certainty } from '../../shared/schema.ts'
-import { calculatePosition, footingOf, isAcross, summarize, type Footing } from '../../shared/standing.ts'
+import { REVIEWER_TIERS, calculatePosition, footingOf, isAcross, summarize, type Footing, type ReviewerTier } from '../../shared/standing.ts'
 import type { Standing } from './position.ts'
 
 export function groupBy<T, K>(items: readonly T[], key: (item: T) => K): Map<K, T[]> {
@@ -86,31 +86,29 @@ export type TrackerData = {
   reviews: Review[]
 }
 
-// What the reviews come to for each act on each question, and what a reading
-// of support on a sub-question implies on its parent where nothing was read
-// there directly. Too loose a reading does not carry upward, and two
-// sub-questions that imply opposite things on one parent leave it mixed.
+// What the reviews come to for each act on each question. A review of support
+// on a sub-question that implies something on its parent also counts there, by
+// the same reviewer, unless they reviewed the act on the parent directly; too
+// loose a review does not carry upward.
 export function readingsFrom(reviews: Review[], questionById: ReadonlyMap<string, Question>): Reading[] {
-  const direct: Reading[] = []
-  for (const [id, group] of groupBy(reviews, (r) => `${r.act_id} ${r.question_id}`)) {
+  const readDirectly = new Set(reviews.map((r) => `${r.reviewer_id} ${r.act_id} ${r.question_id}`))
+  const counted = reviews.flatMap((r) => {
     // Every review but the editors' is counted as a person's until reviews carry their author's kind.
-    const summary = summarize(group.map((r) => ({ ...r, tier: r.reviewer_id === EDITORS_ID ? ('editor' as const) : ('person' as const) })))
-    if (summary) direct.push({ id, act_id: group[0].act_id, question_id: group[0].question_id, position: summary.position, weight: summary.weight, via_question_id: null })
-  }
-  const readHere = new Set(direct.map((r) => r.id))
-  const implied = new Map<string, Reading>()
-  // In question order, so two sub-questions implying on one parent give the same answer in every place that works it out.
-  const bySort = (r: Reading) => questionById.get(r.question_id)?.sort ?? 0
-  for (const r of [...direct].sort((a, b) => bySort(a) - bySort(b) || a.question_id.localeCompare(b.question_id))) {
-    const question = questionById.get(r.question_id)
-    if (!question?.parent_id || !question.implies_on_parent || r.position !== 'support' || !carriesUp(r.weight)) continue
-    const id = `${r.act_id} ${question.parent_id}`
-    if (readHere.has(id)) continue
-    const earlier = implied.get(id)
-    if (!earlier) implied.set(id, { id, act_id: r.act_id, question_id: question.parent_id, position: question.implies_on_parent, weight: r.weight, via_question_id: question.id })
-    else if (earlier.position !== question.implies_on_parent) earlier.position = 'mixed'
-  }
-  return [...direct, ...implied.values()]
+    const tier: ReviewerTier = r.reviewer_id === EDITORS_ID ? 'editor' : 'person'
+    const own = { act_id: r.act_id, question_id: r.question_id, via: null as Question | null, tier, position: r.position, weight: r.weight }
+    const q = questionById.get(r.question_id)
+    const implies = q?.parent_id && q.implies_on_parent && r.position === 'support' && carriesUp(r.weight) && !readDirectly.has(`${r.reviewer_id} ${r.act_id} ${q.parent_id}`)
+    return implies ? [own, { ...own, question_id: q.parent_id!, via: q, position: q.implies_on_parent! }] : [own]
+  })
+  return [...groupBy(counted, (c) => `${c.act_id} ${c.question_id}`)].flatMap(([id, group]): Reading[] => {
+    const summary = summarize(group)
+    if (!summary) return []
+    // Implied when everything the summary went by was implied; named by the first such sub-question in question order.
+    const tier = REVIEWER_TIERS.find((t) => group.some((c) => c.tier === t))
+    const used = group.filter((c) => c.tier === tier)
+    const via = used.every((c) => c.via) ? used.map((c) => c.via!).sort((x, y) => x.sort - y.sort || x.id.localeCompare(y.id))[0].id : null
+    return [{ id, act_id: group[0].act_id, question_id: group[0].question_id, ...summary, via_question_id: via }]
+  })
 }
 
 // `asOf` is the day the bodies are viewed on. Seats and offices are filled by

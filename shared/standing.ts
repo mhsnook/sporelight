@@ -1,4 +1,4 @@
-import { WEIGHTS, type Direction, type Position, type Weight } from './schema.ts'
+import { PERSON_KINDS, POSITIONS, WEIGHTS, type Direction, type Position, type Weight } from './schema.ts'
 const DAY = 86_400_000
 export const FRESH_DAYS = 180
 export const STALE_DAYS = 730
@@ -99,35 +99,23 @@ export function calculatePosition(reads: Read[]): Position | null {
 export const isAcross = (position: Position, reading: Position) => sideOf(position) * sideOf(reading) === -1
 
 // Who wrote a review, in the order the summary turns to them.
-export const REVIEWER_TIERS = ['editor', 'person', 'agent'] as const
+export const REVIEWER_TIERS = ['editor', ...PERSON_KINDS] as const
 export type ReviewerTier = (typeof REVIEWER_TIERS)[number]
 
 // One review of an act on a question, as the summary sees it.
-export type ReviewOf = { reviewer_id: string; tier: ReviewerTier; position: Direction; weight: Weight; updated_at: string }
-
-// What the reviews of one act on one question come to, and whose they were.
-export type Summary = { position: Position; weight: Weight; tier: ReviewerTier; count: number }
-
-const SCORE: Record<Position, number> = { support: 2, lean_support: 1, mixed: 0, lean_oppose: -1, oppose: -2 }
-const BY_SCORE: Position[] = ['oppose', 'lean_oppose', 'mixed', 'lean_support', 'support']
+export type ReviewOf = { tier: ReviewerTier; position: Direction; weight: Weight }
 
 // The reviews of the first tier that has any: editors', then people's, then
-// agents'. Within a tier each reviewer counts once and the reviews are
-// averaged, the position on a scale from no (-2) to yes (+2) with halves
-// going toward mixed, and the weight rounded down. A mixed and a no average to
-// "Probably no", which no single review can say.
-export function summarize(reviews: ReviewOf[]): Summary | null {
-  const latest = new Map<string, ReviewOf>()
-  for (const r of reviews) {
-    const seen = latest.get(r.reviewer_id)
-    if (!seen || r.updated_at > seen.updated_at) latest.set(r.reviewer_id, r)
-  }
+// agents'. They are averaged, the position on a scale from no (-2) to yes
+// (+2) with halves going toward mixed, and the weight rounded down. A mixed
+// and a no average to "Probably no", which no single review can say.
+export function summarize(reviews: ReviewOf[]): { position: Position; weight: Weight } | null {
   for (const tier of REVIEWER_TIERS) {
-    const own = [...latest.values()].filter((r) => r.tier === tier)
+    const own = reviews.filter((r) => r.tier === tier)
     if (!own.length) continue
-    const score = own.reduce((sum, r) => sum + SCORE[r.position], 0) / own.length
+    const score = own.reduce((sum, r) => sum + 2 - POSITIONS.indexOf(r.position), 0) / own.length
     const rank = own.reduce((sum, r) => sum + WEIGHTS.indexOf(r.weight), 0) / own.length
-    return { position: BY_SCORE[Math.sign(score) * Math.ceil(Math.abs(score) - 0.5) + 2], weight: WEIGHTS[Math.floor(rank)], tier, count: own.length }
+    return { position: POSITIONS[2 - Math.sign(score) * Math.ceil(Math.abs(score) - 0.5)], weight: WEIGHTS[Math.floor(rank)] }
   }
   return null
 }

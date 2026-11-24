@@ -232,11 +232,6 @@ describe('planReview', () => {
     expect(updatesOf(writes, 'reviews')).toEqual([])
   })
 
-
-
-
-
-
   it('adds a report to an act already on file instead of a second act', () => {
     const onFile = published({
       acts: [act('feb-11', 'ann')],
@@ -265,8 +260,6 @@ describe('planReview', () => {
     const writes = plan(verdict([publish([item('i1', 'p1', 'ann', 'policy')], { act_id: 'feb-11' })]), onFile)
     expect(updatesOf(writes, 'reviews')).toEqual([{ on: 'reviews', type: 'update', id: 'editors:feb-11@policy', changes: { position: 'support', weight: 'clear', updated_at: NOW } }])
   })
-
-
 
   it('rejects a whole proposal without publishing anything', () => {
     const writes = plan(verdict([dismiss([item('i1', 'p1', 'ann', 'policy')])], 'Spam.'))
