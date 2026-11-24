@@ -1,6 +1,6 @@
 import { D1Adapter } from 'party-db/server'
 import { publicCollections } from '../shared/schema.ts'
-import type { TrackerData } from '../src/lib/build-tracker.ts'
+import { buildTracker, type Tracker, type TrackerData } from '../src/lib/build-tracker.ts'
 
 const ALL_TABLES = new Set(publicCollections.map((c) => c.name))
 
@@ -29,4 +29,24 @@ export async function loadRecord(db: D1Database, tables: ReadonlySet<string> = A
     reports: of('reports'),
     readings: of('readings'),
   }
+}
+
+type Built = { seq: number; day: string; tracker: Tracker }
+const built = new WeakMap<D1Database, Built>()
+
+// The record built as the pages build it, kept in this isolate between requests
+// and rebuilt only when party-db's log has moved on, or the day has. Writes that
+// skip the log, such as `pnpm db:seed`, are not seen until the next logged write.
+export async function currentTracker(db: D1Database, day: string): Promise<Tracker> {
+  // party-db makes _oplog on its first start; until then nothing is kept.
+  const seq = await db
+    .prepare(`SELECT COALESCE(MAX(seq), 0) AS seq FROM _oplog`)
+    .first<{ seq: number }>()
+    .then((row) => row?.seq ?? null)
+    .catch(() => null)
+  const kept = built.get(db)
+  if (seq !== null && kept && kept.seq === seq && kept.day === day) return kept.tracker
+  const tracker = buildTracker(await loadRecord(db), day)
+  if (seq !== null) built.set(db, { seq, day, tracker })
+  return tracker
 }

@@ -2,7 +2,8 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import { env, exports } from 'cloudflare:workers'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { AGENT_KEY_PREFIX } from '../../worker/auth.ts'
-import { nextIp, post, rows, seed } from './helpers.ts'
+import { FIND_LIMIT } from '../../worker/mcp.ts'
+import { EDITOR_TOKEN, nextIp, partyWrite, post, rows, seed } from './helpers.ts'
 
 // An MCP client talking to the Worker's /mcp, from its own address, with a key if it has one.
 async function connect(from = nextIp(), key?: string) {
@@ -45,7 +46,7 @@ beforeAll(async () => {
 describe('/mcp: reading the record', () => {
   it('offers the read tools, sign_up, whoami and submit_evidence', async () => {
     const { tools } = await (await connect()).listTools()
-    expect(tools.map((t) => t.name).sort()).toEqual(['find_people', 'get_positions', 'get_record', 'list_questions', 'sign_up', 'submit_evidence', 'whoami'])
+    expect(tools.map((t) => t.name).sort()).toEqual(['find_deciders', 'get_positions', 'get_record', 'list_questions', 'sign_up', 'submit_evidence', 'whoami'])
     const submit = tools.find((t) => t.name === 'submit_evidence')!
     expect(submit.inputSchema.required).toEqual(expect.arrayContaining(['question_id', 'decider_id', 'quote', 'source_url']))
     expect(submit.inputSchema.required).not.toContain('source_title')
@@ -79,9 +80,17 @@ describe('/mcp: reading the record', () => {
     expect(result.record).toEqual([expect.objectContaining({ words: 'I support this, plainly.', sources: [expect.objectContaining({ url: 'https://news.example/ann-speech' })] })])
   })
 
-  it('finds people by part of a name', async () => {
-    const { people } = (await call('find_people', { name: 'alph' })).structuredContent as { people: { id: string; seats: { body: string }[] }[] }
-    expect(people).toEqual([expect.objectContaining({ id: 'ann', seats: [expect.objectContaining({ body: 'Congress' })] })])
+  it('finds deciders by part of a name', async () => {
+    const found = (await call('find_deciders', { name: 'alph' })).structuredContent as { deciders: { id: string; seats: { body: string }[] }[]; more: number }
+    expect(found).toEqual({ deciders: [expect.objectContaining({ id: 'ann', seats: [expect.objectContaining({ body: 'Congress' })] })], more: 0 })
+  })
+
+  it('returns at most FIND_LIMIT deciders, and says how many more matched', async () => {
+    const extra = Array.from({ length: FIND_LIMIT + 5 }, (_, i) => ({ id: `many-${i}`, slug: `many-${i}`, name: `Manyname ${i}`, sort_name: `Manyname, ${i}`, external_id: null, url: null }))
+    expect((await partyWrite([{ channel: 'deciders', ops: extra.map((value) => ({ type: 'insert', value })) }], EDITOR_TOKEN)).status).toBe(200)
+    const found = (await call('find_deciders', { name: 'manyname' })).structuredContent as { deciders: unknown[]; more: number }
+    expect(found.deciders).toHaveLength(FIND_LIMIT)
+    expect(found.more).toBe(5)
   })
 
   it('says so when a question does not exist', async () => {
@@ -210,5 +219,18 @@ describe('a key in x-api-key on the reader routes', () => {
   it('still posts anonymously with no key', async () => {
     const res = await post('/api/proposals', evidenceForm(`https://news.example/no-key-${crypto.randomUUID()}`))
     expect(res.status).toBe(200)
+  })
+})
+
+describe('/mcp: the record it reads from', () => {
+  it('keeps the built record between calls, and rebuilds it once party-db logs a write', async () => {
+    const names = async () => ((await call('find_deciders', { name: 'fay' })).structuredContent as { deciders: { name: string }[] }).deciders.map((d) => d.name)
+    expect(await names()).toEqual(['Fay Zeta'])
+    // A write that skips party-db's log, as seeding does, is not read: the kept record answers.
+    await env.DB.prepare(`UPDATE deciders SET name = 'Fay Unlogged' WHERE id = 'fay'`).run()
+    expect(await names()).toEqual(['Fay Zeta'])
+    // An editor's write goes through the log, so the next call reads the record again.
+    expect((await partyWrite([{ channel: 'deciders', ops: [{ type: 'update', value: { id: 'fay', name: 'Fay Logged' } }] }], EDITOR_TOKEN)).status).toBe(200)
+    expect(await names()).toEqual(['Fay Logged'])
   })
 })

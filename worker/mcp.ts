@@ -3,15 +3,15 @@ import { getServerByName } from 'partyserver'
 import { z } from 'zod'
 import { displayNameSchema, proposalInputSchema, type Person, type Question } from '../shared/schema.ts'
 import { STANDINGS } from '../src/lib/position.ts'
-import { buildTracker, isHeld, type Contender, type RecordEntry, type Tracker as TrackerView } from '../src/lib/build-tracker.ts'
+import { isHeld, type Contender, type RecordEntry, type Tracker as TrackerView } from '../src/lib/build-tracker.ts'
 import { auth, KeyRefused, signedInPerson } from './auth.ts'
-import { loadRecord } from './record.ts'
+import { currentTracker } from './record.ts'
 import type { Tracker } from './tracker.ts'
 
 // What a client reads before it calls any tool.
 const INSTRUCTIONS = `Sporelight tracks where the people in a body (a legislature, a council) stand on open questions, from dated acts: things they said, commitments they made, and uses of their office.
 
-Read with list_questions, find_people, get_positions and get_record. Everything they return is published: an editor has checked it against its source.
+Read with list_questions, find_deciders, get_positions and get_record. A decider is someone a question is put to, such as a member of a legislature. Everything they return is published: an editor has checked it against its source.
 
 Send evidence with submit_evidence. It is not published: it waits for an editor, who reads it against its source.
 
@@ -20,7 +20,7 @@ To send evidence under a name of your own, call sign_up once with the name to sh
 const shape = proposalInputSchema.shape
 const evidenceInput = z.object({
   question_id: shape.question_id.describe('The question this act bears on: an id from list_questions, either a question or one of its sub-questions.'),
-  decider_id: shape.decider_id.describe('The person who did or said it: an id from find_people or get_positions.'),
+  decider_id: shape.decider_id.describe('The person who did or said it: an id from find_deciders or get_positions.'),
   kind: shape.kind.describe('says: words in any medium. commits: a formal, public, revocable commitment such as cosponsoring or signing a letter. does: using the office itself, such as voting.'),
   reading: shape.reading.describe('Which way the act points on the question. lean_support is probable support that the words leave uncertain.'),
   quote: shape.quote.describe('The person’s exact words, or for a commitment or a vote, the source’s sentence that reports it.'),
@@ -30,15 +30,15 @@ const evidenceInput = z.object({
   submitter_note: shape.submitter_note.unwrap().optional().describe('Anything the editor should know. Only editors read it.'),
 })
 
+export const FIND_LIMIT = 25
+
 const today = () => new Date().toISOString().slice(0, 10)
 const json = (value: unknown) => ({ content: [{ type: 'text' as const, text: JSON.stringify(value, null, 1) }], structuredContent: value as Record<string, unknown> })
 const refusal = (text: string) => ({ content: [{ type: 'text' as const, text }], isError: true })
 
 function serverFor(env: Env, req: Request) {
   const origin = new URL(req.url).origin
-  // The record is read once per request, and only by a tool that needs it.
-  let view: Promise<TrackerView> | undefined
-  const tracker = () => (view ??= loadRecord(env.DB).then((data) => buildTracker(data, today())))
+  const tracker = () => currentTracker(env.DB, today())
   const findQuestion = (t: TrackerView, idOrSlug: string) => t.questionById.get(idOrSlug) ?? t.questionBySlug.get(idOrSlug)
   const questionPage = (t: TrackerView, q: Question) => `${origin}/q/${t.rootOf(q).slug}`
   const personPage = (t: TrackerView, q: Question, slug: string) => `${origin}/q/${t.rootOf(q).slug}/${slug}`
@@ -82,29 +82,28 @@ function serverFor(env: Env, req: Request) {
   )
 
   server.registerTool(
-    'find_people',
+    'find_deciders',
     {
-      description: 'People whose name contains the given text, with their claims on seats today. certainty is certain or likely for a holder, possible for someone who may yet hold the seat.',
+      description:
+        'Decision-makers whose name contains the given text: the people questions are put to, not the site’s readers. Each comes with their claims on seats today; certainty is certain or likely for a holder, possible for someone who may yet hold the seat. Returns at most 25, and says how many more matched.',
       inputSchema: z.object({ name: z.string().trim().min(2).describe('Part of a name, such as a surname.') }),
       annotations: { readOnlyHint: true },
     },
     async ({ name }) => {
       const t = await tracker()
       const wanted = name.toLowerCase()
-      const people = t.deciders
-        .filter((d) => d.name.toLowerCase().includes(wanted))
-        .slice(0, 25)
-        .map((d) => ({
-          id: d.id,
-          slug: d.slug,
-          name: d.name,
-          seats: (t.rolesByDecider.get(d.id) ?? []).flatMap((role) => {
-            const seat = t.seatById.get(role.seat_id)
-            const body = seat && t.bodyById.get(seat.body_id)
-            return seat && body ? [{ body: body.name, seat: seat.label, affiliation: role.affiliation, certainty: role.certainty }] : []
-          }),
-        }))
-      return json({ people })
+      const matches = t.deciders.filter((d) => d.name.toLowerCase().includes(wanted))
+      const deciders = matches.slice(0, FIND_LIMIT).map((d) => ({
+        id: d.id,
+        slug: d.slug,
+        name: d.name,
+        seats: (t.rolesByDecider.get(d.id) ?? []).flatMap((role) => {
+          const seat = t.seatById.get(role.seat_id)
+          const body = seat && t.bodyById.get(seat.body_id)
+          return seat && body ? [{ body: body.name, seat: seat.label, affiliation: role.affiliation, certainty: role.certainty }] : []
+        }),
+      }))
+      return json({ deciders, more: matches.length - deciders.length })
     },
   )
 
@@ -153,7 +152,7 @@ function serverFor(env: Env, req: Request) {
       description: 'The published acts behind one person’s position on one question, newest first, with the sources that report each.',
       inputSchema: z.object({
         question: z.string().describe('A question id or slug.'),
-        person: z.string().describe('A person’s id or slug from find_people or get_positions.'),
+        person: z.string().describe('A decider’s id or slug from find_deciders or get_positions.'),
       }),
       annotations: { readOnlyHint: true },
     },

@@ -38,7 +38,7 @@ The first data set is the United States Congress and Medicare for All. Nothing i
 The Worker serves an [MCP](https://modelcontextprotocol.io) endpoint at `/mcp` (streamable HTTP, no session), so an agent can read the tracker and send evidence without a browser. Its tools:
 
 - `list_questions`: the open questions, the bodies each is put to, and their open sub-questions.
-- `find_people`: people by part of a name, with their claims on seats today.
+- `find_deciders`: decision-makers by part of a name, with their claims on seats today. It returns at most 25 and says how many more matched.
 - `get_positions`: where each person a question is put to stands today, worked out from the published record by the same code the question pages use. It can be narrowed to one body or one standing.
 - `get_record`: the published acts behind one person's position on one question, with their sources.
 - `submit_evidence`: one act by one person, read on one question, for an editor to review.
