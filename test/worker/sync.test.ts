@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:workers'
 import { getServerByName } from 'partyserver'
 import { beforeAll, describe, expect, it } from 'vitest'
-import type { ProposalDraft } from '../../shared/schema.ts'
+import { EDITORS_ID, type ProposalDraft } from '../../shared/schema.ts'
 import type { Tracker } from '../../worker/tracker.ts'
 import { EDITOR_TOKEN, type Frame, mailbox, partySocket, partyWrite, postAs, proposal, reader, rows, seed, signIn, until, noOutsidePages } from './helpers.ts'
 
@@ -323,8 +323,8 @@ describe('reviews in the sync room', () => {
   })
 
   it('refuses a review from a signed-out reader, and one with the wrong token', async () => {
-    expect((await partyWrite(insert(review('signed-out', 'editors')))).status).toBe(401)
-    expect((await partyWrite(insert(review('wrong-token', 'editors')), 'not-the-token')).status).toBe(401)
+    expect((await partyWrite(insert(review('signed-out', EDITORS_ID)))).status).toBe(401)
+    expect((await partyWrite(insert(review('wrong-token', EDITORS_ID)), 'not-the-token')).status).toBe(401)
     expect(await rows(`SELECT id FROM reviews WHERE act_id = 'act-reviewed'`)).toEqual([])
   })
 
@@ -335,21 +335,21 @@ describe('reviews in the sync room', () => {
   })
 
   it("takes the editors' review from an editor, and lets the editor change it", async () => {
-    expect((await partyWrite(insert(review('by-editors', 'editors')), EDITOR_TOKEN)).status).toBe(200)
+    expect((await partyWrite(insert(review('by-editors', EDITORS_ID)), EDITOR_TOKEN)).status).toBe(200)
     const change = [{ channel: 'reviews', ops: [{ type: 'update', value: { id: 'by-editors', position: 'mixed', updated_at: '2026-11-24T01:00:00.000Z' } }] }]
     expect((await partyWrite(change, EDITOR_TOKEN)).status).toBe(200)
-    expect(await rows(`SELECT reviewer_id, position FROM reviews WHERE id = 'by-editors'`)).toEqual([{ reviewer_id: 'editors', position: 'mixed' }])
+    expect(await rows(`SELECT reviewer_id, position FROM reviews WHERE id = 'by-editors'`)).toEqual([{ reviewer_id: EDITORS_ID, position: 'mixed' }])
   })
 
   it('refuses a second review by one reviewer of one act on one question', async () => {
-    expect((await partyWrite(insert(review('by-editors-again', 'editors', 'oppose')), EDITOR_TOKEN)).ok).toBe(false)
+    expect((await partyWrite(insert(review('by-editors-again', EDITORS_ID, 'oppose')), EDITOR_TOKEN)).ok).toBe(false)
     expect(await rows(`SELECT id FROM reviews WHERE act_id = 'act-reviewed'`)).toEqual([{ id: 'by-editors' }])
   })
 
   it('sends every review to a signed-out reader', async () => {
     const socket = await partySocket()
     await until(() => rowsOn(socket.frames, 'reviews').some((r) => r.id === 'by-editors'))
-    expect(rowsOn(socket.frames, 'reviews').find((r) => r.id === 'by-editors')).toMatchObject({ reviewer_id: 'editors', position: 'mixed' })
+    expect(rowsOn(socket.frames, 'reviews').find((r) => r.id === 'by-editors')).toMatchObject({ reviewer_id: EDITORS_ID, position: 'mixed' })
     socket.close()
   })
 })

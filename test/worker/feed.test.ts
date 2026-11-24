@@ -1,5 +1,6 @@
 import { env, exports } from 'cloudflare:workers'
 import { beforeAll, describe, expect, it } from 'vitest'
+import { EDITORS_ID } from '../../shared/schema.ts'
 import { type Frame, partySocket, postAs, proposal, reader, rows, seed, until, noOutsidePages } from './helpers.ts'
 
 const rowsOn = (frames: Frame[], channel: string) => frames.filter((f) => f.channel === channel).flatMap((f) => f.ops.map((op) => op.value))
@@ -34,9 +35,9 @@ beforeAll(async () => {
         ('rep-1', 'src-1', 'act-hot', '2026-11-10T09:00:00.000Z'), ('rep-2', 'src-2', 'act-cold', '2026-11-11T09:00:00.000Z'),
         ('rep-3', 'src-1', 'act-bob', '2026-11-10T09:00:00.000Z')`,
       `INSERT INTO reviews (id, reviewer_id, act_id, question_id, position, weight, created_at, updated_at) VALUES
-        ('rd-1', 'editors', 'act-hot', 'hot-bill', 'support', 'clear', '2026-11-10T09:00:00.000Z', '2026-11-10T09:00:00.000Z'),
-        ('rd-3', 'editors', 'act-cold', 'cold', 'oppose', 'passing', '2026-11-11T09:00:00.000Z', '2026-11-11T09:00:00.000Z'),
-        ('rd-4', 'editors', 'act-bob', 'hot', 'oppose', 'clear', '2026-11-10T09:00:00.000Z', '2026-11-10T09:00:00.000Z')`,
+        ('rd-1', '${EDITORS_ID}', 'act-hot', 'hot-bill', 'support', 'clear', '2026-11-10T09:00:00.000Z', '2026-11-10T09:00:00.000Z'),
+        ('rd-3', '${EDITORS_ID}', 'act-cold', 'cold', 'oppose', 'passing', '2026-11-11T09:00:00.000Z', '2026-11-11T09:00:00.000Z'),
+        ('rd-4', '${EDITORS_ID}', 'act-bob', 'hot', 'oppose', 'clear', '2026-11-10T09:00:00.000Z', '2026-11-10T09:00:00.000Z')`,
     ].map((sql) => (sql.includes('?1') ? env.DB.prepare(sql).bind(PUBLISHED) : env.DB.prepare(sql))),
   )
   for (const [quote, url] of [

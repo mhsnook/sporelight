@@ -88,7 +88,8 @@ export type TrackerData = {
 
 // What the reviews come to for each act on each question, and what a reading
 // of support on a sub-question implies on its parent where nothing was read
-// there directly. Too loose a reading does not carry upward.
+// there directly. Too loose a reading does not carry upward, and two
+// sub-questions that imply opposite things on one parent leave it mixed.
 export function readingsFrom(reviews: Review[], questionById: ReadonlyMap<string, Question>): Reading[] {
   const direct: Reading[] = []
   for (const [id, group] of groupBy(reviews, (r) => `${r.act_id} ${r.question_id}`)) {
@@ -97,16 +98,19 @@ export function readingsFrom(reviews: Review[], questionById: ReadonlyMap<string
     if (summary) direct.push({ id, act_id: group[0].act_id, question_id: group[0].question_id, position: summary.position, weight: summary.weight, via_question_id: null })
   }
   const readHere = new Set(direct.map((r) => r.id))
-  const implied: Reading[] = []
-  for (const r of direct) {
+  const implied = new Map<string, Reading>()
+  // In question order, so two sub-questions implying on one parent give the same answer in every place that works it out.
+  const bySort = (r: Reading) => questionById.get(r.question_id)?.sort ?? 0
+  for (const r of [...direct].sort((a, b) => bySort(a) - bySort(b) || a.question_id.localeCompare(b.question_id))) {
     const question = questionById.get(r.question_id)
     if (!question?.parent_id || !question.implies_on_parent || r.position !== 'support' || !carriesUp(r.weight)) continue
     const id = `${r.act_id} ${question.parent_id}`
     if (readHere.has(id)) continue
-    readHere.add(id)
-    implied.push({ id, act_id: r.act_id, question_id: question.parent_id, position: question.implies_on_parent, weight: r.weight, via_question_id: question.id })
+    const earlier = implied.get(id)
+    if (!earlier) implied.set(id, { id, act_id: r.act_id, question_id: question.parent_id, position: question.implies_on_parent, weight: r.weight, via_question_id: question.id })
+    else if (earlier.position !== question.implies_on_parent) earlier.position = 'mixed'
   }
-  return [...direct, ...implied]
+  return [...direct, ...implied.values()]
 }
 
 // `asOf` is the day the bodies are viewed on. Seats and offices are filled by

@@ -98,7 +98,6 @@ export function calculatePosition(reads: Read[]): Position | null {
 // Whether a reading sits across from a position: a no against a yes.
 export const isAcross = (position: Position, reading: Position) => sideOf(position) * sideOf(reading) === -1
 
-
 // Who wrote a review, in the order the summary turns to them.
 export const REVIEWER_TIERS = ['editor', 'person', 'agent'] as const
 export type ReviewerTier = (typeof REVIEWER_TIERS)[number]

@@ -27,8 +27,12 @@ CREATE INDEX reviews_act ON reviews(act_id);
 CREATE INDEX reviews_question ON reviews(question_id);
 
 -- Every reading so far was an editor's. One a sub-question implied is dropped:
--- it is worked out again from the reading on the sub-question.
+-- it is worked out again from the reading on the sub-question. A lean against
+-- left from before 0012 becomes a passing reading against, as 0012 made them.
 INSERT INTO reviews (id, reviewer_id, act_id, question_id, position, weight, based_on, created_at, updated_at)
-  SELECT id, 'editors', act_id, question_id, position, weight, NULL, created_at, created_at
+  SELECT id, 'editors', act_id, question_id,
+    CASE WHEN position = 'lean_oppose' THEN 'oppose' ELSE position END,
+    CASE WHEN position = 'lean_oppose' AND weight = 'clear' THEN 'passing' ELSE weight END,
+    NULL, created_at, created_at
   FROM readings WHERE via_question_id IS NULL;
 DROP TABLE readings;

@@ -1,6 +1,7 @@
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { env, exports } from 'cloudflare:workers'
 import { beforeAll, describe, expect, it } from 'vitest'
+import { EDITORS_ID } from '../../shared/schema.ts'
 import { AGENT_KEY_PREFIX } from '../../worker/auth.ts'
 import { FIND_LIMIT } from '../../worker/mcp.ts'
 import { EDITOR_TOKEN, nextIp, partyWrite, post, rows, seed } from './helpers.ts'
@@ -38,7 +39,7 @@ beforeAll(async () => {
       `INSERT INTO sources (id, url, title, created_at) VALUES ('src-ann', 'https://news.example/ann-speech', 'Ann speaks', '2026-10-01T00:00:00Z')`,
       `INSERT INTO acts (id, decider_id, kind, occurred_on, body, created_at) VALUES ('act-ann', 'ann', 'says', '2026-10-01', 'I support this, plainly.', '2026-10-01T00:00:00Z')`,
       `INSERT INTO reports (id, source_id, act_id, created_at) VALUES ('rep-ann', 'src-ann', 'act-ann', '2026-10-01T00:00:00Z')`,
-      `INSERT INTO reviews (id, reviewer_id, act_id, question_id, position, weight, created_at, updated_at) VALUES ('read-ann', 'editors', 'act-ann', 'hot', 'support', 'clear', '2026-10-01T00:00:00Z', '2026-10-01T00:00:00Z')`,
+      `INSERT INTO reviews (id, reviewer_id, act_id, question_id, position, weight, created_at, updated_at) VALUES ('read-ann', '${EDITORS_ID}', 'act-ann', 'hot', 'support', 'clear', '2026-10-01T00:00:00Z', '2026-10-01T00:00:00Z')`,
     ].map((sql) => env.DB.prepare(sql)),
   )
 })

@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync, readdirSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { beforeAll, describe, expect, it } from 'vitest'
+import { EDITORS_ID } from '../shared/schema.ts'
 
 const root = new URL('../', import.meta.url)
 const migrations = readdirSync(new URL('migrations/', root)).sort()
@@ -441,7 +442,7 @@ describe('the seed', () => {
     const db = database()
     db.exec(seed)
     expect(count(db, 'reviews')).toBeGreaterThan(0)
-    expect(all(db, `SELECT DISTINCT reviewer_id FROM reviews`)).toEqual([{ reviewer_id: 'editors' }])
+    expect(all(db, `SELECT DISTINCT reviewer_id FROM reviews`)).toEqual([{ reviewer_id: EDITORS_ID }])
   })
 
   it('seeds an open ask of an office in Congress, with a holder now and one from the next term', () => {
@@ -694,22 +695,30 @@ describe('0021_reviews', () => {
     INSERT INTO readings (id, act_id, question_id, position, weight, via_question_id, created_at) VALUES
       ('on-bill', 'signed', 'bill', 'support', 'concrete', NULL, '2026-01-02'),
       ('implied', 'signed', 'policy', 'support', 'concrete', 'bill', '2026-01-02');
+    INSERT INTO acts (id, decider_id, kind, occurred_on, body, created_at) VALUES ('hinted', 'ann', 'says', '2026-02-01', 'Not so sure.', '2026-02-02');
+    INSERT INTO readings (id, act_id, question_id, position, weight, via_question_id, created_at) VALUES ('leaning', 'hinted', 'policy', 'lean_oppose', 'clear', NULL, '2026-02-02');
   `)
   db.exec(migration('0021_reviews.sql'))
 
   it('keeps each reading read directly as a review by the editors', () => {
-    expect(all(db, `SELECT id, reviewer_id, act_id, question_id, position, weight, based_on, updated_at FROM reviews`)).toEqual([
-      { id: 'on-bill', reviewer_id: 'editors', act_id: 'signed', question_id: 'bill', position: 'support', weight: 'concrete', based_on: null, updated_at: '2026-01-02' },
+    expect(all(db, `SELECT id, reviewer_id, act_id, question_id, position, weight, based_on, updated_at FROM reviews WHERE act_id = 'signed'`)).toEqual([
+      { id: 'on-bill', reviewer_id: EDITORS_ID, act_id: 'signed', question_id: 'bill', position: 'support', weight: 'concrete', based_on: null, updated_at: '2026-01-02' },
     ])
     expect(all(db, `PRAGMA foreign_key_check`)).toEqual([])
   })
 
-  it('gives the editors a person nobody can sign in as by email', () => {
-    expect(all(db, `SELECT p.display_name, u.email FROM people p JOIN auth_users u ON u.id = p.id WHERE p.id = 'editors'`)).toEqual([{ display_name: 'Editors', email: 'editors@sporelight.invalid' }])
+  it('keeps a lean against left from before 0012 as a passing reading against, which a review can say', () => {
+    expect(all(db, `SELECT position, weight FROM reviews WHERE id = 'leaning'`)).toEqual([{ position: 'oppose', weight: 'passing' }])
+  })
+
+  it('adds the editors as a person, with an account at an address that cannot receive mail', () => {
+    expect(all(db, `SELECT p.display_name, u.email FROM people p JOIN auth_users u ON u.id = p.id WHERE p.id = '${EDITORS_ID}'`)).toEqual([
+      { display_name: 'Editors', email: expect.stringMatching(/\.invalid$/) },
+    ])
   })
 
   it('refuses a second review by one reviewer of one act on one question, and a reviewer who does not exist', () => {
-    expect(() => db.exec(`INSERT INTO reviews (id, reviewer_id, act_id, question_id, position, weight, created_at, updated_at) VALUES ('again', 'editors', 'signed', 'bill', 'oppose', 'clear', 't', 't')`)).toThrow()
+    expect(() => db.exec(`INSERT INTO reviews (id, reviewer_id, act_id, question_id, position, weight, created_at, updated_at) VALUES ('again', '${EDITORS_ID}', 'signed', 'bill', 'oppose', 'clear', 't', 't')`)).toThrow()
     expect(() => db.exec(`INSERT INTO reviews (id, reviewer_id, act_id, question_id, position, weight, created_at, updated_at) VALUES ('stranger', 'nobody', 'signed', 'policy', 'oppose', 'clear', 't', 't')`)).toThrow()
   })
 })

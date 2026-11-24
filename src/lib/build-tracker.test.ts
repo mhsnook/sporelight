@@ -544,6 +544,14 @@ describe('readingsFrom', () => {
     }
   })
 
+  it('leaves the parent mixed when two sub-questions imply opposite things there, in whatever order the reviews come', () => {
+    const onBill = review('a', 'bill', 'support', 'concrete')
+    const onLetter = review('a', 'letter', 'support', 'concrete')
+    for (const reviews of [[onBill, onLetter], [onLetter, onBill]]) {
+      expect(readingsFrom(reviews, questions).find((r) => r.question_id === 'policy')).toMatchObject({ position: 'mixed', via_question_id: 'bill' })
+    }
+  })
+
   it('implies on the parent from what the reviews come to, not from any one review', () => {
     const reviews = [review('a', 'bill', 'support', 'concrete', 'one'), review('a', 'bill', 'oppose', 'concrete', 'two')]
     expect(shown(reviews)).toEqual([['a', 'bill', 'mixed', 'concrete', null]])
