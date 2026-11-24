@@ -3,7 +3,7 @@ import { getServerByName } from 'partyserver'
 import { beforeAll, describe, expect, it } from 'vitest'
 import type { ProposalDraft } from '../../shared/schema.ts'
 import type { Tracker } from '../../worker/tracker.ts'
-import { EDITOR_TOKEN, type Frame, mailbox, partySocket, partyWrite, post, proposal, rows, seed, signIn, until, noOutsidePages } from './helpers.ts'
+import { EDITOR_TOKEN, type Frame, mailbox, partySocket, partyWrite, postAs, proposal, reader, rows, seed, signIn, until, noOutsidePages } from './helpers.ts'
 
 const body = { id: 'new-body', slug: 'new-body', name: 'New Body', jurisdiction: null, description: null, is_demo: false, sort: 9, next_term_on: null, next_term_label: null }
 const rowsOn = (frames: Frame[], channel: string) => frames.filter((f) => f.channel === channel).flatMap((f) => f.ops.map((op) => op.value))
@@ -34,12 +34,15 @@ const readDraft = (name: string): ProposalDraft => ({
 // The tables only an editor's connection is sent.
 const EDITOR_ONLY = ['proposal_notes', 'proposal_contexts', 'proposal_mentions']
 
+let send: ReturnType<typeof postAs>
+
 beforeAll(async () => {
   noOutsidePages()
   await seed()
+  send = (await reader('proposer@reader.test')).send
   // One proposal with a submitter note and one read from an article, so each
   // editor-only table has a row to withhold.
-  const res = await post('/api/proposals', proposal({ submitter_note: 'Only editors should read this.' }))
+  const res = await send('/api/proposals', proposal({ submitter_note: 'Only editors should read this.' }))
   expect(await res.json()).toMatchObject({ ok: true, duplicate: false })
   expect(await (await tracker()).propose(readDraft('on-file'), 'model')).toMatchObject({ ok: true, queued: 1 })
 })
@@ -58,7 +61,7 @@ describe('writes through the party endpoint', () => {
   })
 
   it('refuses an anonymous comment, which readers post through the Worker instead', async () => {
-    const comment = { id: 'c1', thread_id: 'hot:ann', author_name: 'x', body: 'y', created_at: '2026-11-19T00:00:00Z' }
+    const comment = { id: 'c1', thread_id: 'hot:ann', person_id: 'anyone', body: 'y', created_at: '2026-11-19T00:00:00Z' }
     expect((await partyWrite([{ channel: 'comments', ops: [{ type: 'insert', value: comment }] }])).status).toBe(401)
     expect(await rows(`SELECT id FROM comments`)).toEqual([])
   })
@@ -107,7 +110,7 @@ describe('writes through the party endpoint', () => {
   })
 
   it('refuses an editor insert to comments, which only allows delete', async () => {
-    const comment = { id: 'c2', thread_id: 'hot:ann', author_name: 'x', body: 'y', created_at: '2026-11-19T00:00:00Z' }
+    const comment = { id: 'c2', thread_id: 'hot:ann', person_id: 'anyone', body: 'y', created_at: '2026-11-19T00:00:00Z' }
     expect((await partyWrite([{ channel: 'comments', ops: [{ type: 'insert', value: comment }] }], EDITOR_TOKEN)).status).toBe(403)
   })
 })
@@ -133,10 +136,10 @@ describe('a signed-in reader in the sync room', () => {
     expect(await rows(`SELECT id FROM bodies WHERE id = 'reader-body'`)).toEqual([])
   })
 
-  it('refuses their write to their own person, so they cannot unmute themselves', async () => {
-    const unmute = [{ channel: 'people', ops: [{ type: 'update', value: { id: personId, muted_at: null, display_name: 'Renamed' } }] }]
-    expect((await partyWrite(unmute, undefined, cookie)).status).toBe(401)
-    expect((await partyWrite(unmute, sessionToken)).status).toBe(401)
+  it('refuses their write to their own person, which they rename through the Worker instead', async () => {
+    const rename = [{ channel: 'people', ops: [{ type: 'update', value: { id: personId, display_name: 'Renamed' } }] }]
+    expect((await partyWrite(rename, undefined, cookie)).status).toBe(401)
+    expect((await partyWrite(rename, sessionToken)).status).toBe(401)
     expect(await rows(`SELECT display_name FROM people WHERE id = ?`, personId)).toEqual([{ display_name: null }])
   })
 
@@ -153,17 +156,15 @@ describe('a signed-in reader in the sync room', () => {
     socket.close()
   })
 
-  it('lets an editor mute and unmute a person, and no one add a person through the room', async () => {
-    const mutedAt = '2026-11-20T12:00:00.000Z'
-    expect((await partyWrite([{ channel: 'people', ops: [{ type: 'update', value: { id: personId, muted_at: mutedAt } }] }], EDITOR_TOKEN)).status).toBe(200)
-    expect(await rows(`SELECT muted_at FROM people WHERE id = ?`, personId)).toEqual([{ muted_at: mutedAt }])
-    expect((await partyWrite([{ channel: 'people', ops: [{ type: 'update', value: { id: personId, muted_at: null } }] }], EDITOR_TOKEN)).status).toBe(200)
-    expect(await rows(`SELECT muted_at FROM people WHERE id = ?`, personId)).toEqual([{ muted_at: null }])
-
-    const added = [{ channel: 'people', ops: [{ type: 'insert', value: { id: 'made-up', display_name: 'Nobody', muted_at: null, created_at: mutedAt } }] }]
+  it('lets no one, an editor included, add or rename a person through the room', async () => {
+    const added = [{ channel: 'people', ops: [{ type: 'insert', value: { id: 'made-up', display_name: 'Nobody', created_at: '2026-11-20T12:00:00.000Z' } }] }]
     expect((await partyWrite(added, EDITOR_TOKEN)).status).toBe(403)
     expect((await partyWrite(added, undefined, cookie)).status).toBe(401)
     expect(await rows(`SELECT id FROM people WHERE id = 'made-up'`)).toEqual([])
+
+    const renamed = [{ channel: 'people', ops: [{ type: 'update', value: { id: personId, display_name: 'Renamed by an editor' } }] }]
+    expect((await partyWrite(renamed, EDITOR_TOKEN)).status).toBe(403)
+    expect(await rows(`SELECT display_name FROM people WHERE id = ?`, personId)).toEqual([{ display_name: null }])
   })
 })
 
@@ -247,7 +248,7 @@ describe('what a socket is sent', () => {
     await until(() => reader.channels().has('bodies') && editor.channels().has('proposal_notes'))
     const seen = { reader: reader.frames.length, editor: editor.frames.length }
 
-    const res = await post('/api/proposals', proposal({ source_url: 'https://news.example/live', submitter_note: 'A second private note.' }))
+    const res = await send('/api/proposals', proposal({ source_url: 'https://news.example/live', submitter_note: 'A second private note.' }))
     expect(await res.json()).toMatchObject({ ok: true, duplicate: false })
 
     // A later write is sent after everything the proposal committed, so once the

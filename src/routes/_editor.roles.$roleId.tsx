@@ -11,7 +11,7 @@ import { NotFound, Syncing } from '../components/bits.tsx'
 import { Section, notSaved } from '../components/form.tsx'
 import { RoleForm } from '../components/RoleForm.tsx'
 
-export const Route = createFileRoute('/editor/roles/$roleId')({ component: EditRole })
+export const Route = createFileRoute('/_editor/roles/$roleId')({ component: EditRole })
 
 function EditRole() {
   const { roleId } = Route.useParams()
@@ -28,7 +28,7 @@ function EditRole() {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div className="space-y-2">
-        <Link to="/editor/people/$slug" params={{ slug: decider.slug }} className="link text-sm">
+        <Link to="/people/$slug" params={{ slug: decider.slug }} className="link text-sm">
           ← {decider.name}
         </Link>
         <h1 className="h-page">
@@ -105,7 +105,7 @@ function DeleteRole({ role, personSlug }: { role: Role; personSlug: string }) {
     setError(null)
     // Not optimistic: the role stays on this page until the server has deleted it.
     db.roles.delete(role.id, { optimistic: false }).isPersisted.promise.then(
-      () => navigate({ to: '/editor/people/$slug', params: { slug: personSlug } }),
+      () => navigate({ to: '/people/$slug', params: { slug: personSlug } }),
       (err: unknown) => setError(notSaved(err)),
     )
   }

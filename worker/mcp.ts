@@ -15,7 +15,7 @@ Read with list_questions, find_deciders, get_positions and get_record. A decider
 
 Send evidence with submit_evidence. It is not published: it waits for an editor, who reads it against its source.
 
-To send evidence under a name of your own, call sign_up once with the name to show. It returns an API key, shown only then. Send it in the x-api-key header on every request after; whoami says who the key belongs to. Without a key, submit_evidence still works, as an anonymous reader's submission does.`
+Sending evidence needs an account, as it does for anyone on the site. Call sign_up once with the name to show beside what you send. It returns an API key, shown only then. Send it in the x-api-key header on every request after; whoami says who the key belongs to. Reading needs no account.`
 
 const shape = proposalInputSchema.shape
 const evidenceInput = z.object({
@@ -187,7 +187,7 @@ function serverFor(env: Env, req: Request) {
     'submit_evidence',
     {
       description:
-        'Put forward one act by one person, read on one question, for an editor to check against its source. Nothing is published until an editor accepts it. A source already sent with the same person and question is not queued twice.',
+        'Put forward one act by one person, read on one question, for an editor to check against its source. Needs the key sign_up gave, in x-api-key. Nothing is published until an editor accepts it. A source already sent with the same person and question is not queued twice.',
       inputSchema: evidenceInput,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     },
@@ -196,19 +196,20 @@ function serverFor(env: Env, req: Request) {
       const sent = await whoSent()
       if ('refused' in sent) return refusal(sent.refused)
       const { person } = sent
+      if (!person) return refusal('Sign up to send evidence: call sign_up, then send the key it returns in the x-api-key header.')
       const room = await getServerByName<Env, Tracker>(env.Tracker, 'main')
       const result = await room.propose(
         { source: { url: source_url, title: source_title ?? null }, note: submitter_note ?? null, items: [{ ...item, occurred_on: occurred_on ?? null }] },
         'reader',
-        person?.id ?? null,
+        person.id,
       )
       if (!result.ok) return refusal(result.error)
       return json({
         queued: result.queued > 0,
         duplicate: result.queued === 0,
         proposal_id: result.proposal_id,
-        sent_as: person ? { id: person.id, name: person.display_name } : null,
-        url: result.proposal_id ? `${origin}/latest?proposal=${result.proposal_id}` : null,
+        sent_as: { id: person.id, name: person.display_name },
+        url: result.proposal_id ? `${origin}/news?proposal=${result.proposal_id}` : null,
       })
     },
   )
@@ -261,7 +262,7 @@ function serverFor(env: Env, req: Request) {
       const sent = await whoSent()
       if ('refused' in sent) return refusal(sent.refused)
       const { person } = sent
-      return json(person ? { signed_in: true, id: person.id, name: person.display_name, kind: person.kind, muted: person.muted_at !== null } : { signed_in: false })
+      return json(person ? { signed_in: true, id: person.id, name: person.display_name, kind: person.kind } : { signed_in: false })
     },
   )
 

@@ -16,7 +16,7 @@ function Questions() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="h-page">Questions</h1>
         {isEditor() && (
-          <Link to="/editor/questions/new" className="btn">
+          <Link to="/questions/new" className="btn">
             Add a question
           </Link>
         )}

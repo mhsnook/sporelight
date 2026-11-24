@@ -3,10 +3,10 @@ import { useLocation } from '@tanstack/react-router'
 import { eq, useLiveQuery } from '@tanstack/react-db'
 import { pairId, type Decider, type Question } from '../../shared/schema.ts'
 import { db } from '../lib/db.ts'
-import { setDisplayName, usePeople, useSignedIn } from '../lib/auth.ts'
+import { postAsReader, setDisplayName, useSignedIn } from '../lib/auth.ts'
 import { isEditor } from '../lib/editor.ts'
-import { saveUsername, savedUsername } from '../lib/username.ts'
 import { Modal } from './Modal.tsx'
+import { SignedInOnly } from './SignIn.tsx'
 
 const timeFmt = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
@@ -24,71 +24,42 @@ export function Discussion({ question, decider }: { question: Question; decider:
       q
         .from({ c: db.comments })
         .where(({ c }) => eq(c.thread_id, threadId))
-        .orderBy(({ c }) => c.created_at, 'asc'),
+        .leftJoin({ p: db.people }, ({ c, p }) => eq(c.person_id, p.id))
+        .orderBy(({ c }) => c.created_at, 'asc')
+        .select(({ c, p }) => ({ id: c.id, body: c.body, created_at: c.created_at, display_name: p?.display_name })),
     [threadId],
   )
-  const { muted } = usePeople()
-  // Editors still see a muted person's comments, marked, so they can unmute them.
-  const comments = isEditor() ? data : data.filter((c) => c.person_id === null || !muted.has(c.person_id))
-  const { signedIn, person } = useSignedIn()
-  const formRef = useRef<HTMLFormElement>(null)
-  const [savedName, setSavedName] = useState(savedUsername)
-  const username = signedIn ? (person?.display_name ?? '') : savedName
-  // 'post' means a comment is waiting on the name: save it, then send.
-  const [asking, setAsking] = useState<'post' | 'rename' | null>(null)
+  const { person, peopleReady } = useSignedIn()
+  const name = person?.display_name ?? ''
+  const [renaming, setRenaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
 
-  async function post(author_name: string) {
-    const form = formRef.current!
-    const body = form.elements.namedItem('body') as HTMLTextAreaElement
+  async function onSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    const form = e.currentTarget
+    const f = new FormData(form)
+    const body = (f.get('body') as string).trim()
+    const displayName = name ? undefined : (f.get('display_name') as string).trim()
+    if (displayName === '') return setError('Choose a name to show with your comments.')
+    if (!body) return setError('Write a comment first.')
     setError(null)
     setSending(true)
     try {
-      const res = await fetch('/api/comments', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          question_id: question.id,
-          decider_id: decider.id,
-          author_name,
-          body: body.value.trim(),
-          website: (form.elements.namedItem('website') as HTMLInputElement).value,
-        }),
+      const res = await postAsReader('/api/comments', {
+        question_id: question.id,
+        decider_id: decider.id,
+        body,
+        display_name: displayName,
+        website: f.get('website'),
       })
       if (!res.ok) return setError(((await res.json()) as { error?: string }).error ?? 'Something went wrong.')
-      body.value = ''
+      form.reset()
     } catch {
       setError('Could not reach the server. Try again in a moment.')
     } finally {
       setSending(false)
     }
-  }
-
-  function onSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    if (username) post(username)
-    else setAsking('post')
-  }
-
-  // A signed-in person's first comment names them, so only a rename is sent on its own.
-  async function onUsername(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    const name = (new FormData(e.currentTarget).get('username') as string).trim()
-    if (!name) return
-    if (!signedIn) {
-      saveUsername(name)
-      setSavedName(name)
-    } else if (asking === 'rename') {
-      const failed = await setDisplayName(name)
-      if (failed) return setError(failed)
-    }
-    if (asking === 'post') post(name)
-    setAsking(null)
-  }
-
-  function setMuted(personId: string, on: boolean) {
-    db.people.update(personId, (p) => void (p.muted_at = on ? new Date().toISOString() : null))
   }
 
   return (
@@ -98,25 +69,17 @@ export function Discussion({ question, decider }: { question: Question; decider:
         Talk about {decider.name} and this question. To add something to the record itself, use “Add to the record” so an editor can check it.
       </p>
 
-      {isReady && comments.length === 0 && <p className="mb-4 rounded-lg border border-dashed border-line p-4 text-center text-sm text-muted">No comments yet.</p>}
+      {isReady && data.length === 0 && <p className="mb-4 rounded-lg border border-dashed border-line p-4 text-center text-sm text-muted">No comments yet.</p>}
       <ol className="mb-5 space-y-3">
-        {comments.map((c) => (
+        {data.map((c) => (
           <li key={c.id} className="rounded-xl border-2 border-ink bg-surface p-3">
             <p className="mb-1 flex flex-wrap items-baseline gap-2 text-xs text-muted">
-              <span className="text-sm font-semibold text-ink">{c.author_name}</span>
+              <span className="text-sm font-semibold text-ink">{c.display_name}</span>
               <time dateTime={c.created_at}>{timeFmt.format(new Date(c.created_at))}</time>
-              {c.person_id && muted.has(c.person_id) && <span className="tag">Muted · hidden from readers</span>}
               {isEditor() && (
-                <span className="ml-auto flex gap-3">
-                  {c.person_id && (
-                    <button type="button" className="underline underline-offset-2 hover:text-ink" onClick={() => setMuted(c.person_id!, !muted.has(c.person_id!))}>
-                      {muted.has(c.person_id) ? `Unmute ${c.author_name}` : `Mute ${c.author_name}`}
-                    </button>
-                  )}
-                  <button type="button" className="underline underline-offset-2 hover:text-oppose" onClick={() => db.comments.delete(c.id)}>
-                    Remove
-                  </button>
-                </span>
+                <button type="button" className="ml-auto underline underline-offset-2 hover:text-oppose" onClick={() => db.comments.delete(c.id)}>
+                  Remove
+                </button>
               )}
             </p>
             <p className="text-sm whitespace-pre-wrap">{c.body}</p>
@@ -124,61 +87,83 @@ export function Discussion({ question, decider }: { question: Question; decider:
         ))}
       </ol>
 
-      <form ref={formRef} onSubmit={onSubmit} className="space-y-3">
-        <textarea name="body" required maxLength={2000} rows={3} className="field" aria-label="Comment" placeholder="Add a comment" />
-        <div className="hidden" aria-hidden="true">
-          <label>
-            Website
-            <input name="website" tabIndex={-1} autoComplete="off" />
-          </label>
-        </div>
-        {error && <p className="text-sm text-oppose">{error}</p>}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <button type="submit" className="btn" disabled={sending}>
-            {sending ? 'Posting…' : 'Post comment'}
-          </button>
-          <p className="text-xs text-muted">
-            {username ? (
-              <>
-                Posting as <span className="font-semibold text-ink">{username}</span> ·{' '}
-                <button type="button" className="underline underline-offset-2 hover:text-ink" onClick={() => setAsking('rename')}>
-                  change
-                </button>
-              </>
-            ) : (
-              'You’ll pick a username when you post.'
+      <SignedInOnly prompt="Sign in to comment. Your comments show the name you choose, never your email address.">
+        {peopleReady && (
+          <form onSubmit={(e) => void onSubmit(e)} className="space-y-3">
+            {!name && (
+              <div>
+                <label className="label" htmlFor="comment-name">
+                  Your name
+                </label>
+                <input id="comment-name" name="display_name" required maxLength={60} autoComplete="nickname" className="field" />
+                <p className="mt-1 text-xs text-muted">It shows next to your comments, in place of your email address. You can change it later.</p>
+              </div>
             )}
-          </p>
-        </div>
-      </form>
+            <textarea name="body" required maxLength={2000} rows={3} className="field" aria-label="Comment" placeholder="Add a comment" />
+            <div className="hidden" aria-hidden="true">
+              <label>
+                Website
+                <input name="website" tabIndex={-1} autoComplete="off" />
+              </label>
+            </div>
+            {error && <p className="text-sm text-oppose">{error}</p>}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <button type="submit" className="btn" disabled={sending}>
+                {sending ? 'Posting…' : 'Post comment'}
+              </button>
+              {name && (
+                <p className="text-xs text-muted">
+                  Posting as <span className="font-semibold text-ink">{name}</span> ·{' '}
+                  <button type="button" className="underline underline-offset-2 hover:text-ink" onClick={() => setRenaming(true)}>
+                    change
+                  </button>
+                </p>
+              )}
+            </div>
+          </form>
+        )}
+      </SignedInOnly>
 
-      <Modal
-        open={asking !== null}
-        onClose={() => setAsking(null)}
-        title={asking === 'rename' ? 'Change your username' : 'Set a username to post'}
-        description={
-          signedIn
-            ? 'It shows next to your comments, in place of your email address. You can change it any time.'
-            : 'It shows next to your comments. This browser remembers it, and you can change it any time.'
-        }
-      >
-        <form onSubmit={(e) => void onUsername(e)} className="space-y-4">
-          <div>
-            <label className="label" htmlFor="username">
-              Username
-            </label>
-            <input id="username" name="username" required maxLength={60} defaultValue={username} autoComplete="nickname" className="field" />
-          </div>
-          <div className="flex gap-2">
-            <button type="submit" className="btn btn-primary">
-              {asking === 'rename' ? 'Save' : 'Save and post'}
-            </button>
-            <button type="button" className="btn" onClick={() => setAsking(null)}>
-              Cancel
-            </button>
-          </div>
-        </form>
+      <Modal open={renaming} onClose={() => setRenaming(false)} title="Change your name" description="It shows next to your comments, in place of your email address.">
+        <NameForm name={name} onDone={() => setRenaming(false)} />
       </Modal>
     </section>
+  )
+}
+
+function NameForm({ name, onDone }: { name: string; onDone: () => void }) {
+  const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  async function onSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    const chosen = (new FormData(e.currentTarget).get('display_name') as string).trim()
+    if (!chosen) return setError('Choose a name to show with your comments.')
+    setError(null)
+    setSaving(true)
+    const failed = await setDisplayName(chosen)
+    setSaving(false)
+    if (failed) return setError(failed)
+    onDone()
+  }
+
+  return (
+    <form onSubmit={(e) => void onSubmit(e)} className="space-y-4">
+      <div>
+        <label className="label" htmlFor="display-name">
+          Name
+        </label>
+        <input id="display-name" name="display_name" required maxLength={60} defaultValue={name} autoComplete="nickname" className="field" />
+      </div>
+      {error && <p className="text-sm text-oppose">{error}</p>}
+      <div className="flex gap-2">
+        <button type="submit" className="btn btn-primary" disabled={saving}>
+          Save
+        </button>
+        <button type="button" className="btn" onClick={onDone}>
+          Cancel
+        </button>
+      </div>
+    </form>
   )
 }

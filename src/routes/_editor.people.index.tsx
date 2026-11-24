@@ -6,7 +6,7 @@ import { Syncing } from '../components/bits.tsx'
 // Enough to find someone by name; the search narrows the rest.
 const SHOWN = 50
 
-export const Route = createFileRoute('/editor/people/')({
+export const Route = createFileRoute('/_editor/people/')({
   component: People,
   validateSearch: (s: Record<string, unknown>): { q?: string } => ({ q: typeof s.q === 'string' && s.q ? s.q : undefined }),
 })
@@ -27,7 +27,7 @@ function People() {
     <div className="mx-auto max-w-2xl space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="h-page">People</h1>
-        <Link to="/editor/people/new" className="btn">
+        <Link to="/people/new" className="btn">
           Add a person
         </Link>
       </div>
@@ -56,7 +56,7 @@ function People() {
               <span className="font-medium">{d.name}</span>
               <span className="block text-xs text-muted">{seatsOf(d.id) || 'No seat'}</span>
             </span>
-            <Link to="/editor/people/$slug" params={{ slug: d.slug }} className="link shrink-0">
+            <Link to="/people/$slug" params={{ slug: d.slug }} className="link shrink-0">
               Edit <span className="sr-only">{d.name}</span>
             </Link>
           </li>

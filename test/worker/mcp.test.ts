@@ -101,11 +101,15 @@ describe('/mcp: reading the record', () => {
 })
 
 describe('/mcp: agents sign up and send evidence as people', () => {
+  // One signed-up agent for the tests about what it sends, not about signing up.
+  let shared: Promise<{ id: string; api_key: string }> | undefined
+  const sender = () => (shared ??= signUp('Shared test agent'))
+
   it('signs an agent up as a person labelled agent, under the name it gives, with a key shown once', async () => {
     const agent = await signUp('Harbor Watch monitor')
     expect(agent.kind).toBe('agent')
     expect(agent.api_key.startsWith(AGENT_KEY_PREFIX)).toBe(true)
-    expect(await rows(`SELECT kind, display_name, muted_at FROM people WHERE id = ?`, agent.id)).toEqual([{ kind: 'agent', display_name: 'Harbor Watch monitor', muted_at: null }])
+    expect(await rows(`SELECT kind, display_name FROM people WHERE id = ?`, agent.id)).toEqual([{ kind: 'agent', display_name: 'Harbor Watch monitor' }])
     // Better Auth keeps a hash of the key, never the key.
     const stored = await rows<{ key: string }>(`SELECT key FROM auth_api_keys WHERE referenceId = ?`, agent.id)
     expect(stored).toHaveLength(1)
@@ -116,7 +120,7 @@ describe('/mcp: agents sign up and send evidence as people', () => {
 
   it('knows the agent by its key', async () => {
     const agent = await signUp('Council watcher')
-    expect((await call('whoami', {}, agent.api_key)).structuredContent).toEqual({ signed_in: true, id: agent.id, name: 'Council watcher', kind: 'agent', muted: false })
+    expect((await call('whoami', {}, agent.api_key)).structuredContent).toEqual({ signed_in: true, id: agent.id, name: 'Council watcher', kind: 'agent' })
     expect((await call('whoami', {})).structuredContent).toEqual({ signed_in: false })
   })
 
@@ -131,13 +135,15 @@ describe('/mcp: agents sign up and send evidence as people', () => {
     expect(await rows(`SELECT id FROM readings WHERE act_id IN (SELECT act_id FROM proposal_items WHERE proposal_id = ?)`, proposalId)).toEqual([])
   })
 
-  it('queues evidence sent with no key as an anonymous reader’s', async () => {
+  it('refuses evidence sent with no key, as the site refuses a post from someone signed out, and writes nothing', async () => {
+    const before = await rows<{ n: number }>(`SELECT COUNT(*) AS n FROM proposals`)
     const result = await call('submit_evidence', evidence())
-    expect(result.structuredContent).toMatchObject({ queued: true, sent_as: null })
-    expect(await rows(`SELECT origin, submitted_by FROM proposals WHERE id = ?`, result.structuredContent!.proposal_id)).toEqual([{ origin: 'reader', submitted_by: null }])
+    expect(result.isError).toBe(true)
+    expect(textOf(result)).toMatch(/^Sign up to send evidence/)
+    expect(await rows<{ n: number }>(`SELECT COUNT(*) AS n FROM proposals`)).toEqual(before)
   })
 
-  it('refuses a key it did not issue, rather than sending anonymously, and writes nothing', async () => {
+  it('refuses a key it did not issue, and writes nothing', async () => {
     const before = await rows<{ n: number }>(`SELECT COUNT(*) AS n FROM proposals`)
     const result = await call('submit_evidence', evidence(), `${AGENT_KEY_PREFIX}not-a-key-we-issued`)
     expect(result.isError).toBe(true)
@@ -172,19 +178,20 @@ describe('/mcp: agents sign up and send evidence as people', () => {
     ['a reading that is not one of the four', { reading: 'lean_oppose' }],
   ])('refuses %s before anything is written', async (_, bad) => {
     const before = await rows<{ n: number }>(`SELECT COUNT(*) AS n FROM proposals`)
-    const result = await call('submit_evidence', evidence(bad))
+    const result = await call('submit_evidence', evidence(bad), (await sender()).api_key)
     expect(result.isError).toBe(true)
     expect(await rows<{ n: number }>(`SELECT COUNT(*) AS n FROM proposals`)).toEqual(before)
   })
 
   it('does not queue the same source, person and question twice', async () => {
     const same = evidence()
-    await call('submit_evidence', same)
-    expect((await call('submit_evidence', same)).structuredContent).toMatchObject({ queued: false, duplicate: true, proposal_id: null })
+    const { api_key } = await sender()
+    await call('submit_evidence', same, api_key)
+    expect((await call('submit_evidence', same, api_key)).structuredContent).toMatchObject({ queued: false, duplicate: true, proposal_id: null })
   })
 
   it('refuses an unknown person', async () => {
-    const result = await call('submit_evidence', evidence({ decider_id: 'nobody' }))
+    const result = await call('submit_evidence', evidence({ decider_id: 'nobody' }), (await sender()).api_key)
     expect(result.isError).toBe(true)
     expect(textOf(result)).toMatch(/Unknown question or decider/)
   })
@@ -216,9 +223,9 @@ describe('a key in x-api-key on the reader routes', () => {
     expect(await rows(`SELECT submitted_by FROM proposals WHERE id = ?`, proposal_id)).toEqual([{ submitted_by: agent.id }])
   })
 
-  it('still posts anonymously with no key', async () => {
+  it('refuses a post with no key from someone signed out', async () => {
     const res = await post('/api/proposals', evidenceForm(`https://news.example/no-key-${crypto.randomUUID()}`))
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(401)
   })
 })
 

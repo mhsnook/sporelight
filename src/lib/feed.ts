@@ -116,10 +116,9 @@ export function buildStories(tracker: Tracker, filter: FeedFilter = {}): Story[]
 
 // What is waiting for review that claims something, one story per proposal,
 // newest first. Only pending items with a reading count: rejected items, and
-// search leads that only name someone, are left out, and so is anything sent
-// in by someone an editor has muted. Items of one proposal that share an act
-// are one item.
-export function buildWaiting(tracker: Tracker, proposals: Proposal[], items: ProposalItem[], filter: FeedFilter = {}, muted: ReadonlySet<string> = new Set()): WaitingStory[] {
+// search leads that only name someone, are left out. Items of one proposal
+// that share an act are one item.
+export function buildWaiting(tracker: Tracker, proposals: Proposal[], items: ProposalItem[], filter: FeedFilter = {}): WaitingStory[] {
   const match = matcher(tracker, filter)
   const proposalById = new Map(proposals.map((p) => [p.id, p]))
   const stories = new Map<string, WaitingStory>()
@@ -128,7 +127,7 @@ export function buildWaiting(tracker: Tracker, proposals: Proposal[], items: Pro
     const proposal = proposalById.get(item.proposal_id)
     const decider = tracker.deciderById.get(item.decider_id)
     const question = tracker.questionById.get(item.question_id)
-    if (!proposal || proposal.status !== 'pending' || (proposal.submitted_by !== null && muted.has(proposal.submitted_by)) || !decider || !question || !match.person(decider.id) || !match.question(question)) continue
+    if (!proposal || proposal.status !== 'pending' || !decider || !question || !match.person(decider.id) || !match.question(question)) continue
     let story = stories.get(proposal.id)
     if (!story) {
       story = { key: `proposal:${proposal.id}`, at: proposal.created_at, proposal, source: tracker.sourceById.get(proposal.source_id), items: [], isDemo: false }

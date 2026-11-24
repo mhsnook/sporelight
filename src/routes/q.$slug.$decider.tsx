@@ -211,13 +211,13 @@ function DeciderOnQuestion() {
           )}
           {isEditor() && (
             <div className="space-y-1 text-sm">
-              <Link to="/editor/people/$slug" params={{ slug: decider.slug }} className="block link">
+              <Link to="/people/$slug" params={{ slug: decider.slug }} className="block link">
                 Edit {decider.name}
               </Link>
-              <Link to="/editor/roles/$roleId" params={{ roleId: me.role.id }} className="block link">
+              <Link to="/roles/$roleId" params={{ roleId: me.role.id }} className="block link">
                 Edit their role on {seat.label}
               </Link>
-              <Link to="/editor/roles/new" search={{ seat: seat.id, running: true, question: question.slug }} className="block link">
+              <Link to="/roles/new" search={{ seat: seat.id, running: true, question: question.slug }} className="block link">
                 Add someone running for {seat.label}
               </Link>
             </div>

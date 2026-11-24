@@ -62,8 +62,7 @@ export function authOptions(env: Env) {
       user: {
         create: {
           after: async (user: { id: string; createdAt: Date; isAnonymous?: boolean | null }) => {
-            // isAnonymous is Better Auth's mark for an account made without an email address: an agent's.
-            await (await getServerByName<Env, Tracker>(env.Tracker, 'main')).addPerson(user.id, user.createdAt.toISOString(), user.isAnonymous ? 'agent' : 'person')
+            await (await room(env)).addPerson(user.id, user.createdAt.toISOString(), kindOf(user))
           },
         },
       },
@@ -93,6 +92,11 @@ async function sendCode(env: Env, email: string, code: string) {
     console.error('sign-in code not sent', e)
   }
 }
+
+const room = (env: Env) => getServerByName<Env, Tracker>(env.Tracker, 'main')
+
+// isAnonymous is Better Auth's mark for an account made without an email address: an agent's.
+const kindOf = (user: { isAnonymous?: boolean | null }): Person['kind'] => (user.isAnonymous ? 'agent' : 'person')
 
 // Better Auth refused the key in x-api-key: unknown, disabled, expired, or over its rate limit.
 export class KeyRefused extends Error {
@@ -124,5 +128,11 @@ export async function signedInPerson(req: Request, env: Env): Promise<Person | n
     throw e
   }
   if (!session) return null
-  return env.DB.prepare(`SELECT id, kind, display_name, muted_at, created_at FROM people WHERE id = ?`).bind(session.user.id).first<Person>()
+  const { user } = session
+  const person = () => env.DB.prepare(`SELECT id, kind, display_name, created_at FROM people WHERE id = ?`).bind(user.id).first<Person>()
+  const found = await person()
+  if (found) return found
+  // The row is added when someone first signs in. If that failed, a valid session adds it here.
+  await (await room(env)).addPerson(user.id, new Date(user.createdAt).toISOString(), kindOf(user))
+  return person()
 }

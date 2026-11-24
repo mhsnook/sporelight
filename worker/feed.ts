@@ -6,7 +6,7 @@ import { loadRecord } from './record.ts'
 // The published tables the feed reads. Proposals and their notes are never read here.
 const FEED_TABLES = new Set(['bodies', 'deciders', 'seats', 'roles', 'questions', 'question_bodies', 'sources', 'acts', 'reports', 'readings'])
 
-// GET /feed.xml, with the same `question` and `body` filters as /latest.
+// GET /feed.xml, with the same `question` and `body` filters as /news.
 export async function atomResponse(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(req.url)
   const questionSlug = url.searchParams.get('question') || undefined
@@ -28,7 +28,7 @@ export async function atomResponse(req: Request, env: Env, ctx: ExecutionContext
     origin: url.origin,
     title: `Sporelight: latest on the record${filtered ? ` (${filtered})` : ''}`,
     self,
-    page: self.replace('/feed.xml', '/latest'),
+    page: self.replace('/feed.xml', '/news'),
   })
   const res = new Response(xml, { headers: { 'content-type': 'application/atom+xml; charset=utf-8', 'cache-control': 'public, max-age=300' } })
   ctx.waitUntil(caches.default.put(key, res.clone()))

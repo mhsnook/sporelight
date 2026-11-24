@@ -31,7 +31,7 @@ function recordFrames(page: Page) {
 test('the feed lists the record newest first, and its filters live in the URL', async ({ page }) => {
   await page.goto('/q/free-ferry')
   await page.getByRole('link', { name: 'Latest on this question' }).click()
-  await expect(page).toHaveURL(/\/latest\?question=free-ferry$/)
+  await expect(page).toHaveURL(/\/news\?question=free-ferry$/)
   await expect(page.getByRole('heading', { name: 'Latest', exact: true })).toBeVisible()
   await expect(page.getByLabel('Question', { exact: true })).toHaveValue('free-ferry')
 
@@ -80,7 +80,7 @@ test('an article with several people in it is one story, with the people as repl
   ])
   expect(write.ok()).toBe(true)
 
-  await page.goto('/latest?question=free-ferry')
+  await page.goto('/news?question=free-ferry')
   const story = page.getByRole('article', { name: title })
   await expect(story).toBeVisible()
   await expect(story).toContainText('4 people')
@@ -96,16 +96,16 @@ test('an article with several people in it is one story, with the people as repl
 })
 
 test('a feed link to a question that does not exist says so instead of showing everything', async ({ page }) => {
-  await page.goto('/latest?question=no-such-question')
+  await page.goto('/news?question=no-such-question')
   await expect(page.getByText('No question here.')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Stories' })).toHaveCount(0)
   await page.getByRole('link', { name: 'See everything that is new' }).click()
-  await expect(page).toHaveURL(/\/latest$/)
+  await expect(page).toHaveURL(/\/news$/)
   await expect(page.getByRole('region', { name: 'Stories' })).toBeVisible()
 })
 
 test('the Atom feed is linked from the page and carries the published record', async ({ page, request }) => {
-  await page.goto('/latest?question=free-ferry')
+  await page.goto('/news?question=free-ferry')
   await expect(page.locator('head link[rel="alternate"][type="application/atom+xml"]')).toHaveAttribute('href', '/feed.xml?question=free-ferry')
   await expect(page.getByRole('link', { name: 'Atom feed of this selection' })).toHaveAttribute('href', '/feed.xml?question=free-ferry')
 
@@ -163,7 +163,7 @@ test('what is waiting shows in the feed as a short unchecked line that opens to 
     ])
 
   const frames = recordFrames(page)
-  await page.goto('/latest?recordOnly=true')
+  await page.goto('/news?recordOnly=true')
   const stories = page.getByRole('region', { name: 'Stories' })
   await expect(stories.getByRole('article').first()).toBeVisible()
   await expect(page.getByRole('button', { name: 'Show only what is on the record', pressed: true })).toBeVisible()

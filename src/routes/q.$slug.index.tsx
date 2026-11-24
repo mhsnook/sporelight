@@ -277,7 +277,7 @@ function EditorTools({ question }: { question: Question }) {
   if (!isEditor()) return null
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Link to="/editor/questions/$slug/edit" params={{ slug: question.slug }} className="btn">
+      <Link to="/q/$slug/edit" params={{ slug: question.slug }} className="btn">
         Edit this {nounOf(question, tracker.isAsk(question))}
       </Link>
       <CloseQuestion question={question} />
@@ -352,7 +352,7 @@ function SeatCard({ row, question }: { row: HeldSeat; question: Question }) {
 function AddRunning({ seat, question, compact }: { seat: Seat; question: Question; compact?: boolean }) {
   if (!isEditor()) return null
   return (
-    <Link to="/editor/roles/new" search={{ seat: seat.id, running: true, question: question.slug }} className={compact ? 'mt-1 block text-xs link' : 'block border-t border-line py-1.5 pr-3 pl-4 text-xs link'}>
+    <Link to="/roles/new" search={{ seat: seat.id, running: true, question: question.slug }} className={compact ? 'mt-1 block text-xs link' : 'block border-t border-line py-1.5 pr-3 pl-4 text-xs link'}>
       Add someone running <span className="sr-only">for {seat.label}</span>
     </Link>
   )
