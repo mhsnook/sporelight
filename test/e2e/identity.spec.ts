@@ -25,14 +25,13 @@ test('a signed-out reader is asked to sign in instead of commenting, signs in wi
   await expect(header.getByRole('button', { name: 'Sign out' })).toBeVisible()
   await expect(header.getByText('Signed in')).toBeVisible()
 
-  // The first comment asks for the name the person will be shown under.
+  // The first comment asks for the name the person will be shown under, in the same form.
+  await page.getByLabel('Your name').fill(name)
   await page.getByLabel('Comment').fill(body)
   await page.getByRole('button', { name: 'Post comment' }).click()
-  const naming = page.getByRole('dialog').filter({ hasText: 'in place of your email address' })
-  await naming.getByLabel('Name').fill(name)
-  await naming.getByRole('button', { name: 'Save and post' }).click()
   await expect(page.getByRole('listitem').filter({ hasText: body })).toContainText(name)
   await expect(header.getByText(name)).toBeVisible()
+  await expect(page.getByLabel('Your name')).toHaveCount(0)
   await expect(page.getByText(email)).toHaveCount(0)
   const [posted] = query<{ email: string }>(`SELECT u.email FROM comments c JOIN auth_users u ON u.id = c.person_id WHERE c.body = '${body}'`)
   expect(posted.email).toBe(email)

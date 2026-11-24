@@ -205,9 +205,11 @@ export class Tracker extends PartyDbServer<Env> {
     await this.commit([{ channel: 'people', ops: [{ type: 'update', value: { id: personId, display_name: displayName } }] }])
   }
 
-  // A comment is shown under its person's display_name, so a person without one cannot post.
+  // A comment is shown under its person's display_name. Someone without one
+  // names themselves with their first comment, in the same write.
   async comment(input: CommentInput, person: Person): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
-    if (person.display_name === null) return { ok: false, status: 400, error: 'Choose a display name before you comment.' }
+    const naming = person.display_name === null ? input.display_name : undefined
+    if (person.display_name === null && !naming) return { ok: false, status: 400, error: 'Choose a display name before you comment.' }
     const known = await this.env.DB.prepare(
       `SELECT 1 FROM questions q, deciders d WHERE q.id = ? AND d.id = ?`,
     )
@@ -221,7 +223,10 @@ export class Tracker extends PartyDbServer<Env> {
       body: input.body,
       created_at: new Date().toISOString(),
     }
-    await this.commit([{ channel: 'comments', ops: [{ type: 'insert', value: row }] }])
+    await this.commit([
+      ...(naming ? [{ channel: 'people', ops: [{ type: 'update' as const, value: { id: person.id, display_name: naming } }] }] : []),
+      { channel: 'comments', ops: [{ type: 'insert', value: row }] },
+    ])
     return { ok: true }
   }
 }

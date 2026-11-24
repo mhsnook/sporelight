@@ -30,37 +30,31 @@ export function Discussion({ question, decider }: { question: Question; decider:
     [threadId],
   )
   const name = useSignedIn().person?.display_name ?? ''
-  const formRef = useRef<HTMLFormElement>(null)
-  // 'post' means a comment is waiting on the person's first name: save it, then send.
-  const [asking, setAsking] = useState<'post' | 'rename' | null>(null)
+  const [renaming, setRenaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
 
-  async function post() {
-    const form = formRef.current!
-    const body = form.elements.namedItem('body') as HTMLTextAreaElement
+  async function onSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    const form = e.currentTarget
+    const f = new FormData(form)
     setError(null)
     setSending(true)
     try {
       const res = await postAsReader('/api/comments', {
         question_id: question.id,
         decider_id: decider.id,
-        body: body.value.trim(),
-        website: (form.elements.namedItem('website') as HTMLInputElement).value,
+        body: (f.get('body') as string).trim(),
+        display_name: name ? undefined : (f.get('display_name') as string).trim(),
+        website: f.get('website'),
       })
       if (!res.ok) return setError(((await res.json()) as { error?: string }).error ?? 'Something went wrong.')
-      body.value = ''
+      form.reset()
     } catch {
       setError('Could not reach the server. Try again in a moment.')
     } finally {
       setSending(false)
     }
-  }
-
-  function onSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    if (name) post()
-    else setAsking('post')
   }
 
   return (
@@ -89,56 +83,48 @@ export function Discussion({ question, decider }: { question: Question; decider:
       </ol>
 
       <SignedInOnly prompt="Sign in to comment. Your comments show the name you choose, never your email address.">
-        <form ref={formRef} onSubmit={onSubmit} className="space-y-3">
-        <textarea name="body" required maxLength={2000} rows={3} className="field" aria-label="Comment" placeholder="Add a comment" />
-        <div className="hidden" aria-hidden="true">
-          <label>
-            Website
-            <input name="website" tabIndex={-1} autoComplete="off" />
-          </label>
-        </div>
-        {error && <p className="text-sm text-oppose">{error}</p>}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <button type="submit" className="btn" disabled={sending}>
-            {sending ? 'Posting…' : 'Post comment'}
-          </button>
-          <p className="text-xs text-muted">
-            {name ? (
-              <>
+        <form onSubmit={(e) => void onSubmit(e)} className="space-y-3">
+          {!name && (
+            <div>
+              <label className="label" htmlFor="comment-name">
+                Your name
+              </label>
+              <input id="comment-name" name="display_name" required maxLength={60} autoComplete="nickname" className="field" />
+              <p className="mt-1 text-xs text-muted">It shows next to your comments, in place of your email address. You can change it later.</p>
+            </div>
+          )}
+          <textarea name="body" required maxLength={2000} rows={3} className="field" aria-label="Comment" placeholder="Add a comment" />
+          <div className="hidden" aria-hidden="true">
+            <label>
+              Website
+              <input name="website" tabIndex={-1} autoComplete="off" />
+            </label>
+          </div>
+          {error && <p className="text-sm text-oppose">{error}</p>}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <button type="submit" className="btn" disabled={sending}>
+              {sending ? 'Posting…' : 'Post comment'}
+            </button>
+            {name && (
+              <p className="text-xs text-muted">
                 Posting as <span className="font-semibold text-ink">{name}</span> ·{' '}
-                <button type="button" className="underline underline-offset-2 hover:text-ink" onClick={() => setAsking('rename')}>
+                <button type="button" className="underline underline-offset-2 hover:text-ink" onClick={() => setRenaming(true)}>
                   change
                 </button>
-              </>
-            ) : (
-              'You’ll choose the name your comments show when you post.'
+              </p>
             )}
-          </p>
-        </div>
+          </div>
         </form>
       </SignedInOnly>
 
-      <Modal
-        open={asking !== null}
-        onClose={() => setAsking(null)}
-        title={asking === 'rename' ? 'Change your name' : 'Choose a name to post'}
-        description="It shows next to your comments, in place of your email address. You can change it any time."
-      >
-        <NameForm
-          name={name}
-          action={asking === 'rename' ? 'Save' : 'Save and post'}
-          onCancel={() => setAsking(null)}
-          onSaved={() => {
-            if (asking === 'post') post()
-            setAsking(null)
-          }}
-        />
+      <Modal open={renaming} onClose={() => setRenaming(false)} title="Change your name" description="It shows next to your comments, in place of your email address.">
+        <NameForm name={name} onDone={() => setRenaming(false)} />
       </Modal>
     </section>
   )
 }
 
-function NameForm({ name, action, onCancel, onSaved }: { name: string; action: string; onCancel: () => void; onSaved: () => void }) {
+function NameForm({ name, onDone }: { name: string; onDone: () => void }) {
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -151,7 +137,7 @@ function NameForm({ name, action, onCancel, onSaved }: { name: string; action: s
     const failed = await setDisplayName(chosen)
     setSaving(false)
     if (failed) return setError(failed)
-    onSaved()
+    onDone()
   }
 
   return (
@@ -165,9 +151,9 @@ function NameForm({ name, action, onCancel, onSaved }: { name: string; action: s
       {error && <p className="text-sm text-oppose">{error}</p>}
       <div className="flex gap-2">
         <button type="submit" className="btn btn-primary" disabled={saving}>
-          {action}
+          Save
         </button>
-        <button type="button" className="btn" onClick={onCancel}>
+        <button type="button" className="btn" onClick={onDone}>
           Cancel
         </button>
       </div>

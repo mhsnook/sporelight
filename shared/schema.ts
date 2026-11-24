@@ -447,6 +447,8 @@ export const commentInputSchema = z.object({
   question_id: z.string().min(1),
   decider_id: z.string().min(1),
   body: z.string().trim().min(1).max(2000),
+  // Saved as the person's name with their first comment. Ignored once they have one.
+  display_name: displayNameSchema.optional(),
 })
 export type CommentInput = z.infer<typeof commentInputSchema>
 
@@ -508,8 +510,9 @@ export const commentsCollection = definePartyCollection({
   access: { read: 'public', delete: 'authed' },
 })
 
-// Rows are added by the Worker when someone first signs in.
-export const peopleCollection = definePartyCollection({ name: 'people', key: 'id', schema: personSchema, access: { read: 'public', update: 'authed' } })
+// Only the Worker writes people: a row when someone first signs in, and their
+// display name. Nobody, editors included, writes one through the room.
+export const peopleCollection = definePartyCollection({ name: 'people', key: 'id', schema: personSchema, access: { read: 'public' } })
 
 export const proposalContextsCollection = definePartyCollection({ name: 'proposal_contexts', key: 'id', schema: proposalContextSchema, access: 'authed' })
 export const proposalMentionsCollection = definePartyCollection({ name: 'proposal_mentions', key: 'id', schema: proposalMentionSchema, access: 'authed' })

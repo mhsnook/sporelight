@@ -156,11 +156,15 @@ describe('a signed-in reader in the sync room', () => {
     socket.close()
   })
 
-  it('lets no one add a person through the room', async () => {
+  it('lets no one, an editor included, add or rename a person through the room', async () => {
     const added = [{ channel: 'people', ops: [{ type: 'insert', value: { id: 'made-up', display_name: 'Nobody', created_at: '2026-11-20T12:00:00.000Z' } }] }]
     expect((await partyWrite(added, EDITOR_TOKEN)).status).toBe(403)
     expect((await partyWrite(added, undefined, cookie)).status).toBe(401)
     expect(await rows(`SELECT id FROM people WHERE id = 'made-up'`)).toEqual([])
+
+    const renamed = [{ channel: 'people', ops: [{ type: 'update', value: { id: personId, display_name: 'Renamed by an editor' } }] }]
+    expect((await partyWrite(renamed, EDITOR_TOKEN)).status).toBe(403)
+    expect(await rows(`SELECT display_name FROM people WHERE id = ?`, personId)).toEqual([{ display_name: null }])
   })
 })
 

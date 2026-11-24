@@ -32,7 +32,21 @@ describe('POST /api/comments', () => {
     expect(await count()).toBe(before)
   })
 
+  it('saves the name sent with a first comment as the person’s, together with the comment', async () => {
+    const cookie = await signIn(mailbox(), 'first.comment@reader.test')
+    const res = await postAs(cookie)('/api/comments', comment({ body: 'First, with a name.', display_name: '  New Name ' }))
+    expect(res.status).toBe(200)
+    expect(await rows(`SELECT p.display_name FROM comments c JOIN people p ON p.id = c.person_id WHERE c.body = 'First, with a name.'`)).toEqual([{ display_name: 'New Name' }])
+  })
+
+  it('keeps the name a person already has when a comment sends another', async () => {
+    await send('/api/comments', comment({ body: 'Trying to rename by comment.', display_name: 'Someone Else' }))
+    expect(await rows(`SELECT display_name FROM people WHERE id = ?`, personId)).toEqual([{ display_name: 'Reader One' }])
+  })
+
   it.each([
+    ['display_name', { display_name: '   ' }],
+    ['display_name', { display_name: 'x'.repeat(61) }],
     ['body', { body: '' }],
     ['body', { body: 'x'.repeat(2001) }],
     ['decider_id', { decider_id: '' }],
