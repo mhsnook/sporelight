@@ -29,7 +29,8 @@ export function Discussion({ question, decider }: { question: Question; decider:
         .select(({ c, p }) => ({ id: c.id, body: c.body, created_at: c.created_at, display_name: p?.display_name })),
     [threadId],
   )
-  const name = useSignedIn().person?.display_name ?? ''
+  const { person, peopleReady } = useSignedIn()
+  const name = person?.display_name ?? ''
   const [renaming, setRenaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
@@ -38,14 +39,18 @@ export function Discussion({ question, decider }: { question: Question; decider:
     e.preventDefault()
     const form = e.currentTarget
     const f = new FormData(form)
+    const body = (f.get('body') as string).trim()
+    const displayName = name ? undefined : (f.get('display_name') as string).trim()
+    if (displayName === '') return setError('Choose a name to show with your comments.')
+    if (!body) return setError('Write a comment first.')
     setError(null)
     setSending(true)
     try {
       const res = await postAsReader('/api/comments', {
         question_id: question.id,
         decider_id: decider.id,
-        body: (f.get('body') as string).trim(),
-        display_name: name ? undefined : (f.get('display_name') as string).trim(),
+        body,
+        display_name: displayName,
         website: f.get('website'),
       })
       if (!res.ok) return setError(((await res.json()) as { error?: string }).error ?? 'Something went wrong.')
@@ -83,38 +88,40 @@ export function Discussion({ question, decider }: { question: Question; decider:
       </ol>
 
       <SignedInOnly prompt="Sign in to comment. Your comments show the name you choose, never your email address.">
-        <form onSubmit={(e) => void onSubmit(e)} className="space-y-3">
-          {!name && (
-            <div>
-              <label className="label" htmlFor="comment-name">
-                Your name
-              </label>
-              <input id="comment-name" name="display_name" required maxLength={60} autoComplete="nickname" className="field" />
-              <p className="mt-1 text-xs text-muted">It shows next to your comments, in place of your email address. You can change it later.</p>
-            </div>
-          )}
-          <textarea name="body" required maxLength={2000} rows={3} className="field" aria-label="Comment" placeholder="Add a comment" />
-          <div className="hidden" aria-hidden="true">
-            <label>
-              Website
-              <input name="website" tabIndex={-1} autoComplete="off" />
-            </label>
-          </div>
-          {error && <p className="text-sm text-oppose">{error}</p>}
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-            <button type="submit" className="btn" disabled={sending}>
-              {sending ? 'Posting…' : 'Post comment'}
-            </button>
-            {name && (
-              <p className="text-xs text-muted">
-                Posting as <span className="font-semibold text-ink">{name}</span> ·{' '}
-                <button type="button" className="underline underline-offset-2 hover:text-ink" onClick={() => setRenaming(true)}>
-                  change
-                </button>
-              </p>
+        {peopleReady && (
+          <form onSubmit={(e) => void onSubmit(e)} className="space-y-3">
+            {!name && (
+              <div>
+                <label className="label" htmlFor="comment-name">
+                  Your name
+                </label>
+                <input id="comment-name" name="display_name" required maxLength={60} autoComplete="nickname" className="field" />
+                <p className="mt-1 text-xs text-muted">It shows next to your comments, in place of your email address. You can change it later.</p>
+              </div>
             )}
-          </div>
-        </form>
+            <textarea name="body" required maxLength={2000} rows={3} className="field" aria-label="Comment" placeholder="Add a comment" />
+            <div className="hidden" aria-hidden="true">
+              <label>
+                Website
+                <input name="website" tabIndex={-1} autoComplete="off" />
+              </label>
+            </div>
+            {error && <p className="text-sm text-oppose">{error}</p>}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <button type="submit" className="btn" disabled={sending}>
+                {sending ? 'Posting…' : 'Post comment'}
+              </button>
+              {name && (
+                <p className="text-xs text-muted">
+                  Posting as <span className="font-semibold text-ink">{name}</span> ·{' '}
+                  <button type="button" className="underline underline-offset-2 hover:text-ink" onClick={() => setRenaming(true)}>
+                    change
+                  </button>
+                </p>
+              )}
+            </div>
+          </form>
+        )}
       </SignedInOnly>
 
       <Modal open={renaming} onClose={() => setRenaming(false)} title="Change your name" description="It shows next to your comments, in place of your email address.">
@@ -131,7 +138,7 @@ function NameForm({ name, onDone }: { name: string; onDone: () => void }) {
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const chosen = (new FormData(e.currentTarget).get('display_name') as string).trim()
-    if (!chosen) return
+    if (!chosen) return setError('Choose a name to show with your comments.')
     setError(null)
     setSaving(true)
     const failed = await setDisplayName(chosen)

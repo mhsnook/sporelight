@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:workers'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { askForCode, codeIn, cookieFrom, type Frame, mailbox, nextIp, partySocket, post, proposal, reader, rows, seed, signIn, until, noOutsidePages } from './helpers.ts'
+import { askForCode, codeIn, cookieFrom, type Frame, mailbox, nextIp, partySocket, post, postAs, proposal, reader, rows, seed, signIn, until, noOutsidePages } from './helpers.ts'
 
 const mail = mailbox()
 const comment = (overrides: Record<string, unknown> = {}) => ({ question_id: 'hot', decider_id: 'ann', body: 'A comment.', ...overrides })
@@ -127,6 +127,19 @@ describe('what a signed-in person posts', () => {
     expect(res.status).toBe(401)
     expect(await res.json()).toEqual({ error: 'Sign in to post.' })
     expect(await rows(`SELECT id FROM sources WHERE url = ?`, url)).toEqual([])
+  })
+
+  it('adds the person for a valid session whose row is missing, once, even for two posts at once', async () => {
+    const cookie = await signIn(mail, 'rowless@reader.test')
+    const { id } = await personFor('rowless@reader.test')
+    await env.DB.prepare(`DELETE FROM people WHERE id = ?`).bind(id).run()
+    const send = postAs(cookie)
+    const [first, second] = await Promise.all([
+      send('/api/comments', comment({ body: 'Rowless, first.', display_name: 'Rowless' })),
+      send('/api/proposals', proposal({ source_url: 'https://news.example/rowless' })),
+    ])
+    expect([first.status, second.status]).toEqual([200, 200])
+    expect(await rows(`SELECT id, display_name FROM people WHERE id = ?`, id)).toEqual([{ id, display_name: 'Rowless' }])
   })
 
   it('refuses a comment sent with a cookie that has been signed out', async () => {

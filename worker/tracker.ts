@@ -196,9 +196,14 @@ export class Tracker extends PartyDbServer<Env> {
     return this.env.DB.prepare(`SELECT id, published_on_from FROM sources WHERE url = ?`).bind(url).first<Pick<Source, 'id' | 'published_on_from'>>()
   }
 
+  // Two requests from one new session can both find no row and both add it.
   async addPerson(id: string, createdAt: string) {
     const person: Person = { id, display_name: null, created_at: createdAt }
-    await this.commit([{ channel: 'people', ops: [{ type: 'insert', value: person }] }])
+    try {
+      await this.commit([{ channel: 'people', ops: [{ type: 'insert', value: person }] }])
+    } catch (e) {
+      if (!String(e).includes('UNIQUE')) throw e
+    }
   }
 
   async setDisplayName(personId: string, displayName: string) {

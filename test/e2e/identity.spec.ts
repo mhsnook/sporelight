@@ -26,8 +26,11 @@ test('a signed-out reader is asked to sign in instead of commenting, signs in wi
   await expect(header.getByText('Signed in')).toBeVisible()
 
   // The first comment asks for the name the person will be shown under, in the same form.
-  await page.getByLabel('Your name').fill(name)
+  await page.getByLabel('Your name').fill('   ')
   await page.getByLabel('Comment').fill(body)
+  await page.getByRole('button', { name: 'Post comment' }).click()
+  await expect(page.getByText('Choose a name to show with your comments.')).toBeVisible()
+  await page.getByLabel('Your name').fill(name)
   await page.getByRole('button', { name: 'Post comment' }).click()
   await expect(page.getByRole('listitem').filter({ hasText: body })).toContainText(name)
   await expect(header.getByText(name)).toBeVisible()

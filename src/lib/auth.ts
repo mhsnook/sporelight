@@ -9,8 +9,9 @@ export const authClient = createAuthClient({ basePath: '/api/auth', plugins: [em
 
 // Everyone who has signed in, by id.
 export function usePeople() {
-  const { data } = useLiveQuery((q) => q.from({ row: db.people }))
-  return useMemo(() => new Map<string, Person>(data.map((p) => [p.id, p])), [data])
+  const { data, isReady } = useLiveQuery((q) => q.from({ row: db.people }))
+  const byId = useMemo(() => new Map<string, Person>(data.map((p) => [p.id, p])), [data])
+  return { byId, isReady }
 }
 
 // Whether someone is signed in in this browser, without loading anyone's row.
@@ -21,10 +22,11 @@ export function useSession() {
 
 // The person signed in in this browser. Their row arrives through the sync
 // room a moment after they first sign in, so `person` can lag `signedIn`.
+// Until `peopleReady`, a missing `person` says nothing about whether they have a row.
 export function useSignedIn() {
   const { id, isPending } = useSession()
-  const byId = usePeople()
-  return { signedIn: id !== undefined, person: id ? byId.get(id) : undefined, isPending }
+  const people = usePeople()
+  return { signedIn: id !== undefined, person: id ? people.byId.get(id) : undefined, isPending, peopleReady: people.isReady }
 }
 
 // A post only a signed-in person may make. A 401 means the session ended
