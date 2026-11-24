@@ -1,7 +1,7 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test'
 import { SPECTRUM, STANDINGS, STANDING_COLOR, standingLabel, type Standing } from '../../src/lib/position.ts'
 import { query } from './db.ts'
-import { TODAY, editorToken, partyWrite } from './fixtures.ts'
+import { TODAY, editorToken, partyWrite, signInWithCode } from './fixtures.ts'
 
 test.beforeEach(async ({ page }) => {
   await page.clock.setFixedTime(TODAY)
@@ -130,7 +130,11 @@ test('evidence a reader sends reaches the editor under its question and, once ap
   await expect(page.getByRole('heading', { name: 'Bartholomew Sato' })).toBeVisible()
   await expect(page.getByText(quote)).toHaveCount(0)
   await page.getByRole('button', { name: 'Add to the record' }).click()
-  const dialog = page.getByRole('dialog')
+  const dialog = page.getByRole('dialog').filter({ hasText: 'An editor reads every submission' })
+  // Signed out, the form is a prompt to sign in, which opens the sign-in dialog over it.
+  await expect(dialog.getByLabel('What did Bartholomew Sato say or do?')).toHaveCount(0)
+  await dialog.getByRole('button', { name: 'Sign in' }).click()
+  await signInWithCode(page, `sender-${Date.now()}@example.org`)
   await dialog.getByLabel('What did Bartholomew Sato say or do?').fill(quote)
   await dialog.getByLabel('Link to the source').fill(`https://example.com/harbor-ledger/sato-${Date.now()}`)
   await dialog.getByLabel('Source name').fill(sourceTitle)
@@ -140,20 +144,20 @@ test('evidence a reader sends reaches the editor under its question and, once ap
   await dialog.getByRole('button', { name: 'Send for review' }).click()
   await expect(dialog.getByText('Thank you. Your report is waiting for an editor.')).toBeVisible()
   await expect(dialog.getByRole('button', { name: 'Copy link' })).toBeVisible()
-  const address = (await dialog.getByText(/\/latest\?proposal=/).textContent())!
+  const address = (await dialog.getByText(/\/news\?proposal=/).textContent())!
   await dialog.getByRole('button', { name: 'Done' }).click()
   // Nothing reaches the record before review.
   await expect(page.getByText(quote)).toHaveCount(0)
 
   // The address the reader was given opens Latest on that report, already opened.
   const friend = await context.newPage()
-  await friend.goto(address.slice(address.indexOf('/latest')))
+  await friend.goto(address.slice(address.indexOf('/news')))
   const waiting = friend.getByRole('article', { name: `Not checked yet: ${sourceTitle}` })
   await expect(waiting.getByText('Can you review this?')).toBeVisible()
   await expect(waiting.getByText(quote)).toBeVisible()
 
   const editor = await context.newPage()
-  await editor.goto('/editor')
+  await editor.goto('/news/review')
   await editor.getByLabel('Editor token').fill(`${editorToken()}x`)
   await editor.getByRole('button', { name: 'Sign in' }).click()
   await expect(editor.getByText('That token was not accepted.')).toBeVisible()
@@ -218,7 +222,7 @@ async function queueModelRead(
 
 // Opens a waiting proposal: it is the open card already, or in the list beside it, on whichever page.
 async function openCard(page: Page, sourceTitle: string) {
-  await page.goto('/editor')
+  await page.goto('/news/review')
   await page.getByLabel('Editor token').fill(editorToken())
   await page.getByRole('button', { name: 'Sign in' }).click()
   await expect(page.getByRole('heading', { name: 'Review queue' })).toBeVisible()
@@ -269,7 +273,7 @@ test('an entry read by a model shows its words marked in the passage, opens the 
   await expect(page.getByRole('status')).toContainText('Published 1 person')
 
   // The passage is published with the words marked, and the act is read on both questions.
-  await page.goto('/latest?question=free-ferry-card')
+  await page.goto('/news?question=free-ferry-card')
   const story = page.getByRole('article', { name: sourceTitle })
   await expect(story.locator('mark')).toHaveText(quote)
   await expect(story.getByText('Sato was plain about it.')).toBeVisible()
@@ -297,11 +301,11 @@ test('an old article leads with its publish date on the card, in the queue and o
   await expect(page.getByRole('complementary').getByRole('button').filter({ hasText: sourceTitle })).toContainText('Published Jul 19, 2018 · 8 years ago')
   await expect(page.getByRole('complementary').getByRole('button').filter({ hasText: other })).toContainText('Publish date not known')
 
-  await page.goto(`/latest?proposal=${old.proposal}`)
+  await page.goto(`/news?proposal=${old.proposal}`)
   const waiting = page.getByRole('article', { name: `Not checked yet: ${sourceTitle}` })
   await expect(waiting.getByTestId('published')).toHaveText('Published Jul 19, 2018 · 8 years ago')
   await expect(waiting.getByText('Published Jul 19, 2018. Read from the article by a model on Nov 19, 2026.')).toBeVisible()
-  await page.goto(`/latest?proposal=${undated.proposal}`)
+  await page.goto(`/news?proposal=${undated.proposal}`)
   await expect(page.getByRole('article', { name: `Not checked yet: ${other}` }).getByTestId('published')).toHaveText('Publish date not known')
 })
 
@@ -328,7 +332,7 @@ test('an editor sets the publish date of an undated article on the card, and it 
   await expect(page.getByRole('status')).toContainText('Published 1 person')
   await expect.poll(() => query(`SELECT published_on, published_on_from FROM sources WHERE id = '${ids.source}'`)).toEqual([{ published_on: '2025-01-02', published_on_from: 'editor' }])
 
-  await page.goto('/latest?question=free-ferry')
+  await page.goto('/news?question=free-ferry')
   const story = page.getByRole('article', { name: sourceTitle })
   await expect(story.getByTestId('published')).toHaveText('Published Jan 2, 2025 · 1 year ago')
 })
@@ -415,7 +419,7 @@ test('the list beside the open card pages through every waiting proposal', async
   for (let n = 1; n <= 26; n++) {
     await queueModelRead(request, { decider_id: 'demo-bartholomew-sato', quote: `Words for paging ${stamp} ${n}.`, passage: `Words for paging ${stamp} ${n}.`, reading: 'support', weight: 'passing', kind: 'says' }, title(n))
   }
-  await page.goto('/editor')
+  await page.goto('/news/review')
   await page.getByLabel('Editor token').fill(editorToken())
   await page.getByRole('button', { name: 'Sign in' }).click()
   const pages = page.getByRole('navigation', { name: 'Pages of what is waiting' })
@@ -487,7 +491,7 @@ test('the queue narrows to one question and what is under it, kept in the URL, a
   await isOpen(waiting.first())
 
   // A top-level question takes in what is waiting on its sub-questions, and the choice survives a reload.
-  await page.goto('/editor?question=free-ferry')
+  await page.goto('/news/review?question=free-ferry')
   await expect(ferry).toHaveAttribute('aria-pressed', 'true')
   await expect(waiting.first()).toBeVisible()
   expect(await shownCount()).toBe(counts.freeFerry)
@@ -615,7 +619,7 @@ test('a news search run is recorded with its steps, and the page of runs shows i
   expect(recorded).toMatchObject({ outcome: 'stopped', steps: 2 })
 
   await run.getByRole('link', { name: 'Every run' }).click()
-  await expect(page).toHaveURL(new RegExp(`/editor/news-runs\\?run=${recorded.id}$`))
+  await expect(page).toHaveURL(new RegExp(`/news/runs\\?run=${recorded.id}$`))
   await expect(page.getByRole('heading', { name: 'News search runs' })).toBeVisible()
   await expect(page.getByRole('list', { name: 'Runs' }).getByRole('link').first()).toHaveAttribute('aria-current', 'page')
   await expect(page.getByRole('region', { name: 'News search' }).getByRole('heading', { name: 'The news search stopped early' })).toBeVisible()
@@ -684,7 +688,7 @@ test('choosing the next term shows the viewing-another-day strip, and its link r
 })
 
 async function signInAsEditor(page: Page) {
-  await page.goto('/editor')
+  await page.goto('/news/review')
   await page.getByLabel('Editor token').fill(editorToken())
   await page.getByRole('button', { name: 'Sign in' }).click()
   await expect(page.getByRole('heading', { name: 'Review queue' })).toBeVisible()
@@ -710,7 +714,7 @@ test('an editor adds a question with a measure and an ask, sees it listed and on
   await expect(page.getByRole('heading', { name: 'Edit this question' })).toBeVisible()
 
   const slug = `pier-cars-${stamp}`
-  await expect(page).toHaveURL(new RegExp(`/editor/questions/${slug}/edit$`))
+  await expect(page).toHaveURL(new RegExp(`/q/${slug}/edit$`))
   const [made] = query<{ id: string; body_id: string; threshold: number; parent_id: string | null }>(`SELECT id, body_id, threshold, parent_id FROM questions WHERE slug = '${slug}'`)
   expect(made).toMatchObject({ body_id: 'harbor-city-council', threshold: 6, parent_id: null })
   expect(made.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/)
@@ -776,13 +780,13 @@ test('a smaller step made from a question’s edit page is linked to it, and any
     .poll(() => query(`SELECT r.kind, q.parent_id FROM question_relations r JOIN questions q ON q.id = r.related_id WHERE r.question_id = 'free-ferry' AND q.short_title = '${shortName}'`))
     .toEqual([{ kind: 'smaller_step', parent_id: null }])
 
-  await page.goto('/editor/questions/free-ferry/edit')
+  await page.goto('/q/free-ferry/edit')
   await expect(page.getByRole('region', { name: 'Smaller steps and related questions' }).getByRole('listitem').filter({ hasText: shortName })).toContainText('Smaller step')
   // The fare-free question has readings, so changing what it asks says what that does. Nothing is saved here.
   await page.getByRole('radio', { name: /Whether someone did a specific thing/ }).check()
   await expect(page.getByRole('note')).toContainText('on the record here. Changing what it asks changes how they are counted')
 
-  await page.goto(`/editor/questions/free-at-night-${stamp}/edit`)
+  await page.goto(`/q/free-at-night-${stamp}/edit`)
   await page.getByRole('button', { name: 'Close this question' }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByRole('radio', { name: /Lapsed/ }).check()
@@ -801,7 +805,7 @@ test('a question with a closing date still ahead offers to remove the date, not 
   const later = new Date(TODAY.getTime() + 30 * 86_400_000).toISOString().slice(0, 10)
   await signInAsEditor(page)
 
-  await page.goto('/editor/questions/new?linkTo=free-ferry')
+  await page.goto('/questions/new?linkTo=free-ferry')
   await page.getByLabel('The question, as asked').fill('Should night fares be cut?')
   await page.getByLabel('Short name').fill(shortName)
   await page.getByRole('button', { name: 'Add the question' }).click()
@@ -897,7 +901,7 @@ test('an editor adds a person with no page yet, gives them a seat found by chamb
   await form.getByLabel(/^Link/).fill('https://example.org/ines')
   await form.getByRole('button', { name: 'Add the person' }).click()
   await expect(page.getByRole('heading', { level: 1, name })).toBeVisible()
-  await expect(page).toHaveURL(new RegExp(`/editor/people/ines-okonkwo-${stamp}$`))
+  await expect(page).toHaveURL(new RegExp(`/people/ines-okonkwo-${stamp}$`))
   expect(query(`SELECT sort_name, url FROM deciders WHERE slug = 'ines-okonkwo-${stamp}'`)).toEqual([{ sort_name: 'Okonkwo, Ines', url: 'https://example.org/ines' }])
 
   await page.getByRole('link', { name: 'Give them a role on a seat' }).click()

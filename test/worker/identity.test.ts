@@ -1,11 +1,11 @@
 import { env } from 'cloudflare:workers'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { askForCode, codeIn, cookieFrom, type Frame, mailbox, nextIp, partySocket, post, proposal, rows, seed, signIn, until, noOutsidePages } from './helpers.ts'
+import { askForCode, codeIn, cookieFrom, type Frame, mailbox, nextIp, partySocket, post, postAs, proposal, reader, rows, seed, signIn, until, noOutsidePages } from './helpers.ts'
 
 const mail = mailbox()
-const comment = (overrides: Record<string, unknown> = {}) => ({ question_id: 'hot', decider_id: 'ann', author_name: 'typed-name', body: 'A comment.', ...overrides })
+const comment = (overrides: Record<string, unknown> = {}) => ({ question_id: 'hot', decider_id: 'ann', body: 'A comment.', ...overrides })
 const personFor = async (email: string) =>
-  (await rows<{ id: string; display_name: string | null; muted_at: string | null }>(`SELECT p.id, p.display_name, p.muted_at FROM people p JOIN auth_users u ON u.id = p.id WHERE u.email = ?`, email))[0]
+  (await rows<{ id: string; display_name: string | null }>(`SELECT p.id, p.display_name FROM people p JOIN auth_users u ON u.id = p.id WHERE u.email = ?`, email))[0]
 
 beforeAll(async () => {
   noOutsidePages()
@@ -27,7 +27,7 @@ describe('signing in with a code sent by email', () => {
   it('signs in a new address with its code and adds a person with no name yet', async () => {
     const cookie = await signIn(mail, 'new@reader.test')
     expect(cookie).toMatch(/session_token=/)
-    expect(await personFor('new@reader.test')).toEqual({ id: expect.any(String), display_name: null, muted_at: null })
+    expect(await personFor('new@reader.test')).toEqual({ id: expect.any(String), display_name: null })
   })
 
   it('signs the same address in again as the same person', async () => {
@@ -104,36 +104,48 @@ describe('what the public is sent about a person', () => {
 })
 
 describe('what a signed-in person posts', () => {
-  it('ties a comment to the person, and takes the first name they post under as theirs', async () => {
-    const cookie = await signIn(mail, 'commenter@reader.test')
-    const person = await personFor('commenter@reader.test')
-    expect((await post('/api/comments', comment({ author_name: 'First Name', body: 'First comment.' }), undefined, undefined, cookie)).status).toBe(200)
-    expect((await post('/api/comments', comment({ author_name: 'Another Name', body: 'Second comment.' }), undefined, undefined, cookie)).status).toBe(200)
-    expect(await rows(`SELECT author_name, person_id FROM comments WHERE body IN ('First comment.', 'Second comment.') ORDER BY created_at`)).toEqual([
-      { author_name: 'First Name', person_id: person.id },
-      { author_name: 'First Name', person_id: person.id },
+  it('ties a comment to the person, under the name they chose', async () => {
+    const { personId, send } = await reader('named.commenter@reader.test', 'First Name')
+    expect((await send('/api/comments', comment({ body: 'First comment.' }))).status).toBe(200)
+    expect(await rows(`SELECT person_id FROM comments WHERE body = 'First comment.'`)).toEqual([{ person_id: personId }])
+    expect((await personFor('named.commenter@reader.test')).display_name).toBe('First Name')
+  })
+
+  it('records who submitted a proposal', async () => {
+    const { personId, send } = await reader('submitter@reader.test')
+    const res = await send('/api/proposals', proposal({ source_url: 'https://news.example/signed-in' }))
+    const { proposal_id } = (await res.json()) as { proposal_id: string }
+    expect(await rows(`SELECT origin, submitted_by FROM proposals WHERE id = ?`, proposal_id)).toEqual([{ origin: 'reader', submitted_by: personId }])
+  })
+
+  it.each([
+    ['no cookie', undefined],
+    ['a forged cookie', 'better-auth.session_token=not-a-real-session'],
+  ])('refuses a proposal sent with %s, and queues nothing', async (_, cookie) => {
+    const url = `https://news.example/signed-out-${cookie ? 'forged' : 'none'}`
+    const res = await post('/api/proposals', proposal({ source_url: url }), undefined, undefined, cookie)
+    expect(res.status).toBe(401)
+    expect(await res.json()).toEqual({ error: 'Sign in to post.' })
+    expect(await rows(`SELECT id FROM sources WHERE url = ?`, url)).toEqual([])
+  })
+
+  it('adds the person for a valid session whose row is missing, once, even for two posts at once', async () => {
+    const cookie = await signIn(mail, 'rowless@reader.test')
+    const { id } = await personFor('rowless@reader.test')
+    await env.DB.prepare(`DELETE FROM people WHERE id = ?`).bind(id).run()
+    const send = postAs(cookie)
+    const [first, second] = await Promise.all([
+      send('/api/comments', comment({ body: 'Rowless, first.', display_name: 'Rowless' })),
+      send('/api/proposals', proposal({ source_url: 'https://news.example/rowless' })),
     ])
-    expect((await personFor('commenter@reader.test')).display_name).toBe('First Name')
+    expect([first.status, second.status]).toEqual([200, 200])
+    expect(await rows(`SELECT id, display_name FROM people WHERE id = ?`, id)).toEqual([{ id, display_name: 'Rowless' }])
   })
 
-  it('leaves a signed-out comment tied to nobody, under the name typed', async () => {
-    expect((await post('/api/comments', comment({ author_name: 'Just Visiting', body: 'Signed out.' }))).status).toBe(200)
-    expect(await rows(`SELECT author_name, person_id FROM comments WHERE body = 'Signed out.'`)).toEqual([{ author_name: 'Just Visiting', person_id: null }])
-  })
-
-  it('records who submitted a proposal, and nobody for a signed-out one', async () => {
-    const cookie = await signIn(mail, 'submitter@reader.test')
-    const person = await personFor('submitter@reader.test')
-    const signedIn = await post('/api/proposals', proposal({ source_url: 'https://news.example/signed-in' }), undefined, undefined, cookie)
-    const signedOut = await post('/api/proposals', proposal({ source_url: 'https://news.example/signed-out' }))
-    const ids = [(await signedIn.json()) as { proposal_id: string }, (await signedOut.json()) as { proposal_id: string }].map((r) => r.proposal_id)
-    expect(await rows(`SELECT submitted_by FROM proposals WHERE id = ?`, ids[0])).toEqual([{ submitted_by: person.id }])
-    expect(await rows(`SELECT submitted_by FROM proposals WHERE id = ?`, ids[1])).toEqual([{ submitted_by: null }])
-  })
-
-  it('treats a forged cookie as signed out', async () => {
-    const forged = 'better-auth.session_token=not-a-real-session'
-    expect((await post('/api/comments', comment({ author_name: 'Forger', body: 'Forged cookie.' }), undefined, undefined, forged)).status).toBe(200)
-    expect(await rows(`SELECT person_id FROM comments WHERE body = 'Forged cookie.'`)).toEqual([{ person_id: null }])
+  it('refuses a comment sent with a cookie that has been signed out', async () => {
+    const { cookie, send } = await reader('gone.commenter@reader.test')
+    expect((await mail.call('/api/auth/sign-out', {}, nextIp(), cookie)).ok).toBe(true)
+    expect((await send('/api/comments', comment({ body: 'After signing out.' }))).status).toBe(401)
+    expect(await rows(`SELECT id FROM comments WHERE body = 'After signing out.'`)).toEqual([])
   })
 })

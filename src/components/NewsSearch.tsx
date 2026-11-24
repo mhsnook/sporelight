@@ -75,7 +75,7 @@ export function NewsSearch({ children }: { children: ReactNode }) {
         <button type="button" className="btn btn-sm" onClick={start} disabled={running} title="Searches the news for questions marked as in the news">
           {running ? 'Searching…' : 'Search the news now'}
         </button>
-        <Link to="/editor/news-runs" className="link text-sm font-semibold">
+        <Link to="/news/runs" className="link text-sm font-semibold">
           Past runs
         </Link>
         {children}
@@ -88,7 +88,7 @@ export function NewsSearch({ children }: { children: ReactNode }) {
             failure={startFailure ?? failure}
             actions={
               <>
-                <Link to="/editor/news-runs" search={{ run: runId }} className="link">
+                <Link to="/news/runs" search={{ run: runId }} className="link">
                   Every run
                 </Link>
                 {(status.finished || startFailure) && (

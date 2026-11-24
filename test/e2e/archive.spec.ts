@@ -14,7 +14,7 @@ test('an archive address an editor gives a source shows beside it for a reader a
 
   const context = await browser.newContext()
   const editor = await context.newPage()
-  await editor.goto('/editor')
+  await editor.goto('/news/review')
   await editor.getByLabel('Editor token').fill(editorToken())
   await editor.getByRole('button', { name: 'Sign in' }).click()
   await expect(editor.getByRole('heading', { name: 'Review queue' })).toBeVisible()

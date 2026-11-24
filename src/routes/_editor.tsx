@@ -2,8 +2,8 @@ import { Outlet, createFileRoute } from '@tanstack/react-router'
 import { useState, type FormEvent } from 'react'
 import { isEditor, signIn } from '../lib/editor.ts'
 
-// Every page under /editor is for editors only.
-export const Route = createFileRoute('/editor')({ component: Editor })
+// Every route under this layout is for editors only, whatever its address.
+export const Route = createFileRoute('/_editor')({ component: Editor })
 
 function Editor() {
   return isEditor() ? <Outlet /> : <SignIn />

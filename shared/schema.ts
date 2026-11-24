@@ -421,10 +421,12 @@ export function sourceUrl(url: string): string {
 
 // Someone who has signed in. The id is their sign-in account's id; their email
 // address is kept with that account and never here, since this table is public.
+// An agent signs itself up through the MCP endpoint; a person signs in with an emailed code.
+export const PERSON_KINDS = ['person', 'agent'] as const
 export const personSchema = z.object({
   id: z.string(),
+  kind: z.enum(PERSON_KINDS),
   display_name: z.string().nullable(),
-  muted_at: z.string().nullable(),
   created_at: z.string(),
 })
 export type Person = z.infer<typeof personSchema>
@@ -437,9 +439,8 @@ export const SIGN_IN_CODE_MINUTES = 5
 export const commentSchema = z.object({
   id: z.string(),
   thread_id: z.string(),
-  author_name: z.string(),
-  // Null for a comment posted while signed out.
-  person_id: z.string().nullable(),
+  // Shown under this person's display_name.
+  person_id: z.string(),
   body: z.string(),
   created_at: z.string(),
 })
@@ -448,8 +449,9 @@ export type Comment = z.infer<typeof commentSchema>
 export const commentInputSchema = z.object({
   question_id: z.string().min(1),
   decider_id: z.string().min(1),
-  author_name: displayNameSchema,
   body: z.string().trim().min(1).max(2000),
+  // Saved as the person's name with their first comment. Ignored once they have one.
+  display_name: displayNameSchema.optional(),
 })
 export type CommentInput = z.infer<typeof commentInputSchema>
 
@@ -501,8 +503,8 @@ export const proposalNotesCollection = definePartyCollection({
 })
 
 // Sliced by thread, so a reader loads and hears only the threads they have open.
-// Readers post through the Worker, which stamps and validates the row; editors
-// may delete.
+// Signed-in readers post through the Worker, which stamps and validates the
+// row; editors may delete.
 export const commentsCollection = definePartyCollection({
   name: 'comments',
   key: 'id',
@@ -511,9 +513,9 @@ export const commentsCollection = definePartyCollection({
   access: { read: 'public', delete: 'authed' },
 })
 
-// Rows are added by the Worker when someone first signs in, and an editor mutes
-// a person by setting muted_at.
-export const peopleCollection = definePartyCollection({ name: 'people', key: 'id', schema: personSchema, access: { read: 'public', update: 'authed' } })
+// Only the Worker writes people: a row when someone first signs in, and their
+// display name. Nobody, editors included, writes one through the room.
+export const peopleCollection = definePartyCollection({ name: 'people', key: 'id', schema: personSchema, access: { read: 'public' } })
 
 export const proposalContextsCollection = definePartyCollection({ name: 'proposal_contexts', key: 'id', schema: proposalContextSchema, access: 'authed' })
 export const proposalMentionsCollection = definePartyCollection({ name: 'proposal_mentions', key: 'id', schema: proposalMentionSchema, access: 'authed' })

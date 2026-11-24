@@ -11,7 +11,7 @@ import { RoleForm } from '../components/RoleForm.tsx'
 // question page the editor came from, which they go back to once it is saved.
 type NewRoleSearch = { seat?: string; person?: string; running?: boolean; question?: string }
 
-export const Route = createFileRoute('/editor/roles/new')({
+export const Route = createFileRoute('/_editor/roles/new')({
   component: NewRole,
   validateSearch: (s: Record<string, unknown>): NewRoleSearch => ({
     seat: typeof s.seat === 'string' && s.seat ? s.seat : undefined,
@@ -52,7 +52,7 @@ function NewRole() {
           </Link>
         )}
         {person && !from && (
-          <Link to="/editor/people/$slug" params={{ slug: person.slug }} className="link text-sm">
+          <Link to="/people/$slug" params={{ slug: person.slug }} className="link text-sm">
             ← {person.name}
           </Link>
         )}
@@ -66,7 +66,7 @@ function NewRole() {
         onSaved={(role, holder) => {
           const at = tracker.seatById.get(role.seat_id)
           if (from && at) navigate({ to: '/q/$slug', params: { slug: from.slug }, search: { q: at.label } })
-          else navigate({ to: '/editor/people/$slug', params: { slug: holder.slug } })
+          else navigate({ to: '/people/$slug', params: { slug: holder.slug } })
         }}
       />
     </div>

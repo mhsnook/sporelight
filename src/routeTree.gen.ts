@@ -10,20 +10,20 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as EditorRouteImport } from './routes/editor'
-import { Route as LatestRouteImport } from './routes/latest'
+import { Route as EditorRouteImport } from './routes/_editor'
+import { Route as NewsRouteImport } from './routes/news'
 import { Route as QuestionsRouteImport } from './routes/questions'
-import { Route as EditorIndexRouteImport } from './routes/editor.index'
-import { Route as EditorNewsRunsRouteImport } from './routes/editor.news-runs'
-import { Route as EditorPeopleIndexRouteImport } from './routes/editor.people.index'
-import { Route as EditorPeopleSlugRouteImport } from './routes/editor.people.$slug'
-import { Route as EditorPeopleNewRouteImport } from './routes/editor.people.new'
-import { Route as EditorQuestionsNewRouteImport } from './routes/editor.questions.new'
-import { Route as EditorRolesRoleIdRouteImport } from './routes/editor.roles.$roleId'
-import { Route as EditorRolesNewRouteImport } from './routes/editor.roles.new'
+import { Route as EditorNewsReviewRouteImport } from './routes/_editor.news.review'
+import { Route as EditorNewsRunsRouteImport } from './routes/_editor.news.runs'
+import { Route as EditorPeopleIndexRouteImport } from './routes/_editor.people.index'
+import { Route as EditorPeopleSlugRouteImport } from './routes/_editor.people.$slug'
+import { Route as EditorPeopleNewRouteImport } from './routes/_editor.people.new'
+import { Route as EditorQuestionsNewRouteImport } from './routes/_editor.questions.new'
+import { Route as EditorRolesRoleIdRouteImport } from './routes/_editor.roles.$roleId'
+import { Route as EditorRolesNewRouteImport } from './routes/_editor.roles.new'
 import { Route as QSlugIndexRouteImport } from './routes/q.$slug.index'
 import { Route as QSlugDeciderRouteImport } from './routes/q.$slug.$decider'
-import { Route as EditorQuestionsSlugEditRouteImport } from './routes/editor.questions.$slug.edit'
+import { Route as EditorQSlugEditRouteImport } from './routes/_editor.q.$slug.edit'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -31,13 +31,12 @@ const IndexRoute = IndexRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 const EditorRoute = EditorRouteImport.update({
-  id: '/editor',
-  path: '/editor',
+  id: '/_editor',
   getParentRoute: () => rootRouteImport,
 } as any)
-const LatestRoute = LatestRouteImport.update({
-  id: '/latest',
-  path: '/latest',
+const NewsRoute = NewsRouteImport.update({
+  id: '/news',
+  path: '/news',
   getParentRoute: () => rootRouteImport,
 } as any)
 const QuestionsRoute = QuestionsRouteImport.update({
@@ -45,14 +44,14 @@ const QuestionsRoute = QuestionsRouteImport.update({
   path: '/questions',
   getParentRoute: () => rootRouteImport,
 } as any)
-const EditorIndexRoute = EditorIndexRouteImport.update({
-  id: '/',
-  path: '/',
+const EditorNewsReviewRoute = EditorNewsReviewRouteImport.update({
+  id: '/news/review',
+  path: '/news/review',
   getParentRoute: () => EditorRoute,
 } as any)
 const EditorNewsRunsRoute = EditorNewsRunsRouteImport.update({
-  id: '/news-runs',
-  path: '/news-runs',
+  id: '/news/runs',
+  path: '/news/runs',
   getParentRoute: () => EditorRoute,
 } as any)
 const EditorPeopleIndexRoute = EditorPeopleIndexRouteImport.update({
@@ -95,120 +94,118 @@ const QSlugDeciderRoute = QSlugDeciderRouteImport.update({
   path: '/q/$slug/$decider',
   getParentRoute: () => rootRouteImport,
 } as any)
-const EditorQuestionsSlugEditRoute = EditorQuestionsSlugEditRouteImport.update({
-  id: '/questions/$slug/edit',
-  path: '/questions/$slug/edit',
+const EditorQSlugEditRoute = EditorQSlugEditRouteImport.update({
+  id: '/q/$slug/edit',
+  path: '/q/$slug/edit',
   getParentRoute: () => EditorRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/editor': typeof EditorRouteWithChildren
-  '/latest': typeof LatestRoute
+  '/news': typeof NewsRoute
   '/questions': typeof QuestionsRoute
-  '/editor/news-runs': typeof EditorNewsRunsRoute
-  '/editor/': typeof EditorIndexRoute
-  '/editor/people/$slug': typeof EditorPeopleSlugRoute
-  '/editor/people/new': typeof EditorPeopleNewRoute
-  '/editor/questions/new': typeof EditorQuestionsNewRoute
-  '/editor/roles/$roleId': typeof EditorRolesRoleIdRoute
-  '/editor/roles/new': typeof EditorRolesNewRoute
+  '/news/review': typeof EditorNewsReviewRoute
+  '/news/runs': typeof EditorNewsRunsRoute
+  '/people/$slug': typeof EditorPeopleSlugRoute
+  '/people/new': typeof EditorPeopleNewRoute
+  '/questions/new': typeof EditorQuestionsNewRoute
+  '/roles/$roleId': typeof EditorRolesRoleIdRoute
+  '/roles/new': typeof EditorRolesNewRoute
   '/q/$slug/$decider': typeof QSlugDeciderRoute
-  '/editor/people/': typeof EditorPeopleIndexRoute
+  '/people/': typeof EditorPeopleIndexRoute
   '/q/$slug/': typeof QSlugIndexRoute
-  '/editor/questions/$slug/edit': typeof EditorQuestionsSlugEditRoute
+  '/q/$slug/edit': typeof EditorQSlugEditRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/latest': typeof LatestRoute
+  '/news': typeof NewsRoute
   '/questions': typeof QuestionsRoute
-  '/editor/news-runs': typeof EditorNewsRunsRoute
-  '/editor': typeof EditorIndexRoute
-  '/editor/people/$slug': typeof EditorPeopleSlugRoute
-  '/editor/people/new': typeof EditorPeopleNewRoute
-  '/editor/questions/new': typeof EditorQuestionsNewRoute
-  '/editor/roles/$roleId': typeof EditorRolesRoleIdRoute
-  '/editor/roles/new': typeof EditorRolesNewRoute
+  '/news/review': typeof EditorNewsReviewRoute
+  '/news/runs': typeof EditorNewsRunsRoute
+  '/people/$slug': typeof EditorPeopleSlugRoute
+  '/people/new': typeof EditorPeopleNewRoute
+  '/questions/new': typeof EditorQuestionsNewRoute
+  '/roles/$roleId': typeof EditorRolesRoleIdRoute
+  '/roles/new': typeof EditorRolesNewRoute
   '/q/$slug/$decider': typeof QSlugDeciderRoute
-  '/editor/people': typeof EditorPeopleIndexRoute
+  '/people': typeof EditorPeopleIndexRoute
   '/q/$slug': typeof QSlugIndexRoute
-  '/editor/questions/$slug/edit': typeof EditorQuestionsSlugEditRoute
+  '/q/$slug/edit': typeof EditorQSlugEditRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/editor': typeof EditorRouteWithChildren
-  '/latest': typeof LatestRoute
+  '/_editor': typeof EditorRouteWithChildren
+  '/news': typeof NewsRoute
   '/questions': typeof QuestionsRoute
-  '/editor/news-runs': typeof EditorNewsRunsRoute
-  '/editor/': typeof EditorIndexRoute
-  '/editor/people/$slug': typeof EditorPeopleSlugRoute
-  '/editor/people/new': typeof EditorPeopleNewRoute
-  '/editor/questions/new': typeof EditorQuestionsNewRoute
-  '/editor/roles/$roleId': typeof EditorRolesRoleIdRoute
-  '/editor/roles/new': typeof EditorRolesNewRoute
+  '/_editor/news/review': typeof EditorNewsReviewRoute
+  '/_editor/news/runs': typeof EditorNewsRunsRoute
+  '/_editor/people/$slug': typeof EditorPeopleSlugRoute
+  '/_editor/people/new': typeof EditorPeopleNewRoute
+  '/_editor/questions/new': typeof EditorQuestionsNewRoute
+  '/_editor/roles/$roleId': typeof EditorRolesRoleIdRoute
+  '/_editor/roles/new': typeof EditorRolesNewRoute
   '/q/$slug/$decider': typeof QSlugDeciderRoute
-  '/editor/people/': typeof EditorPeopleIndexRoute
+  '/_editor/people/': typeof EditorPeopleIndexRoute
   '/q/$slug/': typeof QSlugIndexRoute
-  '/editor/questions/$slug/edit': typeof EditorQuestionsSlugEditRoute
+  '/_editor/q/$slug/edit': typeof EditorQSlugEditRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/editor'
-    | '/latest'
+    | '/news'
     | '/questions'
-    | '/editor/news-runs'
-    | '/editor/'
-    | '/editor/people/$slug'
-    | '/editor/people/new'
-    | '/editor/questions/new'
-    | '/editor/roles/$roleId'
-    | '/editor/roles/new'
+    | '/news/review'
+    | '/news/runs'
+    | '/people/$slug'
+    | '/people/new'
+    | '/questions/new'
+    | '/roles/$roleId'
+    | '/roles/new'
     | '/q/$slug/$decider'
-    | '/editor/people/'
+    | '/people/'
     | '/q/$slug/'
-    | '/editor/questions/$slug/edit'
+    | '/q/$slug/edit'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/latest'
+    | '/news'
     | '/questions'
-    | '/editor/news-runs'
-    | '/editor'
-    | '/editor/people/$slug'
-    | '/editor/people/new'
-    | '/editor/questions/new'
-    | '/editor/roles/$roleId'
-    | '/editor/roles/new'
+    | '/news/review'
+    | '/news/runs'
+    | '/people/$slug'
+    | '/people/new'
+    | '/questions/new'
+    | '/roles/$roleId'
+    | '/roles/new'
     | '/q/$slug/$decider'
-    | '/editor/people'
+    | '/people'
     | '/q/$slug'
-    | '/editor/questions/$slug/edit'
+    | '/q/$slug/edit'
   id:
     | '__root__'
     | '/'
-    | '/editor'
-    | '/latest'
+    | '/_editor'
+    | '/news'
     | '/questions'
-    | '/editor/news-runs'
-    | '/editor/'
-    | '/editor/people/$slug'
-    | '/editor/people/new'
-    | '/editor/questions/new'
-    | '/editor/roles/$roleId'
-    | '/editor/roles/new'
+    | '/_editor/news/review'
+    | '/_editor/news/runs'
+    | '/_editor/people/$slug'
+    | '/_editor/people/new'
+    | '/_editor/questions/new'
+    | '/_editor/roles/$roleId'
+    | '/_editor/roles/new'
     | '/q/$slug/$decider'
-    | '/editor/people/'
+    | '/_editor/people/'
     | '/q/$slug/'
-    | '/editor/questions/$slug/edit'
+    | '/_editor/q/$slug/edit'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   EditorRoute: typeof EditorRouteWithChildren
-  LatestRoute: typeof LatestRoute
+  NewsRoute: typeof NewsRoute
   QuestionsRoute: typeof QuestionsRoute
   QSlugDeciderRoute: typeof QSlugDeciderRoute
   QSlugIndexRoute: typeof QSlugIndexRoute
@@ -223,18 +220,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/editor': {
-      id: '/editor'
-      path: '/editor'
-      fullPath: '/editor'
+    '/_editor': {
+      id: '/_editor'
+      path: ''
+      fullPath: '/'
       preLoaderRoute: typeof EditorRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/latest': {
-      id: '/latest'
-      path: '/latest'
-      fullPath: '/latest'
-      preLoaderRoute: typeof LatestRouteImport
+    '/news': {
+      id: '/news'
+      path: '/news'
+      fullPath: '/news'
+      preLoaderRoute: typeof NewsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/questions': {
@@ -244,59 +241,59 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof QuestionsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/editor/': {
-      id: '/editor/'
-      path: '/'
-      fullPath: '/editor/'
-      preLoaderRoute: typeof EditorIndexRouteImport
+    '/_editor/news/review': {
+      id: '/_editor/news/review'
+      path: '/news/review'
+      fullPath: '/news/review'
+      preLoaderRoute: typeof EditorNewsReviewRouteImport
       parentRoute: typeof EditorRoute
     }
-    '/editor/news-runs': {
-      id: '/editor/news-runs'
-      path: '/news-runs'
-      fullPath: '/editor/news-runs'
+    '/_editor/news/runs': {
+      id: '/_editor/news/runs'
+      path: '/news/runs'
+      fullPath: '/news/runs'
       preLoaderRoute: typeof EditorNewsRunsRouteImport
       parentRoute: typeof EditorRoute
     }
-    '/editor/people/': {
-      id: '/editor/people/'
+    '/_editor/people/': {
+      id: '/_editor/people/'
       path: '/people'
-      fullPath: '/editor/people/'
+      fullPath: '/people/'
       preLoaderRoute: typeof EditorPeopleIndexRouteImport
       parentRoute: typeof EditorRoute
     }
-    '/editor/people/$slug': {
-      id: '/editor/people/$slug'
+    '/_editor/people/$slug': {
+      id: '/_editor/people/$slug'
       path: '/people/$slug'
-      fullPath: '/editor/people/$slug'
+      fullPath: '/people/$slug'
       preLoaderRoute: typeof EditorPeopleSlugRouteImport
       parentRoute: typeof EditorRoute
     }
-    '/editor/people/new': {
-      id: '/editor/people/new'
+    '/_editor/people/new': {
+      id: '/_editor/people/new'
       path: '/people/new'
-      fullPath: '/editor/people/new'
+      fullPath: '/people/new'
       preLoaderRoute: typeof EditorPeopleNewRouteImport
       parentRoute: typeof EditorRoute
     }
-    '/editor/questions/new': {
-      id: '/editor/questions/new'
+    '/_editor/questions/new': {
+      id: '/_editor/questions/new'
       path: '/questions/new'
-      fullPath: '/editor/questions/new'
+      fullPath: '/questions/new'
       preLoaderRoute: typeof EditorQuestionsNewRouteImport
       parentRoute: typeof EditorRoute
     }
-    '/editor/roles/$roleId': {
-      id: '/editor/roles/$roleId'
+    '/_editor/roles/$roleId': {
+      id: '/_editor/roles/$roleId'
       path: '/roles/$roleId'
-      fullPath: '/editor/roles/$roleId'
+      fullPath: '/roles/$roleId'
       preLoaderRoute: typeof EditorRolesRoleIdRouteImport
       parentRoute: typeof EditorRoute
     }
-    '/editor/roles/new': {
-      id: '/editor/roles/new'
+    '/_editor/roles/new': {
+      id: '/_editor/roles/new'
       path: '/roles/new'
-      fullPath: '/editor/roles/new'
+      fullPath: '/roles/new'
       preLoaderRoute: typeof EditorRolesNewRouteImport
       parentRoute: typeof EditorRoute
     }
@@ -314,38 +311,38 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof QSlugDeciderRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/editor/questions/$slug/edit': {
-      id: '/editor/questions/$slug/edit'
-      path: '/questions/$slug/edit'
-      fullPath: '/editor/questions/$slug/edit'
-      preLoaderRoute: typeof EditorQuestionsSlugEditRouteImport
+    '/_editor/q/$slug/edit': {
+      id: '/_editor/q/$slug/edit'
+      path: '/q/$slug/edit'
+      fullPath: '/q/$slug/edit'
+      preLoaderRoute: typeof EditorQSlugEditRouteImport
       parentRoute: typeof EditorRoute
     }
   }
 }
 
 interface EditorRouteChildren {
+  EditorNewsReviewRoute: typeof EditorNewsReviewRoute
   EditorNewsRunsRoute: typeof EditorNewsRunsRoute
-  EditorIndexRoute: typeof EditorIndexRoute
   EditorPeopleSlugRoute: typeof EditorPeopleSlugRoute
   EditorPeopleNewRoute: typeof EditorPeopleNewRoute
   EditorQuestionsNewRoute: typeof EditorQuestionsNewRoute
   EditorRolesRoleIdRoute: typeof EditorRolesRoleIdRoute
   EditorRolesNewRoute: typeof EditorRolesNewRoute
   EditorPeopleIndexRoute: typeof EditorPeopleIndexRoute
-  EditorQuestionsSlugEditRoute: typeof EditorQuestionsSlugEditRoute
+  EditorQSlugEditRoute: typeof EditorQSlugEditRoute
 }
 
 const EditorRouteChildren: EditorRouteChildren = {
+  EditorNewsReviewRoute: EditorNewsReviewRoute,
   EditorNewsRunsRoute: EditorNewsRunsRoute,
-  EditorIndexRoute: EditorIndexRoute,
   EditorPeopleSlugRoute: EditorPeopleSlugRoute,
   EditorPeopleNewRoute: EditorPeopleNewRoute,
   EditorQuestionsNewRoute: EditorQuestionsNewRoute,
   EditorRolesRoleIdRoute: EditorRolesRoleIdRoute,
   EditorRolesNewRoute: EditorRolesNewRoute,
   EditorPeopleIndexRoute: EditorPeopleIndexRoute,
-  EditorQuestionsSlugEditRoute: EditorQuestionsSlugEditRoute,
+  EditorQSlugEditRoute: EditorQSlugEditRoute,
 }
 
 const EditorRouteWithChildren =
@@ -354,7 +351,7 @@ const EditorRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   EditorRoute: EditorRouteWithChildren,
-  LatestRoute: LatestRoute,
+  NewsRoute: NewsRoute,
   QuestionsRoute: QuestionsRoute,
   QSlugDeciderRoute: QSlugDeciderRoute,
   QSlugIndexRoute: QSlugIndexRoute,
