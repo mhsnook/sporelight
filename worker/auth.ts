@@ -43,9 +43,12 @@ export function authOptions(env: Env) {
           waitUntil(sendCode(env, email, otp))
         },
       }),
-      // An agent's account: no email address of its own. The Worker refuses the
-      // plugin's own routes, so the only way in is the MCP endpoint's sign_up tool.
-      anonymous({ emailDomainName: 'agents.sporelight.invalid' }),
+      // Better Auth wants an email address on every account, and this plugin is
+      // its way to make one without: here, only an agent's, which its key
+      // identifies. The Worker refuses the plugin's own routes, so the only way
+      // in is the MCP endpoint's sign_up tool. Deleting is off, which also stops
+      // the plugin removing the account when the agent signs in another way.
+      anonymous({ emailDomainName: 'agents.sporelight.invalid', disableDeleteAnonymousUser: true }),
       // A key in x-api-key stands for its owner's session, so signedInPerson
       // knows an agent the way it knows someone signed in with a cookie.
       apiKey({
@@ -59,6 +62,7 @@ export function authOptions(env: Env) {
       user: {
         create: {
           after: async (user: { id: string; createdAt: Date; isAnonymous?: boolean | null }) => {
+            // isAnonymous is Better Auth's mark for an account made without an email address: an agent's.
             await (await getServerByName<Env, Tracker>(env.Tracker, 'main')).addPerson(user.id, user.createdAt.toISOString(), user.isAnonymous ? 'agent' : 'person')
           },
         },

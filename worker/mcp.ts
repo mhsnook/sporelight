@@ -226,8 +226,9 @@ function serverFor(env: Env, req: Request) {
       if (keyGiven) return refusal('This request already carries a key in x-api-key. whoami says whose it is.')
       if (await tooMany()) return refusal('That is a lot of sign-ups in a short time. Give it a minute.')
       const betterAuth = auth(env)
-      // The agent signs in anonymously and makes its own key with that session, as
-      // a browser would; then the session is ended, so only the key is left.
+      // The agent gets an account with no email address and makes its own key with
+      // that session, as a browser would; then the session is ended, so only the
+      // key is left.
       // MCP clients send no Origin, which Better Auth's CSRF check refuses. These
       // calls are the Worker's own, so they carry the site's origin.
       const authRequest = new Request(req.url, { method: 'POST', headers: { origin, 'cf-connecting-ip': req.headers.get('cf-connecting-ip') ?? '' } })
