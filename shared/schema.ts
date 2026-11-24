@@ -421,8 +421,11 @@ export function sourceUrl(url: string): string {
 
 // Someone who has signed in. The id is their sign-in account's id; their email
 // address is kept with that account and never here, since this table is public.
+// An agent signs itself up through the MCP endpoint; a person signs in with an emailed code.
+export const PERSON_KINDS = ['person', 'agent'] as const
 export const personSchema = z.object({
   id: z.string(),
+  kind: z.enum(PERSON_KINDS),
   display_name: z.string().nullable(),
   created_at: z.string(),
 })

@@ -1,36 +1,10 @@
-import { D1Adapter } from 'party-db/server'
-import { publicCollections } from '../shared/schema.ts'
-import { buildTracker, type TrackerData } from '../src/lib/build-tracker.ts'
+import { buildTracker } from '../src/lib/build-tracker.ts'
 import { STORY_PAGE, atomHref, buildStories } from '../src/lib/feed.ts'
 import { atomFeed } from './atom.ts'
+import { loadRecord } from './record.ts'
 
 // The published tables the feed reads. Proposals and their notes are never read here.
 const FEED_TABLES = new Set(['bodies', 'deciders', 'seats', 'roles', 'questions', 'question_bodies', 'sources', 'acts', 'reports', 'readings'])
-
-async function loadRecord(db: D1Database): Promise<TrackerData> {
-  const adapter = new D1Adapter(db, publicCollections.filter((c) => FEED_TABLES.has(c.name)))
-  await adapter.init()
-  const rows = new Map((await adapter.snapshot()).map((batch) => [batch.channel, batch.ops.map((op) => op.value)]))
-  const of = <T,>(channel: string) => (rows.get(channel) ?? []) as T[]
-  return {
-    bodies: of('bodies'),
-    deciders: of('deciders'),
-    seats: of('seats'),
-    roles: of('roles'),
-    questions: of('questions'),
-    questionBodies: of('question_bodies'),
-    questionDeciders: [],
-    offices: [],
-    officeHolders: [],
-    questionOffices: [],
-    questionRelations: [],
-    setPositions: [],
-    sources: of('sources'),
-    acts: of('acts'),
-    reports: of('reports'),
-    readings: of('readings'),
-  }
-}
 
 // GET /feed.xml, with the same `question` and `body` filters as /news.
 export async function atomResponse(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -43,7 +17,7 @@ export async function atomResponse(req: Request, env: Env, ctx: ExecutionContext
   const cached = await caches.default.match(key)
   if (cached) return cached
 
-  const tracker = buildTracker(await loadRecord(env.DB), new Date().toISOString().slice(0, 10))
+  const tracker = buildTracker(await loadRecord(env.DB, FEED_TABLES), new Date().toISOString().slice(0, 10))
   const question = questionSlug ? tracker.questionBySlug.get(questionSlug) : undefined
   const body = bodySlug ? tracker.bodyBySlug.get(bodySlug) : undefined
   if ((questionSlug && !question) || (bodySlug && !body)) return new Response('No such question or body.', { status: 404 })

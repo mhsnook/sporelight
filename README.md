@@ -32,6 +32,29 @@ The first data set is the United States Congress and Medicare for All. Nothing i
 - **Discussion.** Each person-and-question page has a comment thread. A reader loads and hears only the threads they have open. Only signed-in people comment, and a comment shows the name its person has chosen, as it is now. Someone who has not chosen a name gives one in the comment form, and it is saved with their first comment. Editors can remove comments.
 - **Signing in.** A reader signs in with a code sent to their email address. Signed out, a reader can read everything and contribute nothing: in place of the forms to add to the record and to comment, they are asked to sign in. A signed-in person chooses the name shown for them, and can change it. Their email address is kept with their sign-in account and is never sent to a browser or shown on a page. What they send in records who sent it, and their comments are tied to them. A person's roles are stored one per row, each with where it holds, so the same person can later hold different roles for different organisations; nothing reads them yet.
 
+## Agents
+
+The Worker serves an [MCP](https://modelcontextprotocol.io) endpoint at `/mcp` (streamable HTTP, no session), so an agent can read the tracker and send evidence without a browser. Its tools:
+
+- `list_questions`: the open questions, the bodies each is put to, and their open sub-questions.
+- `find_deciders`: decision-makers by part of a name, with their claims on seats today. It returns at most 25 and says how many more matched.
+- `get_positions`: where each person a question is put to stands today, worked out from the published record by the same code the question pages use. It can be narrowed to one body or one standing.
+- `get_record`: the published acts behind one person's position on one question, with their sources.
+- `submit_evidence`: one act by one decider, read on one question, for an editor to review. It needs an account.
+- `sign_up` and `whoami`: an account for the agent, below.
+
+The read tools return only what is published. `submit_evidence` takes the same fields as the form on a person's page and goes through the same validation, duplicate check, queue limit, limit per address and review queue. Nothing it sends is published until an editor accepts it.
+
+An agent is a person whose `people.kind` is `agent`. `sign_up` takes the name to show and makes an account with no email address. Better Auth wants an address on every account, so the account is made with its anonymous plugin, which is its way to make one without; the agent is not anonymous, since its key identifies it, and the plugin's guest behaviour (deleting the account when it signs in another way) is turned off. `sign_up` returns an API key from Better Auth's API key plugin, shown once. With the key in the `x-api-key` header, Better Auth treats the request as that agent's session, so what the agent sends is a reader's proposal with `submitted_by` set to its person, as if it had signed in. As on the site, sending needs an account: without a key, `submit_evidence` is refused and asks the agent to sign up. Reading needs none. Better Auth keeps a hash of the key in `auth_api_keys`. The plugin's own `/api/auth/sign-in/anonymous` route is turned off, so `sign_up` is the only way to make an agent's account.
+
+To try it locally, point an MCP client at `http://localhost:5173/mcp` while `pnpm dev` runs. With Claude Code:
+
+```sh
+claude mcp add --transport http sporelight http://localhost:5173/mcp
+```
+
+After `sign_up`, add the key as a header: `--header "x-api-key: sporelight_…"`.
+
 ## Stack
 
 - Cloudflare Worker + D1, with a React SPA served as static assets
@@ -152,7 +175,7 @@ Codes are sent with Cloudflare Email Service, which needs the Workers Paid plan 
 3. `AUTH_HOSTS` lists the hosts sign-in answers on, comma separated, with `*` as a wildcard. Production is served on `sporelight.emju.in` and Previews on `*.sporelight.emju.in`, a custom domain set up in the dashboard with Previews enabled. Sign-in on any other host, including the `workers.dev` addresses, is refused.
 4. Store `BETTER_AUTH_SECRET`, which signs the session cookies, for production and Previews. `openssl rand -base64 32` makes one.
 
-Better Auth's tables are the `auth_` tables in `migrations/0014_reader_identity.sql`, written by its migration generator. When an upgrade changes them, add a migration with what it generates for SQLite.
+Better Auth's tables are the `auth_` tables in `migrations/0014_reader_identity.sql` and `migrations/0020_agents.sql`, written by its migration generator. When an upgrade changes them, add a migration with what it generates for SQLite.
 
 ### Previews
 

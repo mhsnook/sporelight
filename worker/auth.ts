@@ -1,4 +1,6 @@
 import { betterAuth } from 'better-auth'
+import { apiKey } from '@better-auth/api-key'
+import { anonymous } from 'better-auth/plugins/anonymous'
 import { emailOTP } from 'better-auth/plugins/email-otp'
 import { waitUntil } from 'cloudflare:workers'
 import { getServerByName } from 'partyserver'
@@ -13,7 +15,11 @@ const MODELS = {
   account: 'auth_accounts',
   verification: 'auth_verifications',
   rateLimit: 'auth_rate_limits',
+  apikey: 'auth_api_keys',
 } as const
+
+// The prefix every agent's key starts with, so a leaked one is easy to recognise.
+export const AGENT_KEY_PREFIX = 'sporelight_'
 
 export function authOptions(env: Env) {
   return {
@@ -37,12 +43,26 @@ export function authOptions(env: Env) {
           waitUntil(sendCode(env, email, otp))
         },
       }),
+      // Better Auth wants an email address on every account, and this plugin is
+      // its way to make one without: here, only an agent's, which its key
+      // identifies. The Worker refuses the plugin's own routes, so the only way
+      // in is the MCP endpoint's sign_up tool. Deleting is off, which also stops
+      // the plugin removing the account when the agent signs in another way.
+      anonymous({ emailDomainName: 'agents.sporelight.invalid', disableDeleteAnonymousUser: true }),
+      // A key in x-api-key stands for its owner's session, so signedInPerson
+      // knows an agent the way it knows someone signed in with a cookie.
+      apiKey({
+        enableSessionForAPIKeys: true,
+        defaultPrefix: AGENT_KEY_PREFIX,
+        schema: { apikey: { modelName: MODELS.apikey } },
+        rateLimit: { enabled: true, timeWindow: 60_000, maxRequests: 120 },
+      }),
     ],
     databaseHooks: {
       user: {
         create: {
-          after: async (user: { id: string; createdAt: Date }) => {
-            await (await room(env)).addPerson(user.id, user.createdAt.toISOString())
+          after: async (user: { id: string; createdAt: Date; isAnonymous?: boolean | null }) => {
+            await (await room(env)).addPerson(user.id, user.createdAt.toISOString(), kindOf(user))
           },
         },
       },
@@ -75,14 +95,44 @@ async function sendCode(env: Env, email: string, code: string) {
 
 const room = (env: Env) => getServerByName<Env, Tracker>(env.Tracker, 'main')
 
-// Who sent this request, if they are signed in.
+// isAnonymous is Better Auth's mark for an account made without an email address: an agent's.
+const kindOf = (user: { isAnonymous?: boolean | null }): Person['kind'] => (user.isAnonymous ? 'agent' : 'person')
+
+// Better Auth refused the key in x-api-key: unknown, disabled, expired, or over its rate limit.
+export class KeyRefused extends Error {
+  constructor(
+    readonly status: 401 | 429,
+    message: string,
+  ) {
+    super(message)
+  }
+}
+
+type BetterAuthError = { statusCode?: number; body?: { message?: string; details?: { tryAgainIn?: number } } }
+
+// Who sent this request, if they are signed in. Throws KeyRefused for a key
+// Better Auth will not accept, so a bad key is never taken for nobody.
 export async function signedInPerson(req: Request, env: Env): Promise<Person | null> {
-  const session = await auth(env).api.getSession({ headers: req.headers, request: req, asResponse: false })
+  let session
+  try {
+    session = await auth(env).api.getSession({ headers: req.headers, request: req, asResponse: false })
+  } catch (e) {
+    const { statusCode, body } = e as BetterAuthError
+    if (!req.headers.has('x-api-key')) throw e
+    if (statusCode === 429) {
+      const seconds = Math.ceil((body?.details?.tryAgainIn ?? 60_000) / 1000)
+      throw new KeyRefused(429, `Too many requests with this key. Try again in ${seconds} seconds.`)
+    }
+    // Better Auth answers an unknown key with 403 on this path and a disabled or expired one with 401.
+    if (statusCode === 401 || statusCode === 403) throw new KeyRefused(401, `The key in x-api-key was refused: ${body?.message ?? 'it is not valid'}`)
+    throw e
+  }
   if (!session) return null
-  const person = () => env.DB.prepare(`SELECT id, display_name, created_at FROM people WHERE id = ?`).bind(session.user.id).first<Person>()
+  const { user } = session
+  const person = () => env.DB.prepare(`SELECT id, kind, display_name, created_at FROM people WHERE id = ?`).bind(user.id).first<Person>()
   const found = await person()
   if (found) return found
   // The row is added when someone first signs in. If that failed, a valid session adds it here.
-  await (await room(env)).addPerson(session.user.id, new Date(session.user.createdAt).toISOString())
+  await (await room(env)).addPerson(user.id, new Date(user.createdAt).toISOString(), kindOf(user))
   return person()
 }
