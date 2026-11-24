@@ -190,12 +190,17 @@ test('evidence a reader sends reaches the editor under its question and, once ap
 
 // The rows a news search run queues for a model-read article, written through
 // the editor's party endpoint since no model runs in tests.
-async function queueModelRead(request: APIRequestContext, item: { decider_id: string; quote: string; passage: string; reading: string; weight: string; kind: string; question_id?: string }, sourceTitle: string) {
+async function queueModelRead(
+  request: APIRequestContext,
+  item: { decider_id: string; quote: string; passage: string; reading: string; weight: string; kind: string; question_id?: string },
+  sourceTitle: string,
+  dated: { published_on: string | null; published_on_from: string | null } = { published_on: null, published_on_from: null },
+) {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
   const now = TODAY.toISOString()
   const ids = { source: `src-${stamp}`, proposal: `prop-${stamp}`, item: `item-${stamp}` }
   const write = await partyWrite(request, [
-    { channel: 'sources', ops: [{ type: 'insert', value: { id: ids.source, url: `https://example.com/harbor-ledger/model-${stamp}`, title: sourceTitle, publisher: null, published_on: null, kind: null, archive_url: null, stored_copy: null, created_at: now } }] },
+    { channel: 'sources', ops: [{ type: 'insert', value: { id: ids.source, url: `https://example.com/harbor-ledger/model-${stamp}`, title: sourceTitle, publisher: null, ...dated, kind: null, archive_url: null, stored_copy: null, created_at: now } }] },
     { channel: 'proposals', ops: [{ type: 'insert', value: { id: ids.proposal, source_id: ids.source, origin: 'model', submitted_by: null, status: 'pending', unread: null, created_at: now, reviewed_at: null } }] },
     { channel: 'proposal_items', ops: [{ type: 'insert', value: { id: ids.item, proposal_id: ids.proposal, sort: 0, question_id: 'free-ferry', act_id: `act-${stamp}`, occurred_on: '2026-11-15', status: 'pending', ...item } }] },
     {
@@ -270,6 +275,62 @@ test('an entry read by a model shows its words marked in the passage, opens the 
   await expect(story.getByText('Sato was plain about it.')).toBeVisible()
   await expect(story.getByText('Free for city card holders')).toBeVisible()
   await expect(story.getByText('Fare-free ferry')).toBeVisible()
+})
+
+test('an old article leads with its publish date on the card, in the queue and on Latest, with the read date after it', async ({ page, request }) => {
+  const quote = 'I have backed a free ferry since the day I took office.'
+  const sourceTitle = `Sato on the ferry, from the archive ${Date.now()}`
+  const other = `Sato on the ferry, undated ${Date.now()}`
+  const old = await queueModelRead(request, { decider_id: 'demo-bartholomew-sato', quote, passage: quote, reading: 'support', weight: 'clear', kind: 'says' }, sourceTitle, { published_on: '2018-07-19', published_on_from: 'page' })
+  const undated = await queueModelRead(request, { decider_id: 'demo-bartholomew-sato', quote: `${quote} Still.`, passage: `${quote} Still.`, reading: 'support', weight: 'clear', kind: 'says' }, other)
+
+  await openCard(page, sourceTitle)
+  const card = page.getByRole('article', { name: sourceTitle })
+  const published = card.getByTestId('published')
+  await expect(published).toHaveText('Published Jul 19, 2018')
+  await expect(card.getByText('8 years ago', { exact: true })).toBeVisible()
+  await expect(card.getByText('from the page', { exact: true })).toBeVisible()
+  // The read date is there, below the publish date.
+  const read = card.getByText('Read by a model on Nov 19, 2026')
+  await expect(read).toBeVisible()
+  expect((await published.boundingBox())!.y).toBeLessThan((await read.boundingBox())!.y)
+  await expect(page.getByRole('complementary').getByRole('button').filter({ hasText: sourceTitle })).toContainText('Published Jul 19, 2018 · 8 years ago')
+  await expect(page.getByRole('complementary').getByRole('button').filter({ hasText: other })).toContainText('Publish date not known')
+
+  await page.goto(`/latest?proposal=${old.proposal}`)
+  const waiting = page.getByRole('article', { name: `Not checked yet: ${sourceTitle}` })
+  await expect(waiting.getByTestId('published')).toHaveText('Published Jul 19, 2018 · 8 years ago')
+  await expect(waiting.getByText('Published Jul 19, 2018. Read from the article by a model on Nov 19, 2026.')).toBeVisible()
+  await page.goto(`/latest?proposal=${undated.proposal}`)
+  await expect(page.getByRole('article', { name: `Not checked yet: ${other}` }).getByTestId('published')).toHaveText('Publish date not known')
+})
+
+test('an editor sets the publish date of an undated article on the card, and it is saved when the card is published', async ({ page, request }) => {
+  const quote = 'The ferry should cost nothing, and I will vote that way.'
+  const sourceTitle = `Sato on the ferry, date set by hand ${Date.now()}`
+  const ids = await queueModelRead(request, { decider_id: 'demo-bartholomew-sato', quote, passage: quote, reading: 'support', weight: 'clear', kind: 'says' }, sourceTitle)
+
+  await openCard(page, sourceTitle)
+  const card = page.getByRole('article', { name: sourceTitle })
+  await expect(card.getByTestId('published')).toHaveText('Publish date not known')
+  await expect(card.getByText(/ ago$/)).toHaveCount(0)
+  await card.getByText('Set the date').click()
+  await card.getByLabel('Publish date').fill('2025-01-02')
+  await expect(card.getByTestId('published')).toHaveText('Published Jan 2, 2025')
+  await expect(card.getByText('set by an editor')).toBeVisible()
+  await expect(card.getByText('1 year ago', { exact: true })).toBeVisible()
+  // Not written until the card is.
+  expect(query(`SELECT published_on, published_on_from FROM sources WHERE id = '${ids.source}'`)).toEqual([{ published_on: null, published_on_from: null }])
+
+  // Later than every other story the flows publish at TODAY, so it is first on Latest.
+  await page.clock.setFixedTime(new Date(TODAY.getTime() + 60 * 60 * 1000))
+  await page.getByRole('button', { name: /Publish 1 person/ }).click()
+  await expect(page.getByRole('status')).toContainText('Published 1 person')
+  await expect.poll(() => query(`SELECT published_on, published_on_from FROM sources WHERE id = '${ids.source}'`)).toEqual([{ published_on: '2025-01-02', published_on_from: 'editor' }])
+
+  await page.goto('/latest?question=free-ferry')
+  const story = page.getByRole('article', { name: sourceTitle })
+  await expect(story.getByTestId('published')).toHaveText('Published Jan 2, 2025 · 1 year ago')
 })
 
 test('a reading across from a position editors set makes a decision card, and lifting the position shows what the record works out to', async ({ page, request }) => {
@@ -565,7 +626,7 @@ test('a lead whose article was not read says so, starts empty, and cannot be pub
   const now = TODAY.toISOString()
   const sourceTitle = `Bayport hearing ${stamp}`
   const write = await partyWrite(request, [
-    { channel: 'sources', ops: [{ type: 'insert', value: { id: `src-${stamp}`, url: `https://example.com/bayport/${stamp}`, title: sourceTitle, publisher: null, published_on: null, kind: null, archive_url: null, stored_copy: null, created_at: now } }] },
+    { channel: 'sources', ops: [{ type: 'insert', value: { id: `src-${stamp}`, url: `https://example.com/bayport/${stamp}`, title: sourceTitle, publisher: null, published_on: '2026-11-12', published_on_from: 'search', kind: null, archive_url: null, stored_copy: null, created_at: now } }] },
     { channel: 'proposals', ops: [{ type: 'insert', value: { id: `prop-${stamp}`, source_id: `src-${stamp}`, origin: 'news_search', submitted_by: null, status: 'pending', unread: 'refused', created_at: now, reviewed_at: null } }] },
     {
       channel: 'proposal_items',
@@ -590,9 +651,10 @@ test('a lead whose article was not read says so, starts empty, and cannot be pub
   await expect(publish).toHaveText(/Publish needs both answers/)
   await direction.getByRole('radio', { name: 'Against' }).click()
   await weight.getByRole('radio', { name: 'Clear' }).click()
-  // The lead came with no date, and none is assumed.
+  // The lead came with no date, and none is assumed. The search result's date is offered, named as such.
   await expect(publish).toHaveText(/Publish needs the date/)
-  await entry.getByRole('button', { name: /^Use .*, the day this was put forward$/ }).click()
+  await expect(page.getByRole('article', { name: sourceTitle }).getByTestId('published')).toHaveText('Search result dated Nov 12, 2026')
+  await entry.getByRole('button', { name: 'Use Nov 12, 2026, the search result’s date' }).click()
   await expect(publish).toBeEnabled()
   await expect(publish).toHaveText(/Publish 1 person/)
 })
@@ -755,4 +817,105 @@ test('a question with a closing date still ahead offers to remove the date, not 
   await page.getByRole('button', { name: 'Remove the closing date' }).click()
   await expect(page.getByRole('button', { name: 'Close this question' })).toBeVisible()
   await expect.poll(() => query(`SELECT status, closed_on FROM questions WHERE short_title = '${shortName}'`)).toEqual([{ status: 'open', closed_on: null }])
+})
+
+test('an editor records someone new as running for a seat, sees them beside its holder, edits the role and ends it', async ({ page }) => {
+  const stamp = Date.now()
+  const name = `Juniper Hale ${stamp}`
+  await signInAsEditor(page)
+
+  await page.goto('/q/free-ferry')
+  await page.getByRole('link', { name: 'Add someone running for Ward 4' }).click()
+  await expect(page.getByRole('heading', { name: 'Someone running for Ward 4' })).toBeVisible()
+  await expect(page.getByRole('radio', { name: /^Possible/ })).toBeChecked()
+  await expect(page.getByLabel(/^Starts on/)).toHaveValue('2027-05-04')
+  await page.getByRole('button', { name: 'Add the role' }).click()
+  await expect(page.getByRole('alert')).toContainText('Choose who holds the role')
+
+  await page.getByRole('radio', { name: 'Someone new' }).check()
+  await page.getByLabel('Name', { exact: true }).fill(name)
+  await page.getByLabel('What it still depends on').selectOption({ label: 'A general election' })
+  await page.getByLabel(/^Affiliation/).fill('Harbor Forward')
+  await page.getByRole('button', { name: 'Add the role' }).click()
+
+  // Back on the question, beside the seat's holder.
+  await expect(page).toHaveURL(/\/q\/free-ferry\?.*q=Ward/)
+  const card = page.getByRole('listitem').filter({ has: page.getByRole('link', { name: /Desmond Kowalczyk/ }) })
+  await expect(card).toContainText(name)
+  await expect(card).toContainText('general election · No record yet')
+  const [made] = query<{ id: string; seat_id: string; certainty: string; contest: string; starts_on: string; affiliation: string; slug: string; decider_id: string }>(
+    `SELECT r.id, r.seat_id, r.certainty, r.contest, r.starts_on, r.affiliation, d.slug, d.id AS decider_id FROM roles r JOIN deciders d ON d.id = r.decider_id WHERE d.name = '${name}'`,
+  )
+  expect(made).toMatchObject({ seat_id: 'harbor-city-council:ward-4', certainty: 'possible', contest: 'general', starts_on: '2027-05-04', affiliation: 'Harbor Forward', slug: `juniper-hale-${stamp}` })
+  expect(made.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/)
+  expect(made.decider_id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/)
+
+  // Edited from their page.
+  await card.getByRole('link', { name: new RegExp(name) }).click()
+  await expect(page.getByText('running in the general election')).toBeVisible()
+  await page.getByRole('link', { name: 'Edit their role on Ward 4' }).click()
+  await expect(page.getByRole('heading', { name: `${name} on Ward 4` })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Delete this role' })).toBeVisible()
+  await page.getByLabel(/^Affiliation/).fill('Dockside Alliance')
+  await page.getByRole('button', { name: 'Save changes' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Saved.' })).toBeVisible()
+  await expect.poll(() => query(`SELECT affiliation FROM roles WHERE id = '${made.id}'`)).toEqual([{ affiliation: 'Dockside Alliance' }])
+
+  // Ended: they leave the seat's card and their page says so.
+  await page.getByRole('button', { name: 'End the role' }).click()
+  await expect(page.getByText('Ends on Nov 19, 2026.')).toBeVisible()
+  await expect.poll(() => query(`SELECT ends_on FROM roles WHERE id = '${made.id}'`)).toEqual([{ ends_on: DAY }])
+  await page.goto('/q/free-ferry?q=Ward%204')
+  await expect(card).toBeVisible()
+  await expect(card).not.toContainText(name)
+  await page.goto(`/q/free-ferry/${made.slug}`)
+  await expect(page.getByText('no longer in line for the seat since Nov 19, 2026')).toBeVisible()
+})
+
+test('a role whose holder has a record on the questions put to its body can be ended but not deleted', async ({ page }) => {
+  await signInAsEditor(page)
+  await page.goto('/q/free-ferry/desmond-kowalczyk')
+  await page.getByRole('link', { name: 'Edit their role on Ward 4' }).click()
+  await expect(page.getByRole('heading', { name: 'Desmond Kowalczyk on Ward 4' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Deleting' })).toContainText(/This role cannot be deleted, .*readings? on the record/)
+  await expect(page.getByRole('button', { name: 'Delete this role' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'End the role' })).toBeVisible()
+})
+
+test('an editor adds a person with no page yet, gives them a seat found by chamber and region, and edits their name', async ({ page }) => {
+  const stamp = Date.now()
+  const name = `Ines Okonkwo ${stamp}`
+  await signInAsEditor(page)
+
+  await page.getByRole('link', { name: 'People' }).click()
+  await page.getByRole('link', { name: 'Add a person' }).click()
+  const form = page.getByRole('form', { name: 'The new person' })
+  await form.getByRole('button', { name: 'Add the person' }).click()
+  await expect(page.getByRole('alert')).toContainText('The person needs a name.')
+  await form.getByLabel('Name', { exact: true }).fill(name)
+  await form.getByLabel(/^Sort name/).fill('Okonkwo, Ines')
+  await form.getByLabel(/^Link/).fill('https://example.org/ines')
+  await form.getByRole('button', { name: 'Add the person' }).click()
+  await expect(page.getByRole('heading', { level: 1, name })).toBeVisible()
+  await expect(page).toHaveURL(new RegExp(`/editor/people/ines-okonkwo-${stamp}$`))
+  expect(query(`SELECT sort_name, url FROM deciders WHERE slug = 'ines-okonkwo-${stamp}'`)).toEqual([{ sort_name: 'Okonkwo, Ines', url: 'https://example.org/ines' }])
+
+  await page.getByRole('link', { name: 'Give them a role on a seat' }).click()
+  await page.getByLabel('Body').selectOption({ label: 'United States Congress' })
+  await expect(page.getByLabel('Seat', { exact: true })).toBeDisabled()
+  await page.getByLabel('Chamber').selectOption('House')
+  await page.getByLabel('Region').selectOption('VT')
+  await page.getByLabel('Seat', { exact: true }).selectOption('us-congress:VT-AL')
+  await page.getByRole('radio', { name: /^Possible/ }).check()
+  await page.getByLabel('What it still depends on').selectOption({ label: 'A primary' })
+  await page.getByLabel(/^Starts on/).fill('2029-01-03')
+  await page.getByRole('button', { name: 'Add the role' }).click()
+  const seats = page.getByRole('region', { name: 'Seats' })
+  await expect(seats).toContainText('VT-AL')
+  await expect(seats).toContainText('running in the primary')
+
+  await page.getByLabel('Name', { exact: true }).fill(`Ines A. Okonkwo ${stamp}`)
+  await page.getByRole('button', { name: 'Save changes' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Saved.' })).toBeVisible()
+  await expect.poll(() => query(`SELECT name, slug FROM deciders WHERE slug = 'ines-okonkwo-${stamp}'`)).toEqual([{ name: `Ines A. Okonkwo ${stamp}`, slug: `ines-okonkwo-${stamp}` }])
 })

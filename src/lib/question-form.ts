@@ -10,6 +10,7 @@ import {
   type QuestionRelation,
 } from '../../shared/schema.ts'
 import type { Write } from './review-plan.ts'
+import { allFields, changedFields, chooseSlug, isDay, orNull, textField } from './form-input.ts'
 
 // What the question form holds once read. Text is trimmed, and an empty
 // optional field is null.
@@ -46,13 +47,6 @@ export type Placement =
 
 export const LIMITS = { title: 200, short_title: 60, description: 1000, act_label: 40, role_label: 80 } as const
 
-const textField = (f: FormData, name: string) => {
-  const value = f.get(name)
-  return typeof value === 'string' ? value.trim() : ''
-}
-const orNull = (value: string) => value || null
-const allFields = (f: FormData, name: string) => f.getAll(name).map((v) => (typeof v === 'string' ? v.trim() : ''))
-
 // Reads the form's named fields. People an ask is put to are rows of a
 // `decider_id` select and a `role_label` field, paired by their order.
 export function readQuestionForm(f: FormData): QuestionInput {
@@ -78,8 +72,6 @@ export function readQuestionForm(f: FormData): QuestionInput {
   }
 }
 
-const isDay = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value))
-
 export function questionProblems(input: QuestionInput, isAsk: boolean): string[] {
   const problems: string[] = []
   if (!input.title) problems.push('The question needs to be written out.')
@@ -96,16 +88,6 @@ export function questionProblems(input: QuestionInput, isAsk: boolean): string[]
   if (new Set(input.deciders.map((d) => d.decider_id)).size !== input.deciders.length) problems.push('The same person is listed twice.')
   if (input.deciders.some((d) => d.role_label && d.role_label.length > LIMITS.role_label)) problems.push(`A role is longer than ${LIMITS.role_label} characters.`)
   return problems
-}
-
-// A slug is the question's address, so it is chosen once, when the question is
-// made, and is never one another question has.
-export function chooseSlug(name: string, taken: ReadonlySet<string>, under?: Question): string {
-  const own = slugOf(name) || 'question'
-  const base = under ? `${under.slug}-${own}` : own
-  let slug = base
-  for (let n = 2; taken.has(slug); n++) slug = `${base}-${n}`
-  return slug
 }
 
 export type QuestionRows = {
@@ -219,8 +201,8 @@ export function questionEdits(
     act_label: input.kind === 'formal_act' ? input.act_label : null,
     implies_on_parent: question.parent_id ? input.implies_on_parent : null,
   }
-  const changes = Object.fromEntries(EDITABLE.filter((k) => wanted[k] !== question[k]).map((k) => [k, wanted[k]])) as Partial<Question>
-  const writes: Write[] = Object.keys(changes).length ? [{ on: 'questions', type: 'update', id: question.id, changes }] : []
+  const changes = changedFields(question, wanted, EDITABLE)
+  const writes: Write[] = changes ? [{ on: 'questions', type: 'update', id: question.id, changes }] : []
 
   const bodies = new Set(input.also_body_ids.filter((b) => b !== question.body_id))
   // The form offers no box for the body a question is listed under, so a link to it is left alone.

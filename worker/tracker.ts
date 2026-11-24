@@ -3,9 +3,11 @@ import {
   allCollections,
   sourceUrl,
   pairId,
+  replacesPublishedOn,
   usualWeight,
   type Comment,
   type CommentInput,
+  type FoundPublishedOn,
   type Person,
   type Proposal,
   type ProposalDraft,
@@ -22,7 +24,12 @@ const MAX_PENDING = 500
 const MAX_NOTE_CHARS = 4000
 
 // `queued` counts the items that were new. Zero means something already proposed from this source stood in the way of every one.
-export type SubmitResult = { ok: true; queued: number; proposal_id: string | null } | { ok: false; status: number; error: string }
+// `undated` says the source still has no date as sure as the page's own.
+export type SubmitResult = { ok: true; queued: number; proposal_id: string | null; source_id: string; undated: boolean } | { ok: false; status: number; error: string }
+
+// The write that gives a source on file a found date, if that date outranks the one it has.
+const datingOf = (known: Pick<Source, 'id' | 'published_on_from'>, published: FoundPublishedOn) =>
+  replacesPublishedOn(published.from, known) ? [{ channel: 'sources', ops: [{ type: 'update' as const, value: { id: known.id, published_on: published.on, published_on_from: published.from } }] }] : []
 
 export class Tracker extends PartyDbServer<Env> {
   collections = [...allCollections]
@@ -59,7 +66,10 @@ export class Tracker extends PartyDbServer<Env> {
     }
 
     const url = sourceUrl(draft.source.url)
-    const known = await db.prepare(`SELECT id FROM sources WHERE url = ?`).bind(url).first<{ id: string }>()
+    const known = await this.sourceAt(url)
+    const published = draft.source.published ?? null
+    const dated = known && published ? datingOf(known, published) : []
+    const undated = replacesPublishedOn('page', { published_on_from: known && !dated.length ? known.published_on_from : (published?.from ?? null) })
     let items = draft.items
     if (known) {
       const seen = await db
@@ -68,7 +78,7 @@ export class Tracker extends PartyDbServer<Env> {
         .all<Pick<ProposalItem, 'question_id' | 'decider_id' | 'status' | 'quote'>>()
       items = items.filter((i) => !alreadyProposed(seen.results, i, origin))
     }
-    if (items.length === 0) return { ok: true, queued: 0, proposal_id: null }
+    if (items.length === 0) return { ok: true, queued: 0, proposal_id: null, source_id: await this.catalogue(draft.source), undated }
 
     const now = new Date().toISOString()
     const source: Source = {
@@ -76,7 +86,8 @@ export class Tracker extends PartyDbServer<Env> {
       url,
       title: draft.source.title,
       publisher: null,
-      published_on: null,
+      published_on: published?.on ?? null,
+      published_on_from: published?.from ?? null,
       kind: null,
       archive_url: null,
       stored_copy: null,
@@ -113,14 +124,14 @@ export class Tracker extends PartyDbServer<Env> {
     try {
       // In this order: each batch may only point at rows an earlier one wrote.
       await this.commit([
-        ...(known ? [] : [{ channel: 'sources', ops: [{ type: 'insert' as const, value: source }] }]),
+        ...(known ? dated : [{ channel: 'sources', ops: [{ type: 'insert' as const, value: source }] }]),
         { channel: 'proposals', ops: [{ type: 'insert', value: proposal }] },
         { channel: 'proposal_items', ops: rows.map((value) => ({ type: 'insert' as const, value })) },
         ...(notes.length ? [{ channel: 'proposal_notes', ops: notes.map((value) => ({ type: 'insert' as const, value })) }] : []),
         ...(contexts.length ? [{ channel: 'proposal_contexts', ops: contexts.map((value) => ({ type: 'insert' as const, value })) }] : []),
         ...(mentions.length ? [{ channel: 'proposal_mentions', ops: mentions.map((value) => ({ type: 'insert' as const, value })) }] : []),
       ])
-      return { ok: true, queued: rows.length, proposal_id: proposal.id }
+      return { ok: true, queued: rows.length, proposal_id: proposal.id, source_id: source.id, undated }
     } catch (e) {
       const message = String(e)
       // Someone else added this URL between the lookup and the commit. The
@@ -139,6 +150,50 @@ export class Tracker extends PartyDbServer<Env> {
     if (!row || row.archive_url) return row?.archive_url ?? null
     await this.commit([{ channel: 'sources', ops: [{ type: 'update', value: { id: sourceId, archive_url: archiveUrl } }] }])
     return archiveUrl
+  }
+
+  // An article read with nothing to queue is still kept as a source, so it is
+  // known what was read and when it was published. Returns the source's id.
+  async catalogue(found: ProposalDraft['source'], isRetry = false): Promise<string> {
+    const url = sourceUrl(found.url)
+    const published = found.published ?? null
+    const known = await this.sourceAt(url)
+    if (known) {
+      const dated = published ? datingOf(known, published) : []
+      if (dated.length) await this.commit(dated)
+      return known.id
+    }
+    const source: Source = {
+      id: crypto.randomUUID(),
+      url,
+      title: found.title,
+      publisher: null,
+      published_on: published?.on ?? null,
+      published_on_from: published?.from ?? null,
+      kind: null,
+      archive_url: null,
+      stored_copy: null,
+      created_at: new Date().toISOString(),
+    }
+    try {
+      await this.commit([{ channel: 'sources', ops: [{ type: 'insert', value: source }] }])
+      return source.id
+    } catch (e) {
+      // Someone else added this URL between the lookup and the commit.
+      if (String(e).includes('UNIQUE') && !isRetry) return this.catalogue(found, true)
+      throw e
+    }
+  }
+
+  // For a page a reader sent in, once its date has been read.
+  async notePublishedOn(url: string, published: FoundPublishedOn) {
+    const known = await this.sourceAt(sourceUrl(url))
+    const dated = known ? datingOf(known, published) : []
+    if (dated.length) await this.commit(dated)
+  }
+
+  private sourceAt(url: string) {
+    return this.env.DB.prepare(`SELECT id, published_on_from FROM sources WHERE url = ?`).bind(url).first<Pick<Source, 'id' | 'published_on_from'>>()
   }
 
   async addPerson(id: string, createdAt: string, kind: Person['kind'] = 'person') {

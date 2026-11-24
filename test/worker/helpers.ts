@@ -1,4 +1,5 @@
 import { env, exports } from 'cloudflare:workers'
+import { vi } from 'vitest'
 import worker from '../../worker/index.ts'
 import { EDITOR_TOKEN } from './editor-token.ts'
 
@@ -34,6 +35,10 @@ export async function seed() {
     ].map((sql) => env.DB.prepare(sql)),
   )
 }
+
+// A reader's submission fetches its page for the publish date after answering.
+// Files that post one without testing that answer every outside fetch with 404.
+export const noOutsidePages = () => vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('not found', { status: 404 }))
 
 let ip = 0
 export const nextIp = () => `10.0.${Math.floor(++ip / 250)}.${ip % 250}`
@@ -144,9 +149,9 @@ export async function partySocket(token?: string, cookie?: string) {
   }
 }
 
-export async function until(check: () => boolean, ms = 2000) {
+export async function until(check: () => boolean | Promise<boolean>, ms = 2000) {
   const end = Date.now() + ms
-  while (!check()) {
+  while (!(await check())) {
     if (Date.now() > end) throw new Error('timed out waiting')
     await new Promise((r) => setTimeout(r, 10))
   }

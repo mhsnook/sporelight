@@ -1,4 +1,4 @@
-import type { ActKind, Direction, Position, Question, Role, UnreadReason, Weight } from '../../shared/schema.ts'
+import type { ActKind, Direction, Position, Question, Role, Source, UnreadReason, Weight } from '../../shared/schema.ts'
 
 export type Standing = Position | 'unknown'
 
@@ -94,6 +94,26 @@ export const KIND_CHOICE: Record<ActKind, string> = {
 const dateFmt = new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })
 export const formatDate = (iso: string) => dateFmt.format(new Date(iso))
 
+// The first date shown for a source. A date from the search results is not
+// called a publish date: it may be when the page last changed.
+export function publishedLine(source: Pick<Source, 'published_on' | 'published_on_from'>, formatDay: (day: string) => string = formatDate): string {
+  if (!source.published_on) return 'Publish date not known'
+  return `${source.published_on_from === 'search' ? 'Search result dated' : 'Published'} ${formatDay(source.published_on)}`
+}
+
+// A source published at least this long ago says how long ago.
+const OLD_SOURCE_DAYS = 30
+const DAY_MS = 24 * 60 * 60 * 1000
+
+// "8 years ago", or null under OLD_SOURCE_DAYS.
+export function timeAgo(publishedOn: string | null, now: Date = new Date()): string | null {
+  if (!publishedOn) return null
+  const days = Math.floor((Date.parse(now.toISOString().slice(0, 10)) - Date.parse(publishedOn)) / DAY_MS)
+  if (!(days >= OLD_SOURCE_DAYS)) return null
+  const [n, unit] = days >= 365 ? [Math.floor(days / 365.25) || 1, 'year'] : [Math.floor(days / 30.44) || 1, 'month']
+  return `${n} ${unit}${n === 1 ? '' : 's'} ago`
+}
+
 // What to call a source in a list or a heading.
 export const sourceLabel = (source: { title: string | null; url: string | null }) => source.title ?? (source.url ? hostOf(source.url) : 'A document with no public link')
 
@@ -113,7 +133,10 @@ const CONTEST: Record<NonNullable<Role['contest']>, string> = { primary: 'primar
 // claims; only the dates, the certainty and the contest differ.
 export function claimLabel(role: Claim, day: string): string {
   const pending = role.contest ? `, ${CONTEST[role.contest]} pending` : ', not settled'
-  if (role.ends_on !== null && role.ends_on <= day) return `held the seat until ${formatDate(role.ends_on)}`
+  if (role.ends_on !== null && role.ends_on <= day) {
+    const neverHeld = role.starts_on !== null && role.ends_on <= role.starts_on
+    return neverHeld ? `no longer in line for the seat since ${formatDate(role.ends_on)}` : `held the seat until ${formatDate(role.ends_on)}`
+  }
   if (role.starts_on !== null && role.starts_on > day) {
     const from = formatDate(role.starts_on)
     if (role.certainty === 'certain') return `takes the seat ${from}`

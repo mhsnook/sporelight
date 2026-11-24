@@ -1,4 +1,4 @@
-import type { Act, ActKind, Direction, Position, Proposal, ProposalContext, ProposalItem, Question, Source, Weight } from '../../shared/schema.ts'
+import type { Act, ActKind, Direction, Position, Proposal, ProposalContext, ProposalItem, PublishedOnFrom, Question, Source, Weight } from '../../shared/schema.ts'
 import type { Listing, RelatedQuestion, Tracker } from './build-tracker.ts'
 import type { Standing } from './position.ts'
 import type { EntryVerdict, PositionDecision, Verdict } from './review-plan.ts'
@@ -249,7 +249,8 @@ export function decisionOf(entry: EntryDraft): PositionDecision {
   return { question_id: entry.question_id, action: 'keep', reason: text || null }
 }
 
-// A date to offer for an act that came with none: the source's own, or the day
-// the proposal was put forward. It is only ever offered, never filled in.
-export const dateOffer = (proposal: Pick<Proposal, 'created_at'>, source: Pick<Source, 'published_on'>): { date: string; from: 'source' | 'proposal' } =>
-  source.published_on ? { date: source.published_on, from: 'source' } : { date: proposal.created_at.slice(0, 10), from: 'proposal' }
+// A date to offer for an act that came with none: the source's own, when it is
+// known. It is only ever offered, never filled in. The day the proposal was put
+// forward is not offered: an old article can be found years after the act.
+export const dateOffer = (source: Pick<Source, 'published_on' | 'published_on_from'>): { date: string; from: PublishedOnFrom } | null =>
+  source.published_on && source.published_on_from ? { date: source.published_on, from: source.published_on_from } : null

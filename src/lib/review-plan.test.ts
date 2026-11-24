@@ -325,6 +325,35 @@ describe('planReview', () => {
   })
 })
 
+describe('planReview and the source’s publish date', () => {
+  const ann = () => item('i1', 'p1', 'ann', 'policy')
+
+  it('writes the date an editor set on the card, first, as an editor’s', () => {
+    const writes = plan({ ...verdict([publish([ann()])]), published_on: '2018-07-19' })
+    expect(writes[0]).toEqual({ on: 'sources', type: 'update', id: 'article', changes: { published_on: '2018-07-19', published_on_from: 'editor' } })
+  })
+
+  it('writes an editor’s word that the date is not known, so no automated date replaces it', () => {
+    const dated = source('article', { published_on: '2018-07-19', published_on_from: 'page' })
+    const writes = planReview(published(), pending, dated, { ...verdict([dismiss([ann()])]), published_on: null }, NOW, ids())
+    expect(updatesOf(writes, 'sources')).toEqual([{ on: 'sources', type: 'update', id: 'article', changes: { published_on: null, published_on_from: 'editor' } }])
+  })
+
+  it('refuses a date ahead of today or before the web, and writes nothing', () => {
+    expect(() => plan({ ...verdict([publish([ann()])]), published_on: '2062-07-19' })).toThrow('The publish date has to be a day from 1991-01-01 to today.')
+    expect(() => plan({ ...verdict([publish([ann()])]), published_on: '0201-07-19' })).toThrow()
+    expect(() => plan({ ...verdict([publish([ann()])]), published_on: '2018-02-30' })).toThrow()
+  })
+
+  it('confirms a page date the editor kept as their own, and writes nothing for a date they did not touch', () => {
+    const dated = source('article', { published_on: '2018-07-19', published_on_from: 'page' })
+    expect(updatesOf(planReview(published(), pending, dated, { ...verdict([publish([ann()])]), published_on: '2018-07-19' }, NOW, ids()), 'sources')).toHaveLength(1)
+    expect(writesOn(planReview(published(), pending, dated, verdict([publish([ann()])]), NOW, ids()), 'sources')).toEqual([])
+    const theirs = source('article', { published_on: '2018-07-19', published_on_from: 'editor' })
+    expect(writesOn(planReview(published(), pending, theirs, { ...verdict([publish([ann()])]), published_on: '2018-07-19' }, NOW, ids()), 'sources')).toEqual([])
+  })
+})
+
 describe('planReview with a decision about a set position', () => {
   const lead = item('i1', 'p1', 'ann', 'policy', { reading: 'oppose' })
   const held = setPosition('policy', 'ann', 'support', 'Promised it at the convention.')
