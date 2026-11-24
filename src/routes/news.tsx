@@ -3,7 +3,6 @@ import { useMemo, type ReactNode } from 'react'
 import { useLiveQuery } from '@tanstack/react-db'
 import type { Question } from '../../shared/schema.ts'
 import { db } from '../lib/db.ts'
-import { usePeople } from '../lib/auth.ts'
 import { atomHref, buildStories, buildWaiting, feedPage, mergeFeed, pageHolding, type FeedFilter, type FeedStory, type Story } from '../lib/feed.ts'
 import { useTracker, type Tracker } from '../lib/tracker.tsx'
 import { NotFound, Syncing } from '../components/bits.tsx'
@@ -12,7 +11,7 @@ import { StoryCard, WaitingStoryCard } from '../components/Story.tsx'
 // `proposal` is a link to one waiting proposal: the feed opens on the page that holds it.
 type FeedSearch = { question?: string; recordOnly?: true; before?: string; proposal?: string }
 
-export const Route = createFileRoute('/latest')({
+export const Route = createFileRoute('/news')({
   component: Latest,
   validateSearch: (s: Record<string, unknown>): FeedSearch => ({
     question: typeof s.question === 'string' && s.question ? s.question : undefined,
@@ -37,7 +36,7 @@ function Latest() {
     return (
       <div className="pb-16 text-center">
         <NotFound what={search.question && !question ? 'question' : 'body'} />
-        <Link to="/latest" search={{ body: undefined }} className="link">
+        <Link to="/news" search={{ body: undefined }} className="link">
           See everything that is new
         </Link>
       </div>
@@ -149,10 +148,9 @@ function WithWaiting({ stories, filter, before, linked }: { stories: Story[]; fi
   const proposals = useLiveQuery((q) => q.from({ row: db.proposals }))
   const items = useLiveQuery((q) => q.from({ row: db.proposal_items }))
   const ready = proposals.isReady && items.isReady
-  const { muted } = usePeople()
   const waiting = useMemo(
-    () => (ready ? buildWaiting(tracker, proposals.data, items.data, filter, muted) : []),
-    [ready, tracker, proposals.data, items.data, filter.questionId, filter.bodyId, muted],
+    () => (ready ? buildWaiting(tracker, proposals.data, items.data, filter) : []),
+    [ready, tracker, proposals.data, items.data, filter.questionId, filter.bodyId],
   )
   const isWaiting = waiting.some((w) => w.proposal.id === linked)
   const linkedNote =

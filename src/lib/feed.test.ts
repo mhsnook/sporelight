@@ -190,13 +190,6 @@ describe('what is waiting for review', () => {
     expect(claimed(buildWaiting(tracker, proposals, items, { bodyId: 'council' }))).toEqual([])
   })
 
-  it('leaves out what a muted person sent in, and keeps what others sent', () => {
-    const fromPeople = [proposal('from-muted', 'paper', { submitted_by: 'muted-person' }), proposal('from-other', 'blog', { submitted_by: 'other-person' })]
-    const theirItems = [item('muted-claim', 'from-muted', 'ann', 'policy', { reading: 'support' }), item('other-claim', 'from-other', 'bob', 'policy', { reading: 'oppose' })]
-    expect(claimed(buildWaiting(tracker, fromPeople, theirItems, {}, new Set(['muted-person'])))).toEqual([['from-other', [['other-claim']]]])
-    expect(claimed(buildWaiting(tracker, fromPeople, theirItems)).map(([id]) => id).sort()).toEqual(['from-muted', 'from-other'])
-  })
-
   it('sits in the feed beside the record, by when it was put forward', () => {
     const merged = mergeFeed(buildStories(tracker), waiting)
     expect(merged.map((f) => (f.kind === 'published' ? f.story.source.id : `waiting:${f.story.proposal.id}`))).toEqual([

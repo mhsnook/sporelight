@@ -29,7 +29,7 @@ export function QuestionHeader({ question, deciderSlug }: { question: Question; 
             Read the measure ↗
           </a>
         )}
-        <Link to="/latest" search={{ question: question.slug }} className="link">
+        <Link to="/news" search={{ question: question.slug }} className="link">
           Latest on this question
         </Link>
       </p>

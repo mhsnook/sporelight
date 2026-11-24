@@ -10,7 +10,7 @@ import { MODEL } from '../../worker/reader.ts'
 import type { Tracker } from '../../worker/tracker.ts'
 import type { NewsStep } from '../../shared/news-run.ts'
 import type { Proposal, ProposalDraft } from '../../shared/schema.ts'
-import { post, proposal, rows, seed, until } from './helpers.ts'
+import { proposal, rows, seed, until, reader } from './helpers.ts'
 
 const NOW = new Date('2026-11-19T12:00:00Z')
 const TODAY = NOW.toISOString().slice(0, 10)
@@ -382,8 +382,9 @@ describe('the publish date', () => {
 
   it('reads the date of a page a reader sends in, after answering them', async () => {
     const url = 'https://news.example/date-reader'
+    const { send } = await reader('dater@reader.test')
     const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(page(said, PUBLISHED), { headers: { 'content-type': 'text/html' } }))
-    const res = await post('/api/proposals', proposal({ source_url: url, quote: 'I will vote for this bill when it reaches the floor.' }))
+    const res = await send('/api/proposals', proposal({ source_url: url, quote: 'I will vote for this bill when it reaches the floor.' }))
     expect(res.status).toBe(200)
     // The date is read in waitUntil, after the answer.
     await until(async () => (await sourceOf(url))?.published_on_from === 'page')

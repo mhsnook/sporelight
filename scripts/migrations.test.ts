@@ -391,7 +391,11 @@ describe('the seed', () => {
       const db = database()
       db.exec(seed)
       // A real source a demo act also cites, and a real person's thread, both of which stay.
-      db.exec(`INSERT INTO comments (id, thread_id, author_name, body, created_at) VALUES ('c-real', 'm4a:' || (SELECT id FROM deciders WHERE id NOT LIKE 'demo-%' LIMIT 1), 'A', 'B', '2026-11-01')`)
+      db.exec(`
+        INSERT INTO auth_users (id, name, email, "emailVerified", "createdAt", "updatedAt") VALUES ('u', '', 'u@reader.test', 1, '2026-11-01', '2026-11-01');
+        INSERT INTO people (id, created_at) VALUES ('u', '2026-11-01');
+        INSERT INTO comments (id, thread_id, person_id, body, created_at) VALUES ('c-real', 'm4a:' || (SELECT id FROM deciders WHERE id NOT LIKE 'demo-%' LIMIT 1), 'u', 'B', '2026-11-01');
+      `)
       const before = counts(db)
       const sharedSource = all(db, `SELECT id FROM sources LIMIT 1`)[0].id
       db.exec(readFileSync(new URL('seed/out/e2e-fixture.sql', root), 'utf8'))
@@ -402,7 +406,7 @@ describe('the seed', () => {
         INSERT INTO proposal_notes (id, proposal_id, proposal_item_id, kind, body, created_at) VALUES ('n-item', 'p-demo', 'i-demo', 'submitter', 'Note.', '2026-11-01'), ('n-whole', 'p-demo', NULL, 'submitter', 'Note.', '2026-11-01');
         INSERT INTO proposal_contexts (id, proposal_id, proposal_item_id, before, after) VALUES ('x-demo', 'p-demo', 'i-demo', 'Before.', 'After.');
         INSERT INTO proposal_mentions (id, proposal_id, decider_id, words) VALUES ('m-demo', 'p-demo', 'demo-bartholomew-sato', 'Named.');
-        INSERT INTO comments (id, thread_id, author_name, body, created_at) VALUES ('c-demo', 'free-ferry:demo-bartholomew-sato', 'A', 'B', '2026-11-01');
+        INSERT INTO comments (id, thread_id, person_id, body, created_at) VALUES ('c-demo', 'free-ferry:demo-bartholomew-sato', 'u', 'B', '2026-11-01');
         INSERT INTO article_reads (source_id, question_id, read_at, outcome) VALUES ('src-reader', 'free-ferry', '2026-11-01', 'no_acts');
         INSERT INTO archive_attempts (source_id, tried_at, outcome) VALUES ((SELECT id FROM sources WHERE url = 'https://example.com/harbor-city/1'), '2026-11-01', 'gave_up');
         INSERT INTO reports (id, source_id, act_id, created_at) VALUES ('rep-shared', '${sharedSource}', 'demo-e1', '2026-11-01');
@@ -651,5 +655,30 @@ describe('0018_reads_point_at_sources', () => {
       { url: 'https://news.example/nothing', question_id: 'q2', outcome: 'no_acts', detail: null },
     ])
     expect(all(db, `PRAGMA foreign_key_check`)).toEqual([])
+  })
+})
+
+describe('0019_signed_in_contributors', () => {
+  const db = database('0019')
+  db.exec(`
+    INSERT INTO auth_users (id, name, email, "emailVerified", "createdAt", "updatedAt") VALUES ('u', '', 'u@reader.test', 1, '2026-11-01', '2026-11-01');
+    INSERT INTO people (id, display_name, muted_at, created_at) VALUES ('u', 'Una', '2026-11-02', '2026-11-01');
+    INSERT INTO comments (id, thread_id, author_name, person_id, body, created_at) VALUES
+      ('signed-in', 'hot:ann', 'Una', 'u', 'Signed in.', '2026-11-03'),
+      ('signed-out', 'hot:ann', 'Visitor', NULL, 'Signed out.', '2026-11-04');
+  `)
+  db.exec(migration('0019_signed_in_contributors.sql'))
+
+  it('keeps the comments of signed-in people and deletes the ones posted signed out', () => {
+    expect(all(db, `SELECT * FROM comments`)).toEqual([{ id: 'signed-in', thread_id: 'hot:ann', person_id: 'u', body: 'Signed in.', created_at: '2026-11-03' }])
+  })
+
+  it('refuses a comment with no person, or with a person who does not exist', () => {
+    expect(() => db.exec(`INSERT INTO comments (id, thread_id, person_id, body, created_at) VALUES ('none', 'hot:ann', NULL, 'x', '2026-11-05')`)).toThrow()
+    expect(() => db.exec(`INSERT INTO comments (id, thread_id, person_id, body, created_at) VALUES ('nobody', 'hot:ann', 'no-such-person', 'x', '2026-11-05')`)).toThrow()
+  })
+
+  it('keeps each person and their name, without the muting', () => {
+    expect(all(db, `SELECT * FROM people`)).toEqual([{ id: 'u', display_name: 'Una', created_at: '2026-11-01' }])
   })
 })

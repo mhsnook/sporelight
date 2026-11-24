@@ -9,7 +9,7 @@ import { QuestionForm } from '../components/QuestionForm.tsx'
 // smaller step or a related issue. Each names the other question by its slug.
 type NewSearch = { parent?: string; sub?: 'measure' | 'ask'; linkTo?: string }
 
-export const Route = createFileRoute('/editor/questions/new')({
+export const Route = createFileRoute('/_editor/questions/new')({
   component: NewQuestion,
   validateSearch: (s: Record<string, unknown>): NewSearch => ({
     parent: typeof s.parent === 'string' && s.parent ? s.parent : undefined,
@@ -46,7 +46,7 @@ function NewQuestion() {
     <div className="mx-auto max-w-2xl space-y-6">
       <div className="space-y-2">
         {from && (
-          <Link to="/editor/questions/$slug/edit" params={{ slug: from.slug }} className="link text-sm">
+          <Link to="/q/$slug/edit" params={{ slug: from.slug }} className="link text-sm">
             ← {from.title}
           </Link>
         )}
@@ -54,7 +54,7 @@ function NewQuestion() {
       </div>
       <QuestionForm
         place={place}
-        onSaved={(made) => navigate({ to: '/editor/questions/$slug/edit', params: { slug: made.parent_id && parent ? parent.slug : made.slug } })}
+        onSaved={(made) => navigate({ to: '/q/$slug/edit', params: { slug: made.parent_id && parent ? parent.slug : made.slug } })}
       />
     </div>
   )

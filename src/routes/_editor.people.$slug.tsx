@@ -5,7 +5,7 @@ import { NotFound, Syncing } from '../components/bits.tsx'
 import { PersonForm } from '../components/PersonForm.tsx'
 import { Section } from '../components/form.tsx'
 
-export const Route = createFileRoute('/editor/people/$slug')({ component: EditPerson })
+export const Route = createFileRoute('/_editor/people/$slug')({ component: EditPerson })
 
 function EditPerson() {
   const { slug } = Route.useParams()
@@ -26,7 +26,7 @@ function EditPerson() {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div className="space-y-2">
-        <Link to="/editor/people" className="link text-sm">
+        <Link to="/people" className="link text-sm">
           ← People
         </Link>
         <h1 className="h-page">{decider.name}</h1>
@@ -57,7 +57,7 @@ function EditPerson() {
                       {r.affiliation && ` · ${r.affiliation}`}
                     </span>
                   </span>
-                  <Link to="/editor/roles/$roleId" params={{ roleId: r.id }} className="link shrink-0">
+                  <Link to="/roles/$roleId" params={{ roleId: r.id }} className="link shrink-0">
                     Edit <span className="sr-only">the role on {seat?.label}</span>
                   </Link>
                 </li>
@@ -65,7 +65,7 @@ function EditPerson() {
             })}
           </ul>
         )}
-        <Link to="/editor/roles/new" search={{ person: decider.slug }} className="btn btn-sm">
+        <Link to="/roles/new" search={{ person: decider.slug }} className="btn btn-sm">
           Give them a role on a seat
         </Link>
       </Section>

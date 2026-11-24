@@ -101,6 +101,21 @@ export async function signIn(mail: ReturnType<typeof mailbox>, email: string): P
   return cookieFrom(res)
 }
 
+// A person signed in with a display name, ready to post proposals and comments.
+export async function reader(email: string, displayName = 'A Reader') {
+  const cookie = await signIn(mailbox(), email)
+  const named = await post('/api/me/name', { display_name: displayName }, undefined, undefined, cookie)
+  if (!named.ok) throw new Error(`not named: ${named.status} ${await named.text()}`)
+  const [row] = await rows<{ id: string }>(`SELECT id FROM auth_users WHERE email = ?`, email)
+  return { cookie, personId: row.id, send: postAs(cookie) }
+}
+
+// `post` with a signed-in person's cookie.
+export const postAs =
+  (cookie: string) =>
+  (path: string, body: unknown, from = nextIp()) =>
+    post(path, body, from, undefined, cookie)
+
 export const proposal = (overrides: Record<string, unknown> = {}) => ({
   question_id: 'hot',
   decider_id: 'ann',

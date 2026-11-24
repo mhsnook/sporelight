@@ -4,7 +4,7 @@ import { TrackerProvider, today } from '../lib/tracker.tsx'
 import { formatDate } from '../lib/position.ts'
 import { isEditor } from '../lib/editor.ts'
 import { Logo } from '../components/bits.tsx'
-import { SignIn } from '../components/SignIn.tsx'
+import { SignIn, SignInDialog } from '../components/SignIn.tsx'
 
 // `as` is the day every body is viewed on, and `body` the one a question put
 // to several is viewed through. Both are kept across links, so a reader stays
@@ -24,7 +24,7 @@ function NavLinks({ className, onNavigate }: { className: string; onNavigate?: (
       <Link to="/questions" className={className} onClick={onNavigate}>
         Questions
       </Link>
-      <Link to="/latest" className={className} onClick={onNavigate}>
+      <Link to="/news" activeOptions={{ exact: true }} className={className} onClick={onNavigate}>
         Latest
       </Link>
       <Link to="/" hash="how" className={className} activeProps={{}} onClick={onNavigate}>
@@ -33,7 +33,7 @@ function NavLinks({ className, onNavigate }: { className: string; onNavigate?: (
       <Link to="/" hash="own" className={className} activeProps={{}} onClick={onNavigate}>
         Run your own
       </Link>
-      <Link to="/editor" className={className} onClick={onNavigate}>
+      <Link to="/news/review" className={className} onClick={onNavigate}>
         {isEditor() ? 'Review queue' : 'Editors'}
       </Link>
     </>
@@ -90,6 +90,7 @@ function Root() {
     <TrackerProvider asOf={as}>
       <div className="mx-auto flex min-h-dvh max-w-[1200px] flex-col px-5 sm:px-8">
         <Header />
+        <SignInDialog />
         {as && as !== today() && <ViewedDay day={as} />}
         <main className="flex-1 py-8">
           <Outlet />

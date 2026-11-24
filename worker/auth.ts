@@ -42,7 +42,7 @@ export function authOptions(env: Env) {
       user: {
         create: {
           after: async (user: { id: string; createdAt: Date }) => {
-            await (await getServerByName<Env, Tracker>(env.Tracker, 'main')).addPerson(user.id, user.createdAt.toISOString())
+            await (await room(env)).addPerson(user.id, user.createdAt.toISOString())
           },
         },
       },
@@ -73,9 +73,16 @@ async function sendCode(env: Env, email: string, code: string) {
   }
 }
 
+const room = (env: Env) => getServerByName<Env, Tracker>(env.Tracker, 'main')
+
 // Who sent this request, if they are signed in.
 export async function signedInPerson(req: Request, env: Env): Promise<Person | null> {
   const session = await auth(env).api.getSession({ headers: req.headers, request: req, asResponse: false })
   if (!session) return null
-  return env.DB.prepare(`SELECT id, display_name, muted_at, created_at FROM people WHERE id = ?`).bind(session.user.id).first<Person>()
+  const person = () => env.DB.prepare(`SELECT id, display_name, created_at FROM people WHERE id = ?`).bind(session.user.id).first<Person>()
+  const found = await person()
+  if (found) return found
+  // The row is added when someone first signs in. If that failed, a valid session adds it here.
+  await (await room(env)).addPerson(session.user.id, new Date(session.user.createdAt).toISOString())
+  return person()
 }

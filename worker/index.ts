@@ -1,6 +1,6 @@
 import { getServerByName, routePartykitRequest } from 'partyserver'
 import { ARCHIVE_CRON, archiveNow, archiveSources, type Archiver } from './archive.ts'
-import { commentInputSchema, displayNameSchema, proposalInputSchema } from '../shared/schema.ts'
+import { commentInputSchema, displayNameSchema, proposalInputSchema, type Person } from '../shared/schema.ts'
 import { RUN_ID } from '../shared/news-run.ts'
 import { fetchPublishedOn } from './article.ts'
 import { auth, signedInPerson } from './auth.ts'
@@ -39,39 +39,40 @@ async function startNewsSearch(req: Request, env: Env, ctx: ExecutionContext): P
 const tooMany = () => Response.json({ error: 'That is a lot of posts in a short time. Give it a minute.' }, { status: 429 })
 const overLimit = async (req: Request, env: Env) => !(await env.POST_LIMITER.limit({ key: req.headers.get('cf-connecting-ip') ?? 'unknown' })).success
 
-// Shared front door for anything an anonymous reader can post.
-async function readerPost(req: Request, env: Env): Promise<Record<string, unknown> | Response> {
+// Shared front door for anything a reader can post. Only a signed-in person may.
+async function readerPost(req: Request, env: Env): Promise<{ body: Record<string, unknown>; person: Person } | Response> {
   if (await overLimit(req, env)) return tooMany()
+  const person = await signedInPerson(req, env)
+  if (!person) return Response.json({ error: 'Sign in to post.' }, { status: 401 })
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null
   if (!body) return Response.json({ error: 'Expected a JSON body.' }, { status: 400 })
   // Honeypot: the form hides this field, so only a bot fills it in. Pretend it worked.
   if (body.website) return Response.json({ ok: true })
-  return body
+  return { body, person }
 }
 
 async function handleComment(req: Request, env: Env): Promise<Response> {
-  const body = await readerPost(req, env)
-  if (body instanceof Response) return body
-  const parsed = commentInputSchema.safeParse(body)
+  const posted = await readerPost(req, env)
+  if (posted instanceof Response) return posted
+  const parsed = commentInputSchema.safeParse(posted.body)
   if (!parsed.success) {
     const first = parsed.error.issues[0]
     return Response.json({ error: `${first.path.join('.')}: ${first.message}` }, { status: 400 })
   }
-  const result = await (await tracker(env)).comment(parsed.data, await signedInPerson(req, env))
+  const result = await (await tracker(env)).comment(parsed.data, posted.person)
   return result.ok ? Response.json({ ok: true }) : Response.json({ error: result.error }, { status: result.status })
 }
 
 async function handleProposal(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-  const body = await readerPost(req, env)
-  if (body instanceof Response) return body
-  const parsed = proposalInputSchema.safeParse(body)
+  const posted = await readerPost(req, env)
+  if (posted instanceof Response) return posted
+  const parsed = proposalInputSchema.safeParse(posted.body)
   if (!parsed.success) {
     const first = parsed.error.issues[0]
     return Response.json({ error: `${first.path.join('.')}: ${first.message}` }, { status: 400 })
   }
   const { source_url, source_title, submitter_note, ...item } = parsed.data
-  const person = await signedInPerson(req, env)
-  const result = await (await tracker(env)).propose({ source: { url: source_url, title: source_title }, note: submitter_note, items: [item] }, 'reader', person?.id ?? null)
+  const result = await (await tracker(env)).propose({ source: { url: source_url, title: source_title }, note: submitter_note, items: [item] }, 'reader', posted.person.id)
   if (result.ok && result.undated) ctx.waitUntil(dateReaderSource(env, source_url))
   return result.ok
     ? Response.json({ ok: true, duplicate: result.queued === 0, proposal_id: result.proposal_id })

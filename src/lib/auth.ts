@@ -7,23 +7,35 @@ import { db } from './db.ts'
 
 export const authClient = createAuthClient({ basePath: '/api/auth', plugins: [emailOTPClient()] })
 
-// Everyone who has signed in, and who among them an editor has muted.
+// Everyone who has signed in, by id.
 export function usePeople() {
-  const { data } = useLiveQuery((q) => q.from({ row: db.people }))
-  return useMemo(() => {
-    const byId = new Map<string, Person>(data.map((p) => [p.id, p]))
-    const muted = new Set(data.filter((p) => p.muted_at !== null).map((p) => p.id))
-    return { byId, muted }
-  }, [data])
+  const { data, isReady } = useLiveQuery((q) => q.from({ row: db.people }))
+  const byId = useMemo(() => new Map<string, Person>(data.map((p) => [p.id, p])), [data])
+  return { byId, isReady }
+}
+
+// Whether someone is signed in in this browser, without loading anyone's row.
+export function useSession() {
+  const session = authClient.useSession()
+  return { id: session.data?.user.id, isPending: session.isPending }
 }
 
 // The person signed in in this browser. Their row arrives through the sync
 // room a moment after they first sign in, so `person` can lag `signedIn`.
+// Until `peopleReady`, a missing `person` says nothing about whether they have a row.
 export function useSignedIn() {
-  const session = authClient.useSession()
-  const { byId } = usePeople()
-  const id = session.data?.user.id
-  return { signedIn: id !== undefined, person: id ? byId.get(id) : undefined, isPending: session.isPending }
+  const { id, isPending } = useSession()
+  const people = usePeople()
+  return { signedIn: id !== undefined, person: id ? people.byId.get(id) : undefined, isPending, peopleReady: people.isReady }
+}
+
+// A post only a signed-in person may make. A 401 means the session ended
+// elsewhere, so Better Auth is told to fetch it again and the forms show the
+// sign-in prompt.
+export async function postAsReader(path: string, body: unknown): Promise<Response> {
+  const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+  if (res.status === 401) authClient.$store.notify('$sessionSignal')
+  return res
 }
 
 export async function setDisplayName(name: string): Promise<string | null> {
