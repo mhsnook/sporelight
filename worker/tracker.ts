@@ -197,7 +197,7 @@ export class Tracker extends PartyDbServer<Env> {
   }
 
   // Two requests from one new session can both find no row and both add it.
-  async addPerson(id: string, createdAt: string, kind: Person['kind'] = 'person') {
+  async addPerson(id: string, createdAt: string, kind: Person['kind']) {
     const person: Person = { id, kind, display_name: null, created_at: createdAt }
     try {
       await this.commit([{ channel: 'people', ops: [{ type: 'insert', value: person }] }])
