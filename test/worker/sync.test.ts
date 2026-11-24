@@ -295,3 +295,61 @@ describe('what a socket is sent', () => {
     editor.close()
   })
 })
+
+describe('reviews in the sync room', () => {
+  const mail = mailbox()
+  let cookie = ''
+  let personId = ''
+  let sessionToken = ''
+  const review = (id: string, reviewer_id: string, position = 'support') => ({
+    id,
+    reviewer_id,
+    act_id: 'act-reviewed',
+    question_id: 'hot',
+    position,
+    weight: 'clear',
+    based_on: null,
+    created_at: '2026-11-24T00:00:00.000Z',
+    updated_at: '2026-11-24T00:00:00.000Z',
+  })
+  const insert = (value: Record<string, unknown>) => [{ channel: 'reviews', ops: [{ type: 'insert', value }] }]
+
+  beforeAll(async () => {
+    await env.DB.prepare(`INSERT INTO acts (id, decider_id, kind, occurred_on, body, created_at) VALUES ('act-reviewed', 'ann', 'says', '2026-11-20', 'I am for it.', '2026-11-20T00:00:00Z')`).run()
+    cookie = await signIn(mail, 'reviewer@reader.test')
+    const [row] = await rows<{ id: string; token: string }>(`SELECT u.id, s.token FROM auth_users u JOIN auth_sessions s ON s."userId" = u.id WHERE u.email = 'reviewer@reader.test'`)
+    personId = row.id
+    sessionToken = row.token
+  })
+
+  it('refuses a review from a signed-out reader, and one with the wrong token', async () => {
+    expect((await partyWrite(insert(review('signed-out', 'editors')))).status).toBe(401)
+    expect((await partyWrite(insert(review('wrong-token', 'editors')), 'not-the-token')).status).toBe(401)
+    expect(await rows(`SELECT id FROM reviews WHERE act_id = 'act-reviewed'`)).toEqual([])
+  })
+
+  it('refuses a signed-in reader writing a review, even under their own id', async () => {
+    expect((await partyWrite(insert(review('by-cookie', personId)), undefined, cookie)).status).toBe(401)
+    expect((await partyWrite(insert(review('by-token', personId)), sessionToken)).status).toBe(401)
+    expect(await rows(`SELECT id FROM reviews WHERE act_id = 'act-reviewed'`)).toEqual([])
+  })
+
+  it("takes the editors' review from an editor, and lets the editor change it", async () => {
+    expect((await partyWrite(insert(review('by-editors', 'editors')), EDITOR_TOKEN)).status).toBe(200)
+    const change = [{ channel: 'reviews', ops: [{ type: 'update', value: { id: 'by-editors', position: 'mixed', updated_at: '2026-11-24T01:00:00.000Z' } }] }]
+    expect((await partyWrite(change, EDITOR_TOKEN)).status).toBe(200)
+    expect(await rows(`SELECT reviewer_id, position FROM reviews WHERE id = 'by-editors'`)).toEqual([{ reviewer_id: 'editors', position: 'mixed' }])
+  })
+
+  it('refuses a second review by one reviewer of one act on one question', async () => {
+    expect((await partyWrite(insert(review('by-editors-again', 'editors', 'oppose')), EDITOR_TOKEN)).ok).toBe(false)
+    expect(await rows(`SELECT id FROM reviews WHERE act_id = 'act-reviewed'`)).toEqual([{ id: 'by-editors' }])
+  })
+
+  it('sends every review to a signed-out reader', async () => {
+    const socket = await partySocket()
+    await until(() => rowsOn(socket.frames, 'reviews').some((r) => r.id === 'by-editors'))
+    expect(rowsOn(socket.frames, 'reviews').find((r) => r.id === 'by-editors')).toMatchObject({ reviewer_id: 'editors', position: 'mixed' })
+    socket.close()
+  })
+})

@@ -74,8 +74,11 @@ test('an article with several people in it is one story, with the people as repl
     },
     { channel: 'reports', ops: people.map((_, i) => ({ type: 'insert', value: { id: ids[i].report, source_id: `src-${stamp}`, act_id: ids[i].act, excerpt: null, created_at: at } })) },
     {
-      channel: 'readings',
-      ops: people.map((_, i) => ({ type: 'insert', value: { id: ids[i].reading, act_id: ids[i].act, question_id: 'free-ferry', position: positions[i], bearing: 'direct', via_question_id: null, created_at: at } })),
+      channel: 'reviews',
+      ops: people.map((_, i) => ({
+        type: 'insert',
+        value: { id: ids[i].reading, reviewer_id: 'editors', act_id: ids[i].act, question_id: 'free-ferry', position: positions[i], weight: 'clear', based_on: null, created_at: at, updated_at: at },
+      })),
     },
   ])
   expect(write.ok()).toBe(true)

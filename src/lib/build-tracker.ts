@@ -1,6 +1,6 @@
-import type { Act, Body, Decider, Office, OfficeHolder, Position, Question, QuestionBody, QuestionDecider, QuestionOffice, QuestionRelation, Reading, Report, Role, Seat, SetPosition, Source } from '../../shared/schema.ts'
-import { inEffect, isOpenOn, pairId, stillAhead, type Certainty } from '../../shared/schema.ts'
-import { calculatePosition, footingOf, isAcross, type Footing } from '../../shared/standing.ts'
+import type { Act, Body, Decider, Office, OfficeHolder, Position, Question, QuestionBody, QuestionDecider, QuestionOffice, QuestionRelation, Reading, Report, Review, Role, Seat, SetPosition, Source } from '../../shared/schema.ts'
+import { EDITORS_ID, carriesUp, inEffect, isOpenOn, pairId, stillAhead, type Certainty } from '../../shared/schema.ts'
+import { calculatePosition, footingOf, isAcross, summarize, type Footing } from '../../shared/standing.ts'
 import type { Standing } from './position.ts'
 
 export function groupBy<T, K>(items: readonly T[], key: (item: T) => K): Map<K, T[]> {
@@ -83,7 +83,30 @@ export type TrackerData = {
   sources: Source[]
   acts: Act[]
   reports: Report[]
-  readings: Reading[]
+  reviews: Review[]
+}
+
+// What the reviews come to for each act on each question, and what a reading
+// of support on a sub-question implies on its parent where nothing was read
+// there directly. Too loose a reading does not carry upward.
+export function readingsFrom(reviews: Review[], questionById: ReadonlyMap<string, Question>): Reading[] {
+  const direct: Reading[] = []
+  for (const [id, group] of groupBy(reviews, (r) => `${r.act_id} ${r.question_id}`)) {
+    // Every review but the editors' is counted as a person's until reviews carry their author's kind.
+    const summary = summarize(group.map((r) => ({ ...r, tier: r.reviewer_id === EDITORS_ID ? ('editor' as const) : ('person' as const) })))
+    if (summary) direct.push({ id, act_id: group[0].act_id, question_id: group[0].question_id, position: summary.position, weight: summary.weight, via_question_id: null })
+  }
+  const readHere = new Set(direct.map((r) => r.id))
+  const implied: Reading[] = []
+  for (const r of direct) {
+    const question = questionById.get(r.question_id)
+    if (!question?.parent_id || !question.implies_on_parent || r.position !== 'support' || !carriesUp(r.weight)) continue
+    const id = `${r.act_id} ${question.parent_id}`
+    if (readHere.has(id)) continue
+    readHere.add(id)
+    implied.push({ id, act_id: r.act_id, question_id: question.parent_id, position: question.implies_on_parent, weight: r.weight, via_question_id: question.id })
+  }
+  return [...direct, ...implied]
 }
 
 // `asOf` is the day the bodies are viewed on. Seats and offices are filled by
@@ -98,6 +121,7 @@ export function buildTracker(c: TrackerData, asOf: string) {
   const setPositionById = indexBy(c.setPositions, (s) => s.id)
   const sourceById = indexBy(c.sources, (s) => s.id)
   const actById = indexBy(c.acts, (a) => a.id)
+  const readings = readingsFrom(c.reviews, questionById)
   const seatsByBody = groupBy(c.seats, (s) => s.body_id)
   const SURENESS: Record<Certainty, number> = { certain: 0, likely: 1, possible: 2 }
   // Surest first, so anything that takes the first holder takes the surest.
@@ -171,7 +195,7 @@ export function buildTracker(c: TrackerData, asOf: string) {
   }
 
   const entriesByPair = new Map<string, RecordEntry[]>()
-  for (const reading of c.readings) {
+  for (const reading of readings) {
     const act = actById.get(reading.act_id)
     if (!act) continue
     const entry = entryOf(act, reading)
@@ -340,6 +364,7 @@ export function buildTracker(c: TrackerData, asOf: string) {
 
   return {
     ...c,
+    readings,
     deciderById,
     deciderBySlug,
     questionById,

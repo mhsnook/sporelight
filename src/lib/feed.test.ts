@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildStories, buildWaiting, feedPage, mergeFeed, pageHolding, questionFamily } from './feed.ts'
-import { act, data, decider, item, proposal, question, reading, report, role, seat, setPosition, source, track } from './fixtures.ts'
+import { act, data, decider, item, proposal, question, review, report, role, seat, setPosition, source, track } from './fixtures.ts'
 
 const at = (day: string, time = '12:00') => `${day}T${time}:00.000Z`
 
@@ -40,14 +40,13 @@ const tracker = track({
   sources: ['paper', 'record', 'minutes', 'blog', 'wire', 'unread'].map((id) => source(id)),
   acts: [...article.map((p) => p.act), cosponsor.act, councilVote.act, aside.act, act('unread', 'ann', { created_at: at('2026-11-17') })],
   reports: [...article.map((p) => p.report), cosponsor.report, councilVote.report, aside.report, followUp, report('unread', 'unread', { created_at: at('2026-11-17') })],
-  readings: [
-    reading('ann-says', 'policy', 'support'),
-    reading('bob-says', 'policy', 'oppose'),
-    reading('bob-says', 'markup', 'oppose'),
-    reading('cosponsor', 'bill', 'support', null, 'concrete'),
-    reading('cosponsor', 'policy', 'support', 'bill', 'concrete'),
-    reading('aside', 'other', 'mixed'),
-    reading('council-vote', 'elsewhere', 'support'),
+  reviews: [
+    review('ann-says', 'policy', 'support'),
+    review('bob-says', 'policy', 'oppose'),
+    review('bob-says', 'markup', 'oppose'),
+    review('cosponsor', 'bill', 'support', 'concrete'),
+    review('aside', 'other', 'mixed'),
+    review('council-vote', 'elsewhere', 'support'),
   ],
 })
 

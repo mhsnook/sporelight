@@ -95,8 +95,8 @@ test("a member's seat is lit in the colour of where their record leaves them whe
     WHERE s.body_id = 'harbor-city-council' AND s.is_voting = 1 AND r.certainty = 'certain'
       AND (r.starts_on IS NULL OR r.starts_on <= '${DAY}') AND (r.ends_on IS NULL OR r.ends_on > '${DAY}')
       AND NOT EXISTS (SELECT 1 FROM set_positions sp WHERE sp.question_id = 'free-ferry' AND sp.decider_id = d.id)
-      AND EXISTS (SELECT 1 FROM readings rd JOIN acts a ON a.id = rd.act_id WHERE rd.question_id = 'free-ferry' AND a.decider_id = d.id)
-      AND NOT EXISTS (SELECT 1 FROM readings rd JOIN acts a ON a.id = rd.act_id WHERE rd.question_id = 'free-ferry' AND a.decider_id = d.id AND rd.position <> 'oppose')
+      AND EXISTS (SELECT 1 FROM reviews rd JOIN acts a ON a.id = rd.act_id WHERE rd.question_id = 'free-ferry' AND a.decider_id = d.id)
+      AND NOT EXISTS (SELECT 1 FROM reviews rd JOIN acts a ON a.id = rd.act_id WHERE rd.question_id = 'free-ferry' AND a.decider_id = d.id AND rd.position <> 'oppose')
     ORDER BY d.sort_name LIMIT 1`)
   expect(member, 'the seed has a council member whose record is all against').toBeDefined()
 
@@ -382,7 +382,7 @@ test('an entry can be published as a report of an act already on the record, rea
   await page.getByRole('button', { name: /Publish 1 person/ }).click()
   await expect(page.getByRole('status')).toContainText('Published 1 person')
   await expect.poll(acts).toBe(before)
-  expect(query(`SELECT rd.question_id FROM reports r JOIN sources s ON s.id = r.source_id JOIN readings rd ON rd.act_id = r.act_id WHERE s.title = '${sourceTitle}' ORDER BY rd.question_id`).map((r) => r.question_id)).toEqual(['free-ferry', 'free-ferry-ord-26-114'])
+  expect(query(`SELECT rd.question_id FROM reports r JOIN sources s ON s.id = r.source_id JOIN reviews rd ON rd.act_id = r.act_id WHERE s.title = '${sourceTitle}' ORDER BY rd.question_id`).map((r) => r.question_id)).toEqual(['free-ferry', 'free-ferry-ord-26-114'])
 })
 
 test('a card whose publish fails comes back as the editor left it', async ({ page, request }) => {
@@ -409,7 +409,7 @@ test('a card whose publish fails comes back as the editor left it', async ({ pag
   await page.unroute('**/parties/tracker/**')
   await page.getByRole('button', { name: /Publish 1 person/ }).click()
   await expect(page.getByRole('status')).toContainText('Published 1 person')
-  await expect.poll(() => query(`SELECT rd.position FROM reports r JOIN sources s ON s.id = r.source_id JOIN readings rd ON rd.act_id = r.act_id WHERE s.title = '${sourceTitle}'`)).toEqual([{ position: 'mixed' }])
+  await expect.poll(() => query(`SELECT rd.position FROM reports r JOIN sources s ON s.id = r.source_id JOIN reviews rd ON rd.act_id = r.act_id WHERE s.title = '${sourceTitle}'`)).toEqual([{ position: 'mixed' }])
 })
 
 test('the list beside the open card pages through every waiting proposal', async ({ page, request }) => {
@@ -542,7 +542,7 @@ test('work on a card is kept while another card is open, and a question added fr
 
   await page.getByRole('button', { name: /Publish 1 person/ }).click()
   await expect(page.getByRole('status')).toContainText('Published 1 person')
-  await expect.poll(() => query(`SELECT rd.position FROM readings rd JOIN questions q ON q.id = rd.question_id WHERE q.short_title = '${shortName}'`)).toEqual([{ position: 'support' }])
+  await expect.poll(() => query(`SELECT rd.position FROM reviews rd JOIN questions q ON q.id = rd.question_id WHERE q.short_title = '${shortName}'`)).toEqual([{ position: 'support' }])
   expect(query(`SELECT r.kind FROM question_relations r JOIN questions q ON q.id = r.related_id WHERE q.short_title = '${shortName}' AND r.question_id = 'free-ferry'`)).toEqual([{ kind: 'smaller_step' }])
 })
 
@@ -567,7 +567,7 @@ test('someone the article only describes can be recorded as presumed, and their 
   await page.goto('/q/free-ferry/desmond-kowalczyk')
   await expect(page.getByText(words, { exact: false }).first()).toBeVisible()
   await expect(page.getByText('Presumed, no quote of their own yet')).toBeVisible()
-  expect(query(`SELECT rd.weight FROM readings rd JOIN acts a ON a.id = rd.act_id WHERE a.body = '${words}'`)).toEqual([{ weight: 'presumed' }])
+  expect(query(`SELECT rd.weight FROM reviews rd JOIN acts a ON a.id = rd.act_id WHERE a.body = '${words}'`)).toEqual([{ weight: 'presumed' }])
 })
 
 test('a news search shows each search and article as a step, with what became of each, and carries on past one that could not be queued', async ({ page }) => {

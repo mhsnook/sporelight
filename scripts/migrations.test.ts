@@ -355,7 +355,7 @@ describe('the seed', () => {
   it('loads into the migrated schema, and loads again without duplicating anything', () => {
     const db = database()
     db.exec(seed)
-    const tables = ['sources', 'acts', 'reports', 'readings', 'set_positions', 'question_relations', 'questions', 'question_deciders', 'offices', 'office_holders', 'question_offices', 'question_bodies', 'bodies', 'seats', 'roles']
+    const tables = ['sources', 'acts', 'reports', 'reviews', 'set_positions', 'question_relations', 'questions', 'question_deciders', 'offices', 'office_holders', 'question_offices', 'question_bodies', 'bodies', 'seats', 'roles']
     const first = tables.map((t) => count(db, t))
     expect(count(db, 'acts')).toBeGreaterThan(0)
     expect(count(db, 'reports')).toBe(count(db, 'acts'))
@@ -374,17 +374,17 @@ describe('the seed', () => {
   it('accounts for each member of Halifax Regional Council once in its ferry fare vote', () => {
     const db = database()
     db.exec(seed)
-    const votes = all(db, `SELECT r.position, COUNT(*) AS n FROM readings r JOIN acts a ON a.id = r.act_id
+    const votes = all(db, `SELECT r.position, COUNT(*) AS n FROM reviews r JOIN acts a ON a.id = r.act_id
       WHERE r.question_id = 'halifax-ferry-fares' AND a.kind = 'does' GROUP BY r.position ORDER BY r.position`)
     expect(votes).toEqual([{ position: 'oppose', n: 11 }, { position: 'support', n: 3 }])
     expect(all(db, `SELECT COUNT(*) AS n FROM seats WHERE body_id = 'halifax-regional-council'`)[0].n).toBe(17)
-    expect(all(db, `SELECT COUNT(DISTINCT a.decider_id) AS n FROM acts a JOIN readings r ON r.act_id = a.id WHERE r.question_id = 'halifax-ferry-fares' AND a.kind = 'does'`)[0].n).toBe(14)
-    expect(all(db, `SELECT COUNT(*) AS n FROM acts a JOIN readings r ON r.act_id = a.id WHERE r.question_id = 'halifax-ferry-fares' AND a.primary_source_id IS NOT NULL`)[0].n).toBe(0)
+    expect(all(db, `SELECT COUNT(DISTINCT a.decider_id) AS n FROM acts a JOIN reviews r ON r.act_id = a.id WHERE r.question_id = 'halifax-ferry-fares' AND a.kind = 'does'`)[0].n).toBe(14)
+    expect(all(db, `SELECT COUNT(*) AS n FROM acts a JOIN reviews r ON r.act_id = a.id WHERE r.question_id = 'halifax-ferry-fares' AND a.primary_source_id IS NOT NULL`)[0].n).toBe(0)
   })
 
   describe('seed/remove-demo.sql', () => {
     const removeDemo = readFileSync(new URL('seed/remove-demo.sql', root), 'utf8')
-    const tables = ['bodies', 'seats', 'roles', 'deciders', 'questions', 'set_positions', 'question_relations', 'question_deciders', 'question_bodies', 'question_offices', 'offices', 'office_holders', 'sources', 'acts', 'reports', 'readings', 'proposals', 'proposal_items', 'proposal_notes', 'proposal_contexts', 'proposal_mentions', 'comments', 'article_reads', 'archive_attempts']
+    const tables = ['bodies', 'seats', 'roles', 'deciders', 'questions', 'set_positions', 'question_relations', 'question_deciders', 'question_bodies', 'question_offices', 'offices', 'office_holders', 'sources', 'acts', 'reports', 'reviews', 'proposals', 'proposal_items', 'proposal_notes', 'proposal_contexts', 'proposal_mentions', 'comments', 'article_reads', 'archive_attempts']
     const counts = (db: DatabaseSync) => Object.fromEntries(tables.map((t) => [t, count(db, t)]))
 
     it('takes out a demo council and what readers added to it, and leaves every other row', () => {
@@ -437,12 +437,11 @@ describe('the seed', () => {
     expect(all(db, `SELECT COUNT(*) AS n FROM reports WHERE source_id = 'held'`)[0].n).toBeGreaterThan(0)
   })
 
-  it('writes a parent reading, at the same weight, for every supporting reading on a question that implies it, unless it is a passing one', () => {
+  it("writes every seeded reading as the editors' review", () => {
     const db = database()
     db.exec(seed)
-    expect(all(db, `SELECT COUNT(*) AS n FROM readings r JOIN questions q ON q.id = r.question_id
-      WHERE q.implies_on_parent IS NOT NULL AND r.position = 'support' AND r.weight <> 'passing'
-        AND NOT EXISTS (SELECT 1 FROM readings p WHERE p.act_id = r.act_id AND p.question_id = q.parent_id AND p.via_question_id = q.id AND p.position = q.implies_on_parent AND p.weight = r.weight)`)[0].n).toBe(0)
+    expect(count(db, 'reviews')).toBeGreaterThan(0)
+    expect(all(db, `SELECT DISTINCT reviewer_id FROM reviews`)).toEqual([{ reviewer_id: 'editors' }])
   })
 
   it('seeds an open ask of an office in Congress, with a holder now and one from the next term', () => {
@@ -457,7 +456,7 @@ describe('the seed', () => {
       { name: 'Mike Crapo', starts_on: null, ends_on: '2027-01-03' },
       { name: 'Ron Wyden', starts_on: '2027-01-03', ends_on: null },
     ])
-    expect(all(db, `SELECT COUNT(*) AS n FROM readings WHERE question_id = 'm4a-s1506-markup'`)[0].n).toBe(0)
+    expect(all(db, `SELECT COUNT(*) AS n FROM reviews WHERE question_id = 'm4a-s1506-markup'`)[0].n).toBe(0)
   })
 
   it('moves an ask that named a person onto its office when the asks file is replayed alone', () => {
@@ -680,5 +679,37 @@ describe('0019_signed_in_contributors', () => {
 
   it('keeps each person and their name, without the muting', () => {
     expect(all(db, `SELECT * FROM people`)).toEqual([{ id: 'u', display_name: 'Una', created_at: '2026-11-01' }])
+  })
+})
+
+describe('0021_reviews', () => {
+  const db = database('0021')
+  db.exec(`
+    INSERT INTO bodies (id, slug, name) VALUES ('b', 'b', 'Body');
+    INSERT INTO deciders (id, slug, name, sort_name) VALUES ('ann', 'ann', 'Ann', 'Ann');
+    INSERT INTO questions (id, slug, body_id, parent_id, kind, title, short_title, implies_on_parent) VALUES
+      ('policy', 'policy', 'b', NULL, 'position', 'Policy?', 'Policy', NULL),
+      ('bill', 'bill', 'b', 'policy', 'formal_act', 'Signed the bill?', 'Bill', 'support');
+    INSERT INTO acts (id, decider_id, kind, occurred_on, body, created_at) VALUES ('signed', 'ann', 'commits', '2026-01-01', 'Cosponsored.', '2026-01-02');
+    INSERT INTO readings (id, act_id, question_id, position, weight, via_question_id, created_at) VALUES
+      ('on-bill', 'signed', 'bill', 'support', 'concrete', NULL, '2026-01-02'),
+      ('implied', 'signed', 'policy', 'support', 'concrete', 'bill', '2026-01-02');
+  `)
+  db.exec(migration('0021_reviews.sql'))
+
+  it('keeps each reading read directly as a review by the editors', () => {
+    expect(all(db, `SELECT id, reviewer_id, act_id, question_id, position, weight, based_on, updated_at FROM reviews`)).toEqual([
+      { id: 'on-bill', reviewer_id: 'editors', act_id: 'signed', question_id: 'bill', position: 'support', weight: 'concrete', based_on: null, updated_at: '2026-01-02' },
+    ])
+    expect(all(db, `PRAGMA foreign_key_check`)).toEqual([])
+  })
+
+  it('gives the editors a person nobody can sign in as by email', () => {
+    expect(all(db, `SELECT p.display_name, u.email FROM people p JOIN auth_users u ON u.id = p.id WHERE p.id = 'editors'`)).toEqual([{ display_name: 'Editors', email: 'editors@sporelight.invalid' }])
+  })
+
+  it('refuses a second review by one reviewer of one act on one question, and a reviewer who does not exist', () => {
+    expect(() => db.exec(`INSERT INTO reviews (id, reviewer_id, act_id, question_id, position, weight, created_at, updated_at) VALUES ('again', 'editors', 'signed', 'bill', 'oppose', 'clear', 't', 't')`)).toThrow()
+    expect(() => db.exec(`INSERT INTO reviews (id, reviewer_id, act_id, question_id, position, weight, created_at, updated_at) VALUES ('stranger', 'nobody', 'signed', 'policy', 'oppose', 'clear', 't', 't')`)).toThrow()
   })
 })

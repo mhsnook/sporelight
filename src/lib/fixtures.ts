@@ -1,5 +1,5 @@
-import type { Act, Decider, Office, OfficeHolder, Position, Proposal, ProposalItem, Question, QuestionDecider, QuestionRelation, Reading, Report, Role, Seat, SetPosition, Source } from '../../shared/schema.ts'
-import { pairId } from '../../shared/schema.ts'
+import type { Act, Decider, Office, OfficeHolder, Position, Proposal, ProposalItem, Question, QuestionDecider, QuestionRelation, Report, Review, Role, Seat, SetPosition, Source } from '../../shared/schema.ts'
+import { EDITORS_ID, pairId } from '../../shared/schema.ts'
 import { buildTracker, type TrackerData } from './build-tracker.ts'
 
 // Row builders for tests: each takes the fields a test cares about and fills in the rest.
@@ -46,7 +46,7 @@ export const relation = (questionId: string, relatedId: string, kind: QuestionRe
 export const source = (id: string, over: Partial<Source> = {}): Source => ({ id, url: `https://example.com/${id}`, title: id, publisher: null, published_on: null, published_on_from: null, kind: null, archive_url: null, stored_copy: null, created_at: '2026-01-01T00:00:00.000Z', ...over })
 export const act = (id: string, deciderId: string, over: Partial<Act> = {}): Act => ({ id, decider_id: deciderId, kind: 'says', occurred_on: '2026-01-01', body: id, primary_source_id: null, withdrawn_on: null, created_at: '2026-01-01T00:00:00.000Z', ...over })
 export const report = (sourceId: string, actId: string, over: Partial<Report> = {}): Report => ({ id: `${sourceId}>${actId}`, source_id: sourceId, act_id: actId, excerpt: null, passage: null, created_at: '2026-01-01T00:00:00.000Z', ...over })
-export const reading = (actId: string, questionId: string, position: Reading['position'], via: string | null = null, weight: Reading['weight'] = 'clear'): Reading => ({ id: `${actId}@${questionId}`, act_id: actId, question_id: questionId, position, weight, via_question_id: via, created_at: '2026-01-01T00:00:00.000Z' })
+export const review = (actId: string, questionId: string, position: Review['position'], weight: Review['weight'] = 'clear', reviewerId = EDITORS_ID): Review => ({ id: `${reviewerId}:${actId}@${questionId}`, reviewer_id: reviewerId, act_id: actId, question_id: questionId, position, weight, based_on: null, created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' })
 export const proposal = (id: string, sourceId: string, over: Partial<Proposal> = {}): Proposal => ({ id, source_id: sourceId, origin: 'reader', submitted_by: null, status: 'pending', unread: null, created_at: '2026-01-01T00:00:00.000Z', reviewed_at: null, ...over })
 export const item = (id: string, proposalId: string, deciderId: string, questionId: string, over: Partial<ProposalItem> = {}): ProposalItem => ({
   id,
@@ -81,7 +81,7 @@ export const data = (over: Partial<TrackerData>): TrackerData => ({
   sources: [],
   acts: [],
   reports: [],
-  readings: [],
+  reviews: [],
   ...over,
 })
 
