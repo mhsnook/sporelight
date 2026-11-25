@@ -44,6 +44,7 @@ DELETE FROM proposals WHERE id IN (SELECT proposal_id FROM removed_items)
   AND NOT EXISTS (SELECT 1 FROM proposal_items i WHERE i.proposal_id = proposals.id);
 
 DELETE FROM reviews WHERE act_id IN (SELECT id FROM removed_acts) OR question_id IN (SELECT id FROM removed_questions);
+DELETE FROM same_acts WHERE act_id IN (SELECT id FROM removed_acts) OR same_as_id IN (SELECT id FROM removed_acts);
 DELETE FROM reports WHERE act_id IN (SELECT id FROM removed_acts);
 DELETE FROM acts WHERE id IN (SELECT id FROM removed_acts);
 DELETE FROM set_positions WHERE question_id IN (SELECT id FROM removed_questions) OR decider_id IN (SELECT id FROM removed_deciders);

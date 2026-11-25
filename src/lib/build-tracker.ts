@@ -1,4 +1,4 @@
-import type { Act, Body, Decider, Office, OfficeHolder, Position, Question, QuestionBody, QuestionDecider, QuestionOffice, QuestionRelation, Reading, Report, Review, Role, Seat, SetPosition, Source } from '../../shared/schema.ts'
+import type { Act, Body, Decider, Office, OfficeHolder, Position, Question, QuestionBody, QuestionDecider, QuestionOffice, QuestionRelation, Reading, Report, Review, Role, SameAct, Seat, SetPosition, Source } from '../../shared/schema.ts'
 import { EDITORS_ID, carriesUp, inEffect, isOpenOn, pairId, stillAhead, type Certainty } from '../../shared/schema.ts'
 import { REVIEWER_TIERS, calculatePosition, footingOf, isAcross, summarize, type Footing, type ReviewerTier } from '../../shared/standing.ts'
 import type { Standing } from './position.ts'
@@ -84,6 +84,52 @@ export type TrackerData = {
   acts: Act[]
   reports: Report[]
   reviews: Review[]
+  sameActs: SameAct[]
+}
+
+// The record as readers see it: an act an editor found to be the same as
+// another is shown as that one. Its reports go there, keeping the words their
+// source printed, and its reviews count there, each reviewer once by their
+// latest. A loop of acts each marked as the next leaves every act as itself.
+export function asShown(c: Pick<TrackerData, 'acts' | 'reports' | 'reviews' | 'sameActs'>) {
+  const sameAs = new Map(c.sameActs.map((s) => [s.act_id, s.same_as_id]))
+  const shownAs = (actId: string): string => {
+    const seen = new Set<string>()
+    let at = actId
+    while (sameAs.has(at) && !seen.has(at)) {
+      seen.add(at)
+      at = sameAs.get(at)!
+    }
+    return seen.has(at) ? actId : at
+  }
+  const rawById = indexBy(c.acts, (a) => a.id)
+  const alsoRecordedAs = groupBy(
+    c.acts.filter((a) => shownAs(a.id) !== a.id),
+    (a) => shownAs(a.id),
+  )
+  const acts = c.acts
+    .filter((a) => shownAs(a.id) === a.id)
+    .map((a) => (a.primary_source_id ? a : { ...a, primary_source_id: alsoRecordedAs.get(a.id)?.find((d) => d.primary_source_id)?.primary_source_id ?? null }))
+
+  const reports = new Map<string, Report>()
+  // The shown act's own report from a source comes first, so it is the one kept.
+  for (const report of [...c.reports].sort((a, b) => Number(shownAs(a.act_id) !== a.act_id) - Number(shownAs(b.act_id) !== b.act_id))) {
+    const actId = shownAs(report.act_id)
+    const key = `${report.source_id} ${actId}`
+    if (reports.has(key)) continue
+    const own = rawById.get(report.act_id)
+    const words = actId === report.act_id || report.excerpt !== null || own?.body === rawById.get(actId)?.body ? report.excerpt : (own?.body ?? null)
+    reports.set(key, { ...report, act_id: actId, excerpt: words })
+  }
+
+  const reviews = new Map<string, Review>()
+  for (const review of c.reviews) {
+    const actId = shownAs(review.act_id)
+    const key = `${review.reviewer_id} ${actId} ${review.question_id}`
+    const kept = reviews.get(key)
+    if (!kept || review.updated_at > kept.updated_at) reviews.set(key, { ...review, act_id: actId })
+  }
+  return { acts, reports: [...reports.values()], reviews: [...reviews.values()], shownAs, alsoRecordedAs }
 }
 
 // What the reviews come to for each act on each question. A review of support
@@ -122,8 +168,10 @@ export function buildTracker(c: TrackerData, asOf: string) {
   const seatById = indexBy(c.seats, (s) => s.id)
   const setPositionById = indexBy(c.setPositions, (s) => s.id)
   const sourceById = indexBy(c.sources, (s) => s.id)
-  const actById = indexBy(c.acts, (a) => a.id)
-  const readings = readingsFrom(c.reviews, questionById)
+  const shown = asShown(c)
+  // Every act on file, so a proposal or a plan can find one shown as another; a shown act as it is shown.
+  const actById = indexBy([...c.acts, ...shown.acts], (a) => a.id)
+  const readings = readingsFrom(shown.reviews, questionById)
   const seatsByBody = groupBy(c.seats, (s) => s.body_id)
   const SURENESS: Record<Certainty, number> = { certain: 0, likely: 1, possible: 2 }
   // Surest first, so anything that takes the first holder takes the surest.
@@ -145,8 +193,9 @@ export function buildTracker(c: TrackerData, asOf: string) {
     (t) => t.office.id,
   )
   const officesOf = groupBy(c.questionOffices, (l) => l.question_id)
-  const actsByDecider = groupBy(c.acts, (a) => a.decider_id)
-  const reportsByAct = groupBy(c.reports, (r) => r.act_id)
+  const actsByDecider = groupBy(shown.acts, (a) => a.decider_id)
+  const reportsByAct = groupBy(shown.reports, (r) => r.act_id)
+  const sameActsOf = groupBy(c.sameActs, (s) => s.same_as_id)
   const namedIn = groupBy(c.questionDeciders, (l) => l.question_id)
 
   const bodyById = indexBy(c.bodies, (b) => b.id)
@@ -367,6 +416,9 @@ export function buildTracker(c: TrackerData, asOf: string) {
   return {
     ...c,
     readings,
+    shownReports: shown.reports,
+    shownAs: shown.shownAs,
+    sameActsOf,
     deciderById,
     deciderBySlug,
     questionById,

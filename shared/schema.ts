@@ -293,6 +293,16 @@ export const reviewSchema = z.object({
 })
 export type Review = z.infer<typeof reviewSchema>
 
+// An act an editor has found to be the same real-world act as another. The
+// record shows it as the other: its reports there, its reviews counted there.
+export const sameActSchema = z.object({
+  act_id: z.string(),
+  same_as_id: z.string(),
+  marked_by: z.string(),
+  marked_at: z.string(),
+})
+export type SameAct = z.infer<typeof sameActSchema>
+
 // What the reviews of an act on a question come to, worked out and never
 // stored. Two reviews can average to lean_oppose, which no review can say.
 export type Reading = {
@@ -496,6 +506,7 @@ export const publicCollections = [
   definePartyCollection({ name: 'acts', key: 'id', schema: actSchema, access: editorWrites }),
   definePartyCollection({ name: 'reports', key: 'id', schema: reportSchema, access: editorWrites }),
   definePartyCollection({ name: 'reviews', key: 'id', schema: reviewSchema, access: editorWrites }),
+  definePartyCollection({ name: 'same_acts', key: 'act_id', schema: sameActSchema, access: editorWrites }),
 ] as const
 
 // Unreviewed proposals are public. Add no column here that only an editor

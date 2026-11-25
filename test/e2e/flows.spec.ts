@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test'
 import { SPECTRUM, STANDINGS, STANDING_COLOR, standingLabel, type Standing } from '../../src/lib/position.ts'
+import { EDITORS_ID } from '../../shared/schema.ts'
 import { query } from './db.ts'
 import { TODAY, editorToken, partyWrite, signInWithCode } from './fixtures.ts'
 
@@ -922,4 +923,42 @@ test('an editor adds a person with no page yet, gives them a seat found by chamb
   await page.getByRole('button', { name: 'Save changes' }).click()
   await expect(page.getByRole('status').filter({ hasText: 'Saved.' })).toBeVisible()
   await expect.poll(() => query(`SELECT name, slug FROM deciders WHERE slug = 'ines-okonkwo-${stamp}'`)).toEqual([{ name: `Ines A. Okonkwo ${stamp}`, slug: `ines-okonkwo-${stamp}` }])
+})
+
+test('an editor shows one act as the same as another, sees one entry with both sources, and separates them again', async ({ page, request }) => {
+  const stamp = Date.now()
+  const at = TODAY.toISOString()
+  const first = `Whitlock backs the free ferry (${stamp})`
+  const again = `Whitlock says again he backs the free ferry (${stamp})`
+  const acts = [
+    { id: `act-${stamp}-a`, body: first, source: `src-${stamp}-a` },
+    { id: `act-${stamp}-b`, body: again, source: `src-${stamp}-b` },
+  ]
+  const write = await partyWrite(request, [
+    { channel: 'sources', ops: acts.map((a) => ({ type: 'insert', value: { id: a.source, url: `https://example.com/${a.source}`, title: `Source ${a.source}`, publisher: null, published_on: null, published_on_from: null, kind: 'article', archive_url: null, stored_copy: null, created_at: at } })) },
+    { channel: 'acts', ops: acts.map((a) => ({ type: 'insert', value: { id: a.id, decider_id: 'demo-tomas-whitlock', kind: 'says', occurred_on: '2026-11-10', body: a.body, primary_source_id: null, withdrawn_on: null, created_at: at } })) },
+    { channel: 'reports', ops: acts.map((a) => ({ type: 'insert', value: { id: `rep-${a.id}`, source_id: a.source, act_id: a.id, excerpt: null, passage: null, created_at: at } })) },
+    {
+      channel: 'reviews',
+      ops: acts.map((a) => ({ type: 'insert', value: { id: `rv-${a.id}`, reviewer_id: EDITORS_ID, act_id: a.id, question_id: 'free-ferry', position: 'support', weight: 'clear', based_on: null, created_at: at, updated_at: at } })),
+    },
+  ])
+  expect(write.ok()).toBe(true)
+
+  await signInAsEditor(page)
+  await page.goto('/q/free-ferry/tomas-whitlock')
+  const entry = (words: string) => page.getByRole('listitem').filter({ has: page.getByRole('blockquote').filter({ hasText: words }) })
+  await expect(entry(first)).toBeVisible()
+  await expect(entry(again)).toBeVisible()
+
+  page.once('dialog', (dialog) => dialog.accept())
+  await entry(again).getByLabel('Same act as').selectOption(acts[0].id)
+  await expect(entry(first).getByText(`Also recorded as`)).toBeVisible()
+  await expect(entry(first)).toContainText(`Source src-${stamp}-b`)
+  await expect(entry(again)).toHaveCount(0)
+  expect(query(`SELECT COUNT(*) AS n FROM acts WHERE id LIKE 'act-${stamp}-%'`)[0].n).toBe(2)
+
+  await entry(first).getByRole('button', { name: 'Separate' }).click()
+  await expect(entry(again)).toBeVisible()
+  await expect.poll(() => query(`SELECT COUNT(*) AS n FROM same_acts WHERE act_id = 'act-${stamp}-b'`)[0].n).toBe(0)
 })

@@ -717,6 +717,15 @@ describe('0021_reviews', () => {
     ])
   })
 
+  it('marks an act as the same as one other act, never as itself, and only by a person on file', () => {
+    const mark = (act: string, sameAs: string, by: string = EDITORS_ID) => db.exec(`INSERT INTO same_acts (act_id, same_as_id, marked_by, marked_at) VALUES ('${act}', '${sameAs}', '${by}', 't')`)
+    mark('hinted', 'signed')
+    expect(() => mark('hinted', 'signed')).toThrow()
+    expect(() => mark('signed', 'signed')).toThrow()
+    expect(() => mark('signed', 'hinted', 'nobody')).toThrow()
+    db.exec(`DELETE FROM same_acts`)
+  })
+
   it('refuses a second review by one reviewer of one act on one question, and a reviewer who does not exist', () => {
     expect(() => db.exec(`INSERT INTO reviews (id, reviewer_id, act_id, question_id, position, weight, created_at, updated_at) VALUES ('again', '${EDITORS_ID}', 'signed', 'bill', 'oppose', 'clear', 't', 't')`)).toThrow()
     expect(() => db.exec(`INSERT INTO reviews (id, reviewer_id, act_id, question_id, position, weight, created_at, updated_at) VALUES ('stranger', 'nobody', 'signed', 'policy', 'oppose', 'clear', 't', 't')`)).toThrow()

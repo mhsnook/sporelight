@@ -353,3 +353,37 @@ describe('reviews in the sync room', () => {
     socket.close()
   })
 })
+
+describe('acts marked as the same in the sync room', () => {
+  const mail = mailbox()
+  let cookie = ''
+  const mark = { act_id: 'act-again', same_as_id: 'act-first', marked_by: EDITORS_ID, marked_at: '2026-11-25T00:00:00.000Z' }
+  const insert = [{ channel: 'same_acts', ops: [{ type: 'insert', value: mark }] }]
+
+  beforeAll(async () => {
+    await env.DB.batch(
+      [
+        `INSERT INTO acts (id, decider_id, kind, occurred_on, body, created_at) VALUES ('act-first', 'ann', 'says', '2026-11-20', 'First.', '2026-11-20T00:00:00Z')`,
+        `INSERT INTO acts (id, decider_id, kind, occurred_on, body, created_at) VALUES ('act-again', 'ann', 'says', '2026-11-20', 'Again.', '2026-11-21T00:00:00Z')`,
+      ].map((sql) => env.DB.prepare(sql)),
+    )
+    cookie = await signIn(mail, 'marker@reader.test')
+  })
+
+  it('refuses a mark from a signed-out reader, a wrong token and a signed-in reader', async () => {
+    expect((await partyWrite(insert)).status).toBe(401)
+    expect((await partyWrite(insert, 'not-the-token')).status).toBe(401)
+    expect((await partyWrite(insert, undefined, cookie)).status).toBe(401)
+    expect(await rows(`SELECT act_id FROM same_acts`)).toEqual([])
+  })
+
+  it('takes a mark from an editor, sends it to a signed-out reader, and lets the editor take it away', async () => {
+    expect((await partyWrite(insert, EDITOR_TOKEN)).status).toBe(200)
+    const socket = await partySocket()
+    await until(() => rowsOn(socket.frames, 'same_acts').some((r) => r.act_id === 'act-again'))
+    socket.close()
+    expect((await partyWrite([{ channel: 'same_acts', ops: [{ type: 'delete', value: { act_id: 'act-again' } }] }], EDITOR_TOKEN)).status).toBe(200)
+    expect(await rows(`SELECT act_id FROM same_acts`)).toEqual([])
+    expect(await rows(`SELECT id FROM acts WHERE id IN ('act-first', 'act-again') ORDER BY id`)).toEqual([{ id: 'act-again' }, { id: 'act-first' }])
+  })
+})

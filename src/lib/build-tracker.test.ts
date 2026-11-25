@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { claimLabel, claimTag } from './position.ts'
-import { readingsFrom, type RecordEntry } from './build-tracker.ts'
+import { EDITORS_ID, type SameAct } from '../../shared/schema.ts'
+import { asShown, readingsFrom, type RecordEntry } from './build-tracker.ts'
 import { act, decider, holder, link, office, question, review, relation, report, role, seat, setPosition, source, track } from './fixtures.ts'
 
 const policy = question('policy')
@@ -562,5 +563,64 @@ describe('readingsFrom', () => {
 
   it("puts the editors' implied reading on the parent ahead of a person's review there", () => {
     expect(shown([review('a', 'bill', 'support', 'concrete'), review('a', 'policy', 'oppose', 'clear', 'a-reader')])).toContainEqual(['a', 'policy', 'support', 'concrete', 'bill'])
+  })
+})
+
+describe('acts an editor found to be the same', () => {
+  const policy = question('policy')
+  const markup = question('markup', { parent_id: 'policy' })
+  const same = (actId: string, sameAsId: string): SameAct => ({ act_id: actId, same_as_id: sameAsId, marked_by: EDITORS_ID, marked_at: '2026-11-25T00:00:00.000Z' })
+  const rows = {
+    deciders: [decider('ann'), decider('bob')],
+    questions: [policy, markup],
+    sources: [source('paper'), source('wire'), source('release')],
+    acts: [act('feb-11', 'ann', { occurred_on: '2026-02-11' }), act('feb-11-again', 'ann', { occurred_on: '2026-02-12', primary_source_id: 'release' }), act('other', 'bob')],
+    reports: [report('paper', 'feb-11'), report('paper', 'feb-11-again', { excerpt: 'As the paper put it.' }), report('wire', 'feb-11-again'), report('release', 'feb-11-again')],
+    reviews: [review('feb-11', 'policy', 'support'), { ...review('feb-11-again', 'policy', 'lean_support'), updated_at: '2026-03-01T00:00:00.000Z' }, review('feb-11-again', 'markup', 'oppose')],
+  }
+  const marked = track({ ...rows, sameActs: [same('feb-11-again', 'feb-11')] })
+
+  it('shows one entry with every source, the record of the act first', () => {
+    const record = marked.recordFor(policy, 'ann')
+    expect(record.map((e) => e.act.id)).toEqual(['feb-11'])
+    expect(record[0].act.primary_source_id).toBe('release')
+    expect(record[0].reports.map((r) => r.source.id)).toEqual(['release', 'paper', 'wire'])
+  })
+
+  it('keeps the words each source printed, and one report per source', () => {
+    const words = marked.shownReports.filter((r) => r.act_id === 'feb-11').map((r) => [r.source_id, r.excerpt])
+    expect(words.sort()).toEqual([
+      ['paper', null],
+      ['release', 'feb-11-again'],
+      ['wire', 'feb-11-again'],
+    ])
+  })
+
+  it("counts each reviewer's latest review of either act, and reads the other act's questions there too", () => {
+    expect(marked.readings.filter((r) => r.act_id === 'feb-11').map((r) => [r.question_id, r.position]).sort()).toEqual([
+      ['markup', 'oppose'],
+      ['policy', 'lean_support'],
+    ])
+    expect(marked.readings.some((r) => r.act_id === 'feb-11-again')).toBe(false)
+  })
+
+  it('changes no row, and shows both acts again once the mark is taken away', () => {
+    expect(marked.acts).toEqual(rows.acts)
+    expect(marked.reviews).toEqual(rows.reviews)
+    const apart = track(rows)
+    expect(apart.recordFor(policy, 'ann').map((e) => e.act.id)).toEqual(['feb-11-again', 'feb-11'])
+  })
+
+  it('still finds the act shown as another, for a proposal that names it', () => {
+    expect(marked.actById.get('feb-11-again')?.id).toBe('feb-11-again')
+    expect(marked.shownAs('feb-11-again')).toBe('feb-11')
+    expect(marked.actsByDecider.get('ann')?.map((a) => a.id)).toEqual(['feb-11'])
+  })
+
+  it('follows one act marked as another that is itself marked, and leaves a loop as it is', () => {
+    const chain = asShown({ ...rows, acts: [...rows.acts, act('feb-11-third', 'ann')], sameActs: [same('feb-11-third', 'feb-11-again'), same('feb-11-again', 'feb-11')] })
+    expect(chain.shownAs('feb-11-third')).toBe('feb-11')
+    const loop = asShown({ ...rows, sameActs: [same('feb-11', 'feb-11-again'), same('feb-11-again', 'feb-11')] })
+    expect([loop.shownAs('feb-11'), loop.shownAs('feb-11-again')]).toEqual(['feb-11', 'feb-11-again'])
   })
 })

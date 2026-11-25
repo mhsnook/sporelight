@@ -82,6 +82,7 @@ export const data = (over: Partial<TrackerData>): TrackerData => ({
   acts: [],
   reports: [],
   reviews: [],
+  sameActs: [],
   ...over,
 })
 

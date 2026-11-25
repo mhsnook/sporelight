@@ -7,7 +7,7 @@ import { editorFetch, signOut } from '../lib/editor.ts'
 import { commit } from '../lib/review.ts'
 import { planReview, type Write } from '../lib/review-plan.ts'
 import { groupBy } from '../lib/build-tracker.ts'
-import { decisionOf, draftEntries, outlook, proposalIsAcross, verdictOf, type EntryDraft } from '../lib/review-form.ts'
+import { decisionOf, draftEntries, outlook, proposalIsAcross, reportingAct, verdictOf, type EntryDraft } from '../lib/review-form.ts'
 import { narrowQueue, tallyQueue, type QuestionTally } from '../lib/queue-filter.ts'
 import { useTracker } from '../lib/tracker.tsx'
 import { DIRECTION_LABEL, formatDate, KIND_LABEL, sourceLabel, WEIGHT_LABEL } from '../lib/position.ts'
@@ -362,7 +362,12 @@ function Desk({
   const [drafts, setDrafts] = useState(
     () =>
       restored?.drafts ??
-      draftEntries(items, contexts).map((d) => ({ ...d, note: notes.find((n) => n.kind === 'review' && d.items.some((i) => i.id === n.proposal_item_id))?.body ?? '' })),
+      draftEntries(items, contexts).map((d) => {
+        const note = notes.find((n) => n.kind === 'review' && d.items.some((i) => i.id === n.proposal_item_id))?.body ?? ''
+        // An item naming an act since marked as the same as another starts as a report of that one.
+        const shown = tracker.actById.has(d.act_id) ? tracker.actById.get(tracker.shownAs(d.act_id)) : undefined
+        return { ...(shown && shown.id !== d.act_id ? reportingAct(d, shown) : d), note }
+      }),
   )
   const [reviewNote, setReviewNote] = useState(restored?.reviewNote ?? notes.find((n) => n.kind === 'review' && !n.proposal_item_id)?.body ?? '')
   const [publishedOn, setPublishedOn] = useState(restored?.publishedOn)

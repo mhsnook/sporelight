@@ -1,7 +1,6 @@
 -- Each judgement of what an act shows on a question is a review, owned by the
--- identity that made it. What the record shows for an act on a question is
--- worked out from its reviews, and so is what a sub-question implies on its
--- parent, so neither is stored.
+-- identity that made it. What an act reads as on a question is worked out from
+-- its reviews and is not stored.
 
 -- Until editors are signed-in people, everything written with the editor token
 -- is written as this one identity. The address can receive no mail, so nobody
@@ -25,6 +24,18 @@ CREATE TABLE reviews (
 );
 CREATE INDEX reviews_act ON reviews(act_id);
 CREATE INDEX reviews_question ON reviews(question_id);
+
+-- One act an editor has found to be the same real-world act as another. Both
+-- acts and everything pointing at them stay; the record shows the first as the
+-- second, and deleting the row separates them again.
+CREATE TABLE same_acts (
+  act_id TEXT PRIMARY KEY REFERENCES acts(id),
+  same_as_id TEXT NOT NULL REFERENCES acts(id),
+  marked_by TEXT NOT NULL REFERENCES people(id),
+  marked_at TEXT NOT NULL,
+  CHECK (act_id <> same_as_id)
+);
+CREATE INDEX same_acts_same_as ON same_acts(same_as_id);
 
 -- Every reading so far was an editor's. One a sub-question implied is dropped:
 -- it is worked out again from the reading on the sub-question. A lean against
