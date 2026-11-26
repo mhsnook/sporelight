@@ -70,10 +70,29 @@ describe('changing roles through Better Auth', () => {
     expect(await roleOf(someone.personId)).toEqual({ role: 'member', banned: 0 })
   })
 
-  it('refuses a role that does not exist', async () => {
+  it('refuses a role that does not exist, and a list of roles', async () => {
     const someone = await reader('odd-role@reader.test')
     expect((await admin('set-role', { userId: someone.personId, role: 'admin' }, first.cookie)).ok).toBe(false)
+    expect((await admin('set-role', { userId: someone.personId, role: ['editor', 'member'] }, first.cookie)).ok).toBe(false)
     expect(await roleOf(someone.personId)).toEqual({ role: 'member', banned: 0 })
+  })
+
+  it('refuses making an agent an editor', async () => {
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO auth_users (id, name, email, emailVerified, createdAt, updatedAt, isAnonymous, role) VALUES ('agent-1', 'Agent', 'agent-1@agents.sporelight.invalid', 0, 't', 't', 1, 'member')`),
+      env.DB.prepare(`INSERT INTO people (id, kind, display_name, created_at) VALUES ('agent-1', 'agent', 'Agent', 't')`),
+    ])
+    const res = await admin('set-role', { userId: 'agent-1', role: 'editor' }, first.cookie)
+    expect(res.status).toBe(400)
+    expect(await roleOf('agent-1')).toEqual({ role: 'member', banned: 0 })
+  })
+
+  it('gives an editor no route to anyone’s email address or sessions', async () => {
+    const someone = await reader('private@reader.test')
+    const get = (path: string) => exports.default.fetch(`http://sporelight.test/api/auth/admin/${path}`, { headers: { cookie: first.cookie } })
+    const answers = [await get('list-users'), await get(`get-user?id=${someone.personId}`), await admin('list-user-sessions', { userId: someone.personId }, first.cookie)]
+    expect(answers.map((res) => res.status)).toEqual([403, 403, 403])
+    for (const res of answers) expect(await res.text()).not.toContain('private@reader.test')
   })
 
   it('refuses an editor impersonating someone, so nobody writes as anyone else', async () => {

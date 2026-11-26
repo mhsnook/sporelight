@@ -71,6 +71,11 @@ export function authOptions(env: Env) {
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
         const body = ctx.body as { userId?: unknown; role?: unknown } | undefined
+        if (ctx.path === '/admin/set-role') {
+          // Better Auth takes a list of roles too, and would count 'editor,member' as an editor where the room counts a member.
+          if (body?.role !== 'member' && body?.role !== 'editor') throw new APIError('BAD_REQUEST', { message: 'A role is member or editor.' })
+          if (body.role === 'editor' && typeof body.userId === 'string' && (await isAgent(env, body.userId))) throw new APIError('BAD_REQUEST', { message: 'An agent cannot be an editor.' })
+        }
         const demoting = (ctx.path === '/admin/set-role' && body?.role !== 'editor') || ctx.path === '/admin/ban-user' || ctx.path === '/admin/remove-user'
         if (!demoting || typeof body?.userId !== 'string') return
         // Someone who may not make the change is left to Better Auth to refuse.
@@ -116,6 +121,10 @@ async function sendCode(env: Env, email: string, code: string) {
   } catch (e) {
     console.error('sign-in code not sent', e)
   }
+}
+
+async function isAgent(env: Env, userId: string): Promise<boolean> {
+  return (await env.DB.prepare(`SELECT 1 FROM auth_users WHERE id = ? AND "isAnonymous" = 1`).bind(userId).first()) !== null
 }
 
 async function isLastEditor(env: Env, userId: string): Promise<boolean> {
