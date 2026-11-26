@@ -86,6 +86,7 @@ function DirectionButtons({
 function thenNote(entry: EntryDraft, view: Outlook, question: Question, whenFirst: string): string {
   if (!view.then) return entry.decider_id ? 'both answers first' : 'the person first'
   if (view.now.set) return 'set by editors, so it stays'
+  if (!entry.occurred_on) return 'not counted until it has a date'
   if (view.now.standing === 'unknown') return whenFirst
   return view.then.standing === view.now.standing ? 'unchanged' : `was ${standingLabel(view.now.standing, question)}`
 }
