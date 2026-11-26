@@ -78,7 +78,7 @@ describe('/mcp: reading the record', () => {
 
   it('gives the acts behind a position with their sources, by id or slug', async () => {
     const result = (await call('get_record', { question: 'hot', person: 'ann-alpha' })).structuredContent as { record: { words: string; sources: { url: string }[] }[] }
-    expect(result.record).toEqual([expect.objectContaining({ words: 'I support this, plainly.', sources: [expect.objectContaining({ url: 'https://news.example/ann-speech' })] })])
+    expect(result.record).toEqual([expect.objectContaining({ words: 'I support this, plainly.', checked: true, sources: [expect.objectContaining({ url: 'https://news.example/ann-speech' })] })])
   })
 
   it('finds deciders by part of a name', async () => {
@@ -134,6 +134,13 @@ describe('/mcp: agents sign up and send evidence as people', () => {
     expect((await rows<{ body: string }>(`SELECT body FROM proposal_notes WHERE proposal_id = ?`, proposalId)).map((n) => n.body)).toEqual(['From our council monitor.'])
     // The act is on file with the agent's own review of it, and the editors have not reviewed it.
     expect(await rows(`SELECT reviewer_id, position FROM reviews WHERE act_id IN (SELECT act_id FROM proposal_items WHERE proposal_id = ?)`, proposalId)).toEqual([{ reviewer_id: agent.id, position: 'support' }])
+  })
+
+  it('returns what an agent sent in the record at once, marked as not checked by an editor', async () => {
+    const agent = await signUp('Fay watcher')
+    await call('submit_evidence', evidence({ decider_id: 'fay', quote: 'Fay Zeta said she backs it.' }), agent.api_key)
+    const result = (await call('get_record', { question: 'hot', person: 'fay' })).structuredContent as { record: { words: string; checked: boolean }[] }
+    expect(result.record).toEqual([expect.objectContaining({ words: 'Fay Zeta said she backs it.', checked: false })])
   })
 
   it('refuses evidence sent with no key, as the site refuses a post from someone signed out, and writes nothing', async () => {
