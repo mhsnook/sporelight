@@ -97,8 +97,8 @@ export function tierOfPeople(people: TrackerData['people']): (reviewerId: string
 
 // The record as readers see it: an act an editor found to be the same as
 // another is shown as that one. Its reports go there, keeping the words their
-// source printed, and its reviews count there, each reviewer once by their
-// latest. A loop of acts each marked as the next leaves every act as itself.
+// source printed, and its reviews count there, each reviewer once. A loop of
+// acts each marked as the next leaves every act as itself.
 export function asShown(c: Pick<TrackerData, 'acts' | 'reports' | 'reviews' | 'sameActs'>) {
   const sameAs = new Map(c.sameActs.map((s) => [s.act_id, s.same_as_id]))
   const shownAs = (actId: string): string => {
@@ -130,14 +130,16 @@ export function asShown(c: Pick<TrackerData, 'acts' | 'reports' | 'reviews' | 's
     reports.set(key, { ...report, act_id: actId, excerpt: words })
   }
 
-  const reviews = new Map<string, Review>()
+  // A reviewer's review of the shown act itself stands over their review of an act shown as it; otherwise the latest stands.
+  const reviews = new Map<string, Review & { own: boolean }>()
   for (const review of c.reviews) {
     const actId = shownAs(review.act_id)
+    const own = actId === review.act_id
     const key = `${review.reviewer_id} ${actId} ${review.question_id}`
     const kept = reviews.get(key)
-    if (!kept || review.updated_at > kept.updated_at) reviews.set(key, { ...review, act_id: actId })
+    if (!kept || (own && !kept.own) || (own === kept.own && review.updated_at > kept.updated_at)) reviews.set(key, { ...review, act_id: actId, own })
   }
-  return { acts, reports: [...reports.values()], reviews: [...reviews.values()], shownAs, alsoRecordedAs }
+  return { acts, reports: [...reports.values()], reviews: [...reviews.values()].map(({ own: _, ...r }) => r), shownAs, alsoRecordedAs }
 }
 
 // What the reviews come to for each act on each question. A review of support

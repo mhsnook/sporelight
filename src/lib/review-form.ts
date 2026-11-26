@@ -155,10 +155,12 @@ export type Outlook = {
 export function outlook(tracker: Pick<Tracker, 'actById' | 'listingFor' | 'entryOf' | 'acrossFor'>, entry: EntryDraft, question: Question, given: Direction | null): Outlook {
   const reading = entry.mainSkipped && question.id === entry.question_id ? null : given
   const deciderId = entry.decider_id ?? ''
-  const now = tracker.listingFor(question, deciderId)
+  // Where they stand without the act that came in, which is what is being reviewed.
+  const cameIn = entry.items.flatMap((i) => (i.act_id ? [i.act_id] : []))
+  const now = tracker.listingFor(question, deciderId, [], cameIn)
   if (!reading || !entry.weight || !entry.decider_id) return { now, then: null, across: undefined }
   const read = { id: '', act_id: entry.act_id, question_id: question.id, position: reading, weight: entry.weight, by: 'editor' as const, via_question_id: null }
-  const then = tracker.listingFor(question, deciderId, [tracker.entryOf(actOf(tracker, entry), read)])
+  const then = tracker.listingFor(question, deciderId, [tracker.entryOf(actOf(tracker, entry), read)], cameIn)
   return { now, then, across: tracker.acrossFor(question, deciderId, reading) }
 }
 

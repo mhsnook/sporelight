@@ -49,7 +49,7 @@ export function SubmitEvidence({ question, decider, onDone }: { question: Questi
       <div className="flex flex-col gap-3.5 rounded-2xl border-2 border-dashed border-ink bg-paper p-4 text-sm">
         <div>
           <p className="tag text-muted">{state.duplicate ? 'Already in the queue' : 'Sent · not checked yet'}</p>
-          <p className="mt-1 font-display text-[22px] leading-[1.15] font-black">{state.duplicate ? 'We already have that source in the queue.' : 'Thank you. Your report is waiting for an editor.'}</p>
+          <p className="mt-1 font-display text-[22px] leading-[1.15] font-black">{state.duplicate ? 'We already have that source in the queue.' : 'Thank you. It is on the record as your reading, and an editor will check it.'}</p>
         </div>
         {!state.duplicate && across && <AcrossNotice decider={decider} question={question} set={across} yours />}
         {link && (

@@ -191,7 +191,7 @@ export function planReview(
       }
     }
     // A question the editor took off the act.
-    saysNothing(entry.items.filter((i) => !readOn.has(i.question_id)).map((i) => ({ ...i, act_id: i.act_id && entry.act_id })))
+    saysNothing(entry.items.filter((i) => !readOn.has(i.question_id)))
     if (entry.note) note(entry.note, firstItemId)
 
     const decision = entry.decision

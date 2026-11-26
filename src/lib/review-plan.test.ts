@@ -142,6 +142,16 @@ describe('planReview', () => {
     expect(rowsOf<Review>(writes, 'reviews').map((r) => [r.act_id, r.question_id])).toEqual([['feb-11', 'policy']])
   })
 
+  it('says nothing on a question left off, on the act that came in, when it is marked as an act already on the record', () => {
+    const onMarkup = item('i3', 'p1', 'ann', 'markup', { act_id: 'act-of-i1', sort: 1 })
+    const onFile = cameIn([ann, onMarkup], { acts: [...cameIn([ann]).acts, act('feb-11', 'ann')] })
+    const writes = plan(verdict([publish([ann, onMarkup], { act_id: 'feb-11', readings: [{ question_id: 'policy', reading: 'support', item: ann }] })]), onFile)
+    expect(rowsOf<Review>(writes, 'reviews').map((r) => [r.act_id, r.question_id, r.position])).toEqual([
+      ['feb-11', 'policy', 'support'],
+      ['act-of-i1', 'markup', null],
+    ])
+  })
+
   it('adds a report to an act already on file for a lead the editor finds on the record, in this source’s words', () => {
     const lead = item('lead', 'p1', 'ann', 'policy', { act_id: null })
     const writes = plan(verdict([publish([lead], { act_id: 'feb-11', quote: 'As the paper words it.' })]), published({ acts: [act('feb-11', 'ann')] }))

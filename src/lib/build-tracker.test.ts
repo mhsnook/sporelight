@@ -606,10 +606,10 @@ describe('acts an editor found to be the same', () => {
     ])
   })
 
-  it("counts each reviewer's latest review of either act, and reads the other act's questions there too", () => {
+  it("counts each reviewer once, their review of the shown act over a later one of the act shown as it, and reads the other act's questions there too", () => {
     expect(marked.readings.filter((r) => r.act_id === 'feb-11').map((r) => [r.question_id, r.position]).sort()).toEqual([
       ['markup', 'oppose'],
-      ['policy', 'lean_support'],
+      ['policy', 'support'],
     ])
     expect(marked.readings.some((r) => r.act_id === 'feb-11-again')).toBe(false)
   })

@@ -20,6 +20,7 @@ export function RecordItem({ entry, question, edit = false, children }: { entry:
         <span>{KIND_LABEL[act.kind]}</span>
         {via && via.id !== question?.id && <span className="rounded bg-paper px-1.5 py-0.5">{via.short_title}</span>}
         <WeightTag weight={reading.weight} />
+        {reading.by !== 'editor' && <span className="rounded border border-dashed border-line px-1.5 py-0.5">Not checked by an editor</span>}
         {lapse === 'withdrawn' && act.withdrawn_on && <span className="rounded bg-paper px-1.5 py-0.5">Withdrawn {formatDate(act.withdrawn_on)}</span>}
         {lapse === 'closed' && via && <span className="rounded bg-paper px-1.5 py-0.5">{via.short_title} has closed</span>}
         <span className="ml-auto flex items-center gap-1.5">

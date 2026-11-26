@@ -159,7 +159,9 @@ export function ReviewEntry({
   const then = view.then?.standing ?? null
   const across = view.across
   const noun = KIND_NOUN[entry.kind]
-  const record = decider ? tracker.recordFor(question, decider.id) : []
+  // What else is on their record: the act that came in with this entry is what is under review.
+  const cameIn = new Set(entry.items.flatMap((i) => (i.act_id ? [i.act_id] : [])))
+  const record = decider ? tracker.recordFor(question, decider.id).filter((e) => !cameIn.has(e.act.id)) : []
   // Another act on the record, chosen as the one this entry reports. The act that came in with the proposal is not one.
   const onFile = entry.act_id !== entry.newActId && tracker.actById.has(entry.act_id)
   const offer = dateOffer(source)

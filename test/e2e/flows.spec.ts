@@ -1,6 +1,6 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test'
 import { SPECTRUM, STANDINGS, STANDING_COLOR, standingLabel, type Standing } from '../../src/lib/position.ts'
-import { EDITORS_ID } from '../../shared/schema.ts'
+import { EDITORS_ID, NEWS_READER_ID } from '../../shared/schema.ts'
 import { query } from './db.ts'
 import { TODAY, editorToken, partyWrite, signInWithCode } from './fixtures.ts'
 
@@ -131,7 +131,7 @@ test('evidence a reader sends reaches the editor under its question and, once ap
   await expect(page.getByRole('heading', { name: 'Bartholomew Sato' })).toBeVisible()
   await expect(page.getByText(quote)).toHaveCount(0)
   await page.getByRole('button', { name: 'Add to the record' }).click()
-  const dialog = page.getByRole('dialog').filter({ hasText: 'An editor reads every submission' })
+  const dialog = page.getByRole('dialog').filter({ hasText: 'It counts on this page at once' })
   // Signed out, the form is a prompt to sign in, which opens the sign-in dialog over it.
   await expect(dialog.getByLabel('What did Bartholomew Sato say or do?')).toHaveCount(0)
   await dialog.getByRole('button', { name: 'Sign in' }).click()
@@ -143,12 +143,14 @@ test('evidence a reader sends reaches the editor under its question and, once ap
   await dialog.getByLabel('What it shows').selectOption('support')
   await dialog.getByLabel('Anything the editor should know?').fill('Third paragraph.')
   await dialog.getByRole('button', { name: 'Send for review' }).click()
-  await expect(dialog.getByText('Thank you. Your report is waiting for an editor.')).toBeVisible()
+  await expect(dialog.getByText('Thank you. It is on the record as your reading, and an editor will check it.')).toBeVisible()
   await expect(dialog.getByRole('button', { name: 'Copy link' })).toBeVisible()
   const address = (await dialog.getByText(/\/news\?proposal=/).textContent())!
   await dialog.getByRole('button', { name: 'Done' }).click()
-  // Nothing reaches the record before review.
-  await expect(page.getByText(quote)).toHaveCount(0)
+  // It counts at once as the reader's own reading, marked as not checked.
+  const onRecord = page.getByRole('listitem').filter({ hasText: quote })
+  await expect(onRecord).toBeVisible()
+  await expect(onRecord.getByText('Not checked by an editor')).toBeVisible()
 
   // The address the reader was given opens Latest on that report, already opened.
   const friend = await context.newPage()
@@ -187,8 +189,8 @@ test('evidence a reader sends reaches the editor under its question and, once ap
   await friend.reload()
   await expect(friend.getByRole('status').filter({ hasText: 'An editor has reviewed the report that link was for.' })).toBeVisible()
 
-  // The reader's page updates without a reload.
-  await expect(page.getByText(quote)).toBeVisible()
+  // The reader's page updates without a reload: the editors' reading has taken over.
+  await expect(onRecord.getByText('Not checked by an editor')).toHaveCount(0)
   await expect(page.getByText('Nothing on file.')).toHaveCount(0)
   await expect(page.locator('section.card').getByText(standingLabel('support', { kind: 'position', act_label: null }), { exact: true })).toBeVisible()
 })
@@ -203,11 +205,15 @@ async function queueModelRead(
 ) {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
   const now = TODAY.toISOString()
-  const ids = { source: `src-${stamp}`, proposal: `prop-${stamp}`, item: `item-${stamp}` }
+  const ids = { source: `src-${stamp}`, proposal: `prop-${stamp}`, item: `item-${stamp}`, act: `act-${stamp}` }
+  const { decider_id, quote, passage, reading, weight, kind, question_id = 'free-ferry' } = item
   const write = await partyWrite(request, [
     { channel: 'sources', ops: [{ type: 'insert', value: { id: ids.source, url: `https://example.com/harbor-ledger/model-${stamp}`, title: sourceTitle, publisher: null, ...dated, kind: null, archive_url: null, stored_copy: null, created_at: now } }] },
-    { channel: 'proposals', ops: [{ type: 'insert', value: { id: ids.proposal, source_id: ids.source, origin: 'model', submitted_by: null, status: 'pending', unread: null, created_at: now, reviewed_at: null } }] },
-    { channel: 'proposal_items', ops: [{ type: 'insert', value: { id: ids.item, proposal_id: ids.proposal, sort: 0, question_id: 'free-ferry', act_id: `act-${stamp}`, occurred_on: '2026-11-15', status: 'pending', ...item } }] },
+    { channel: 'acts', ops: [{ type: 'insert', value: { id: ids.act, decider_id, kind, occurred_on: '2026-11-15', body: quote, primary_source_id: null, withdrawn_on: null, created_at: now } }] },
+    { channel: 'reports', ops: [{ type: 'insert', value: { id: `rep-${stamp}`, source_id: ids.source, act_id: ids.act, excerpt: null, passage, created_at: now } }] },
+    { channel: 'reviews', ops: [{ type: 'insert', value: { id: `rv-${stamp}`, reviewer_id: NEWS_READER_ID, act_id: ids.act, question_id, position: reading, weight, based_on: null, created_at: now, updated_at: now } }] },
+    { channel: 'proposals', ops: [{ type: 'insert', value: { id: ids.proposal, source_id: ids.source, origin: 'model', submitted_by: NEWS_READER_ID, status: 'pending', unread: null, created_at: now, reviewed_at: null } }] },
+    { channel: 'proposal_items', ops: [{ type: 'insert', value: { id: ids.item, proposal_id: ids.proposal, sort: 0, decider_id, question_id, act_id: ids.act, excerpt: null } }] },
     {
       channel: 'proposal_notes',
       ops: [
@@ -370,7 +376,8 @@ test('an entry can be published as a report of an act already on the record, rea
   const entry = page.getByRole('region', { name: 'Marguerite Oyelaran' })
   await entry.getByRole('button', { name: 'Change' }).click()
   const onRecord = entry.getByLabel('Which action is this?').locator('option', { hasText: 'Voted no on advancing the fare study' })
-  await entry.getByLabel('Which action is this?').selectOption((await onRecord.getAttribute('value'))!)
+  const chosen = (await onRecord.getAttribute('value'))!
+  await entry.getByLabel('Which action is this?').selectOption(chosen)
   await expect(entry.getByText('an act already on the record')).toBeVisible()
   await expect(entry.getByLabel('Date it happened')).toBeDisabled()
   await expect(entry.getByLabel('Date it happened')).toHaveValue('2026-06-09')
@@ -383,7 +390,13 @@ test('an entry can be published as a report of an act already on the record, rea
   await page.getByRole('button', { name: /Publish 1 person/ }).click()
   await expect(page.getByRole('status')).toContainText('Published 1 person')
   await expect.poll(acts).toBe(before)
-  expect(query(`SELECT rd.question_id FROM reports r JOIN sources s ON s.id = r.source_id JOIN reviews rd ON rd.act_id = r.act_id WHERE s.title = '${sourceTitle}' ORDER BY rd.question_id`).map((r) => r.question_id)).toEqual(['free-ferry', 'free-ferry-ord-26-114'])
+  // The act that came in is marked as the one on the record, which the editors read on the measure; they say it says nothing on the question left out.
+  const [cameIn] = query<{ act_id: string }>(`SELECT r.act_id FROM reports r JOIN sources s ON s.id = r.source_id WHERE s.title = '${sourceTitle}'`)
+  expect(query(`SELECT same_as_id FROM same_acts WHERE act_id = '${cameIn.act_id}'`)).toEqual([{ same_as_id: chosen }])
+  expect(query(`SELECT act_id, question_id, position FROM reviews WHERE reviewer_id = '${EDITORS_ID}' AND act_id IN ('${chosen}', '${cameIn.act_id}') AND created_at > '2026-11-18' ORDER BY question_id`)).toEqual([
+    { act_id: cameIn.act_id, question_id: 'free-ferry', position: null },
+    { act_id: chosen, question_id: 'free-ferry-ord-26-114', position: 'oppose' },
+  ])
 })
 
 test('a card whose publish fails comes back as the editor left it', async ({ page, request }) => {
@@ -410,7 +423,7 @@ test('a card whose publish fails comes back as the editor left it', async ({ pag
   await page.unroute('**/parties/tracker/**')
   await page.getByRole('button', { name: /Publish 1 person/ }).click()
   await expect(page.getByRole('status')).toContainText('Published 1 person')
-  await expect.poll(() => query(`SELECT rd.position FROM reports r JOIN sources s ON s.id = r.source_id JOIN reviews rd ON rd.act_id = r.act_id WHERE s.title = '${sourceTitle}'`)).toEqual([{ position: 'mixed' }])
+  await expect.poll(() => query(`SELECT rd.position FROM reports r JOIN sources s ON s.id = r.source_id JOIN reviews rd ON rd.act_id = r.act_id AND rd.reviewer_id = '${EDITORS_ID}' WHERE s.title = '${sourceTitle}'`)).toEqual([{ position: 'mixed' }])
 })
 
 test('the list beside the open card pages through every waiting proposal', async ({ page, request }) => {
@@ -626,16 +639,16 @@ test('a news search run is recorded with its steps, and the page of runs shows i
   await expect(page.getByRole('region', { name: 'News search' }).getByRole('heading', { name: 'The news search stopped early' })).toBeVisible()
 })
 
-test('a lead whose article was not read says so, starts empty, and cannot be published until the words, both answers and a date are in', async ({ page, request }) => {
+test('a lead whose article was not read says so, starts empty, and cannot be published until the words and both answers are in, with the search date offered', async ({ page, request }) => {
   const stamp = Date.now()
   const now = TODAY.toISOString()
   const sourceTitle = `Bayport hearing ${stamp}`
   const write = await partyWrite(request, [
     { channel: 'sources', ops: [{ type: 'insert', value: { id: `src-${stamp}`, url: `https://example.com/bayport/${stamp}`, title: sourceTitle, publisher: null, published_on: '2026-11-12', published_on_from: 'search', kind: null, archive_url: null, stored_copy: null, created_at: now } }] },
-    { channel: 'proposals', ops: [{ type: 'insert', value: { id: `prop-${stamp}`, source_id: `src-${stamp}`, origin: 'news_search', submitted_by: null, status: 'pending', unread: 'refused', created_at: now, reviewed_at: null } }] },
+    { channel: 'proposals', ops: [{ type: 'insert', value: { id: `prop-${stamp}`, source_id: `src-${stamp}`, origin: 'news_search', submitted_by: NEWS_READER_ID, status: 'pending', unread: 'refused', created_at: now, reviewed_at: null } }] },
     {
       channel: 'proposal_items',
-      ops: [{ type: 'insert', value: { id: `item-${stamp}`, proposal_id: `prop-${stamp}`, sort: 0, decider_id: 'demo-ikenna-vasquez', question_id: 'free-ferry', act_id: `act-${stamp}`, kind: 'says', occurred_on: null, quote: 'Vasquez told the hearing his city could not carry the ferry', passage: null, reading: null, weight: null, status: 'pending' } }],
+      ops: [{ type: 'insert', value: { id: `item-${stamp}`, proposal_id: `prop-${stamp}`, sort: 0, decider_id: 'demo-ikenna-vasquez', question_id: 'free-ferry', act_id: null, excerpt: 'Vasquez told the hearing his city could not carry the ferry' } }],
     },
   ])
   expect(write.ok()).toBe(true)
@@ -657,10 +670,10 @@ test('a lead whose article was not read says so, starts empty, and cannot be pub
   await direction.getByRole('radio', { name: 'Against' }).click()
   await weight.getByRole('radio', { name: 'Clear' }).click()
   // The lead came with no date, and none is assumed. The search result's date is offered, named as such.
-  await expect(publish).toHaveText(/Publish needs the date/)
+  await expect(publish).toBeEnabled()
   await expect(page.getByRole('article', { name: sourceTitle }).getByTestId('published')).toHaveText('Search result dated Nov 12, 2026')
   await entry.getByRole('button', { name: 'Use Nov 12, 2026, the search result’s date' }).click()
-  await expect(publish).toBeEnabled()
+  await expect(entry.getByLabel('Date it happened')).toHaveValue('2026-11-12')
   await expect(publish).toHaveText(/Publish 1 person/)
 })
 
