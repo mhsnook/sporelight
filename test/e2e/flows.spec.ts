@@ -130,12 +130,12 @@ test('evidence a reader sends reaches the editor under its question and, once ap
   await page.goto(person)
   await expect(page.getByRole('heading', { name: 'Bartholomew Sato' })).toBeVisible()
   await expect(page.getByText(quote)).toHaveCount(0)
-  await page.getByRole('button', { name: 'Add to the record' }).click()
-  const dialog = page.getByRole('dialog').filter({ hasText: 'It counts on this page at once' })
-  // Signed out, the form is a prompt to sign in, which opens the sign-in dialog over it.
-  await expect(dialog.getByLabel('What did Bartholomew Sato say or do?')).toHaveCount(0)
-  await dialog.getByRole('button', { name: 'Sign in' }).click()
+  // Signed out, the button says it signs in first, and once signed in the form opens.
+  await expect(page.getByRole('button', { name: 'Add to the record', exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Sign in to add to the record' }).click()
+  await expect(page.getByRole('dialog').getByRole('heading', { name: 'Sign in to add to the record' })).toBeVisible()
   await signInWithCode(page, `sender-${Date.now()}@example.org`)
+  const dialog = page.getByRole('dialog').filter({ hasText: 'It counts on this page at once' })
   await dialog.getByLabel('What did Bartholomew Sato say or do?').fill(quote)
   await dialog.getByLabel('Link to the source').fill(`https://example.com/harbor-ledger/sato-${Date.now()}`)
   await dialog.getByLabel('Source name').fill(sourceTitle)

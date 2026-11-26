@@ -12,10 +12,8 @@ test('an editor makes a signed-in member an editor from /admin, and the member t
   const name = `Promoted ${stamp}`
   await page.goto('/')
   await page.getByRole('banner').getByRole('button', { name: 'Sign in' }).click()
-  await signInWithCode(page, `promoted-${stamp}@example.org`)
+  await signInWithCode(page, `promoted-${stamp}@example.org`, { name })
   await page.goto('/profile')
-  await page.getByLabel('Display name').fill(name)
-  await page.getByRole('button', { name: 'Save' }).click()
   const profile = page.getByRole('main')
   await expect(profile.getByText(name, { exact: true })).toBeVisible()
   await expect(profile.getByText('Member', { exact: true })).toBeVisible()

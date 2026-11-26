@@ -12,7 +12,8 @@ import { Modal } from '../components/Modal.tsx'
 import { AskStatus, CloseQuestion, ClosedNote } from '../components/Asks.tsx'
 import { MergeAct, WithdrawAct } from '../components/MergeAct.tsx'
 import { claimLabel, formatDate, standingLabel } from '../lib/position.ts'
-import { useIsEditor } from '../lib/auth.ts'
+import { useIsEditor, useSession } from '../lib/auth.ts'
+import { openSignIn } from '../components/SignIn.tsx'
 
 export const Route = createFileRoute('/q/$slug/$decider')({ component: DeciderOnQuestion })
 
@@ -20,6 +21,7 @@ function DeciderOnQuestion() {
   const { slug, decider: deciderSlug } = Route.useParams()
   const { tracker, isReady } = useTracker()
   const editor = useIsEditor()
+  const signedIn = useSession().id !== undefined
   const [adding, setAdding] = useState(false)
   const question = tracker.questionBySlug.get(slug)
   const decider = tracker.deciderBySlug.get(deciderSlug)
@@ -146,9 +148,15 @@ function DeciderOnQuestion() {
         <section>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-xl font-semibold">The record</h2>
-            <button type="button" className="btn" onClick={() => setAdding(true)}>
-              Add to the record
-            </button>
+            {signedIn ? (
+              <button type="button" className="btn" onClick={() => setAdding(true)}>
+                Add to the record
+              </button>
+            ) : (
+              <button type="button" className="btn" onClick={() => openSignIn('Sign in to add to the record', () => setAdding(true))}>
+                Sign in to add to the record
+              </button>
+            )}
           </div>
           {me.record.length === 0 ? (
             <p className="rounded-lg border border-dashed border-line p-6 text-center text-muted">

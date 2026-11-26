@@ -37,8 +37,11 @@ export const partyWrite = (request: APIRequestContext, data: unknown) =>
 // Better Auth keeps it: `<code>:<attempts>`, under the address it was sent to.
 export const codeFor = (email: string) => query<{ value: string }>(`SELECT value FROM auth_verifications WHERE identifier = 'sign-in-otp-${email}'`)[0].value.split(':')[0]
 
-// Signs in through the sign-in dialog, once something on the page has opened it.
-export async function signInWithCode(page: Page, email: string) {
+// Signs a new address in through the sign-in dialog, once something on the page
+// has opened it. A first sign-in is then asked for a display name: `name` saves
+// one, and without it the dialog is answered "Not now", unless `askedForName` is
+// 'leave' for a flow that answers it itself.
+export async function signInWithCode(page: Page, email: string, { name, askedForName = 'answer' }: { name?: string; askedForName?: 'answer' | 'leave' } = {}) {
   const signIn = page.getByRole('dialog').filter({ hasText: 'We email you a code' })
   await signIn.getByLabel('Email address').fill(email)
   await signIn.getByRole('button', { name: 'Email me a code' }).click()
@@ -46,4 +49,14 @@ export async function signInWithCode(page: Page, email: string) {
   await signIn.getByLabel('Code').fill(codeFor(email))
   await signIn.getByRole('button', { name: 'Sign in' }).click()
   await expect(signIn).toBeHidden()
+  if (askedForName === 'leave') return
+  const naming = page.getByRole('dialog').filter({ hasText: 'Pick a display name' })
+  await expect(naming).toBeVisible()
+  if (name) {
+    await naming.getByLabel('Display name').fill(name)
+    await naming.getByRole('button', { name: 'Save' }).click()
+  } else {
+    await naming.getByRole('button', { name: 'Not now' }).click()
+  }
+  await expect(naming).toBeHidden()
 }
