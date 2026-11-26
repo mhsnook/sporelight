@@ -1,6 +1,6 @@
-import type { Act, Body, Decider, Office, OfficeHolder, Position, Question, QuestionBody, QuestionDecider, QuestionOffice, QuestionRelation, Reading, Report, Review, Role, SameAct, Seat, SetPosition, Source } from '../../shared/schema.ts'
+import type { Act, Body, Decider, Office, OfficeHolder, Position, Question, QuestionBody, QuestionDecider, QuestionOffice, QuestionRelation, Person, Reading, Report, Review, Role, SameAct, Seat, SetPosition, Source } from '../../shared/schema.ts'
 import { EDITORS_ID, carriesUp, inEffect, isOpenOn, pairId, stillAhead, type Certainty } from '../../shared/schema.ts'
-import { REVIEWER_TIERS, calculatePosition, footingOf, isAcross, summarize, type Footing, type ReviewerTier } from '../../shared/standing.ts'
+import { calculatePosition, footingOf, isAcross, summarize, type Footing, type ReviewerTier } from '../../shared/standing.ts'
 import type { Standing } from './position.ts'
 
 export function groupBy<T, K>(items: readonly T[], key: (item: T) => K): Map<K, T[]> {
@@ -85,6 +85,14 @@ export type TrackerData = {
   reports: Report[]
   reviews: Review[]
   sameActs: SameAct[]
+  people: Pick<Person, 'id' | 'kind'>[]
+}
+
+// Which tier of reviewer someone is, for the summary: the editors' identity,
+// an agent, or a person. Someone not loaded yet counts as a person.
+export function tierOfPeople(people: TrackerData['people']): (reviewerId: string) => ReviewerTier {
+  const agents = new Set(people.filter((p) => p.kind === 'agent').map((p) => p.id))
+  return (reviewerId) => (reviewerId === EDITORS_ID ? 'editor' : agents.has(reviewerId) ? 'agent' : 'person')
 }
 
 // The record as readers see it: an act an editor found to be the same as
@@ -136,24 +144,21 @@ export function asShown(c: Pick<TrackerData, 'acts' | 'reports' | 'reviews' | 's
 // on a sub-question that implies something on its parent also counts there, by
 // the same reviewer, unless they reviewed the act on the parent directly; too
 // loose a review does not carry upward.
-export function readingsFrom(reviews: Review[], questionById: ReadonlyMap<string, Question>): Reading[] {
+export function readingsFrom(reviews: Review[], questionById: ReadonlyMap<string, Question>, tierOf: (reviewerId: string) => ReviewerTier): Reading[] {
   const readDirectly = new Set(reviews.map((r) => `${r.reviewer_id} ${r.act_id} ${r.question_id}`))
   const counted = reviews.flatMap((r) => {
-    // Every review but the editors' is counted as a person's until reviews carry their author's kind.
-    const tier: ReviewerTier = r.reviewer_id === EDITORS_ID ? 'editor' : 'person'
-    const own = { act_id: r.act_id, question_id: r.question_id, via: null as Question | null, tier, position: r.position, weight: r.weight }
+    const own = { act_id: r.act_id, question_id: r.question_id, via: null as Question | null, tier: tierOf(r.reviewer_id), position: r.position, weight: r.weight }
     const q = questionById.get(r.question_id)
-    const implies = q?.parent_id && q.implies_on_parent && r.position === 'support' && carriesUp(r.weight) && !readDirectly.has(`${r.reviewer_id} ${r.act_id} ${q.parent_id}`)
+    const implies = q?.parent_id && q.implies_on_parent && r.position === 'support' && r.weight && carriesUp(r.weight) && !readDirectly.has(`${r.reviewer_id} ${r.act_id} ${q.parent_id}`)
     return implies ? [own, { ...own, question_id: q.parent_id!, via: q, position: q.implies_on_parent! }] : [own]
   })
   return [...groupBy(counted, (c) => `${c.act_id} ${c.question_id}`)].flatMap(([id, group]): Reading[] => {
     const summary = summarize(group)
     if (!summary) return []
     // Implied when everything the summary went by was implied; named by the first such sub-question in question order.
-    const tier = REVIEWER_TIERS.find((t) => group.some((c) => c.tier === t))
-    const used = group.filter((c) => c.tier === tier)
+    const used = group.filter((c) => c.tier === summary.tier && c.position !== null)
     const via = used.every((c) => c.via) ? used.map((c) => c.via!).sort((x, y) => x.sort - y.sort || x.id.localeCompare(y.id))[0].id : null
-    return [{ id, act_id: group[0].act_id, question_id: group[0].question_id, ...summary, via_question_id: via }]
+    return [{ id, act_id: group[0].act_id, question_id: group[0].question_id, position: summary.position, weight: summary.weight, by: summary.tier, via_question_id: via }]
   })
 }
 
@@ -171,7 +176,7 @@ export function buildTracker(c: TrackerData, asOf: string) {
   const shown = asShown(c)
   // Every act on file, so a proposal or a plan can find one shown as another; a shown act as it is shown.
   const actById = indexBy([...c.acts, ...shown.acts], (a) => a.id)
-  const readings = readingsFrom(shown.reviews, questionById)
+  const readings = readingsFrom(shown.reviews, questionById, tierOfPeople(c.people))
   const seatsByBody = groupBy(c.seats, (s) => s.body_id)
   const SURENESS: Record<Certainty, number> = { certain: 0, likely: 1, possible: 2 }
   // Surest first, so anything that takes the first holder takes the surest.
@@ -196,6 +201,11 @@ export function buildTracker(c: TrackerData, asOf: string) {
   const actsByDecider = groupBy(shown.acts, (a) => a.decider_id)
   const reportsByAct = groupBy(shown.reports, (r) => r.act_id)
   const sameActsOf = groupBy(c.sameActs, (s) => s.same_as_id)
+  // The rows as stored, for what a proposal put forward.
+  const storedReport = new Map(c.reports.map((r) => [`${r.source_id} ${r.act_id}`, r]))
+  const storedReview = new Map(c.reviews.map((r) => [`${r.reviewer_id} ${r.act_id} ${r.question_id}`, r]))
+  const reportIn = (sourceId: string, actId: string) => storedReport.get(`${sourceId} ${actId}`)
+  const reviewBy = (reviewerId: string, actId: string, questionId: string) => storedReview.get(`${reviewerId} ${actId} ${questionId}`)
   const namedIn = groupBy(c.questionDeciders, (l) => l.question_id)
 
   const bodyById = indexBy(c.bodies, (b) => b.id)
@@ -255,7 +265,8 @@ export function buildTracker(c: TrackerData, asOf: string) {
     if (list) list.push(entry)
     else entriesByPair.set(key, [entry])
   }
-  for (const list of entriesByPair.values()) list.sort((a, b) => b.act.occurred_on.localeCompare(a.act.occurred_on) || a.act.id.localeCompare(b.act.id))
+  // Newest first, and an act with no date yet after every dated one.
+  for (const list of entriesByPair.values()) list.sort((a, b) => (b.act.occurred_on ?? '').localeCompare(a.act.occurred_on ?? '') || a.act.id.localeCompare(b.act.id))
 
   // A decider's record on a question is the readings on that question alone. A
   // reading on a sub-question appears here only if it was also written here.
@@ -266,9 +277,12 @@ export function buildTracker(c: TrackerData, asOf: string) {
     return positions.size === 0 ? 'unknown' : positions.size === 1 ? [...positions][0] : 'mixed'
   }
 
+  // An act with no date yet is shown on the record and counts toward nothing until it is dated.
+  const dated = (record: RecordEntry[]) => record.filter((e): e is RecordEntry & { act: Act & { occurred_on: string } } => e.act.occurred_on !== null)
+
   // What a record works out to on a position question.
   const calculate = (record: RecordEntry[]): Standing =>
-    calculatePosition(record.map((e) => ({ position: e.reading.position, weight: e.reading.weight, occurred_on: e.act.occurred_on, inForce: e.lapse !== 'withdrawn' }))) ?? 'unknown'
+    calculatePosition(dated(record).map((e) => ({ position: e.reading.position, weight: e.reading.weight, occurred_on: e.act.occurred_on, inForce: e.lapse !== 'withdrawn' }))) ?? 'unknown'
 
   // Where someone is listed. On a formal-act question that is read off the
   // acts that bind them there and still hold, so a withdrawn cosponsorship is
@@ -276,8 +290,10 @@ export function buildTracker(c: TrackerData, asOf: string) {
   // Anywhere else it is what their record works out to, unless editors have
   // set a position, which is shown instead. `extra` is a record entry not on
   // file yet, to see where publishing it would leave them.
-  function listingFor(question: Question, deciderId: string, extra: RecordEntry[] = []): Listing {
-    const record = [...recordFor(question, deciderId), ...extra]
+  function listingFor(question: Question, deciderId: string, extra: RecordEntry[] = [], without: readonly string[] = []): Listing {
+    // An extra entry for an act already on the record takes its place there. Acts in `without` are left out.
+    const replaced = new Set([...extra.map((e) => e.act.id), ...without])
+    const record = [...recordFor(question, deciderId).filter((e) => !replaced.has(e.act.id)), ...extra]
     if (question.kind === 'formal_act') {
       const standing = agreed(record.filter((e) => e.onRecord))
       return { standing, calculated: standing, set: undefined }
@@ -332,7 +348,7 @@ export function buildTracker(c: TrackerData, asOf: string) {
     if (!decider) return undefined
     const record = recordFor(question, decider.id)
     const footing = footingOf(
-      record.map((e) => ({ occurred_on: e.act.occurred_on, onRecord: e.onRecord })),
+      dated(record).map((e) => ({ occurred_on: e.act.occurred_on, onRecord: e.onRecord })),
       new Date(asOf),
     )
     return { decider, role, ...listingFor(question, decider.id), record, footing }
@@ -419,6 +435,8 @@ export function buildTracker(c: TrackerData, asOf: string) {
     shownReports: shown.reports,
     shownAs: shown.shownAs,
     sameActsOf,
+    reportIn,
+    reviewBy,
     deciderById,
     deciderBySlug,
     questionById,

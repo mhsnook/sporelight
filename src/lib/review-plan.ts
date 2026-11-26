@@ -19,6 +19,7 @@ import {
   type Report,
   type Review,
   type Role,
+  type SameAct,
   type SetPosition,
   type Source,
   type Weight,
@@ -36,6 +37,7 @@ type Rows = {
   acts: Act
   reports: Report
   reviews: Review
+  same_acts: SameAct
   set_positions: SetPosition
   proposals: Proposal
   proposal_items: ProposalItem
@@ -97,14 +99,17 @@ export type Verdict = {
 // The store sends a transaction as one batch per table, in the order each table
 // first appears, and every batch may only point at rows an earlier one wrote.
 // Plans list their writes in an order that respects that.
-const APPROVAL_ORDER: (keyof Rows)[] = ['sources', 'acts', 'reports', 'reviews', 'set_positions', 'proposal_items', 'proposal_notes', 'proposals']
+const APPROVAL_ORDER: (keyof Rows)[] = ['sources', 'acts', 'same_acts', 'reports', 'reviews', 'set_positions', 'proposal_items', 'proposal_notes', 'proposals']
 
 // Everything publishing one reviewed proposal changes, as a list of writes for
-// a single transaction. Every row it writes is stamped with the same `now`:
-// the feed groups reports of one source with one timestamp into one story.
-// Each published entry writes its act (unless it is on file), a report of it
-// in the proposal's source, and a reading on each question it is read on.
-// Dismissed entries only change the status of their items.
+// a single transaction. What the proposal put forward is already on file: an
+// act, its report in the source and the sender's review. Publishing is the
+// editors' review of each act on each question it is read on, with any
+// correction to the act's facts or its passage. A question the editor took
+// off an act, and every question of a dismissed entry, gets the editors'
+// review that the act says nothing there. An entry the editor says is an act
+// already on the record marks the act that came in as the same as that one.
+// A lead, or an entry the editor added, writes its act and report here.
 export function planReview(
   published: Published,
   proposal: Proposal,
@@ -115,20 +120,22 @@ export function planReview(
 ): Write[] {
   const writes: Write[] = []
   const questionById = new Map(published.questions.map((q) => [q.id, q]))
-  const actIds = new Set(published.acts.map((a) => a.id))
-  const reported = new Set(published.reports.map((r) => `${r.source_id} ${r.act_id}`))
+  const actById = new Map(published.acts.map((a) => [a.id, a]))
+  const reportIn = new Map(published.reports.map((r) => [`${r.source_id} ${r.act_id}`, r]))
   const editorsReview = new Map(published.reviews.filter((r) => r.reviewer_id === EDITORS_ID).map((r) => [`${r.act_id} ${r.question_id}`, r]))
   const setPositionIds = new Set(published.setPositions.map((s) => s.id))
   let nextSort = Math.max(-1, ...verdict.entries.flatMap((e) => e.items.map((i) => i.sort))) + 1
 
-  // Publishing is the editors' review of the act on each question it is read on.
-  const review = (actId: string, questionId: string, position: Direction, weight: Weight) => {
+  const review = (actId: string, questionId: string, position: Direction | null, weight: Weight | null) => {
     const key = `${actId} ${questionId}`
     const existing = editorsReview.get(key)
-    if (existing?.position === position && existing.weight === weight) return
+    if (existing && existing.position === position && existing.weight === weight) return
     const row: Review = existing ? { ...existing, position, weight, updated_at: now } : { id: newId(), reviewer_id: EDITORS_ID, act_id: actId, question_id: questionId, position, weight, based_on: null, created_at: now, updated_at: now }
     editorsReview.set(key, row)
     writes.push(existing ? { on: 'reviews', type: 'update', id: row.id, changes: { position, weight, updated_at: now } } : { on: 'reviews', type: 'insert', row })
+  }
+  const saysNothing = (items: ProposalItem[]) => {
+    for (const item of items) if (item.act_id) review(item.act_id, item.question_id, null, null)
   }
 
   const note = (body: string, itemId: string | null) =>
@@ -136,54 +143,55 @@ export function planReview(
 
   for (const entry of verdict.entries) {
     if (!entry.publish) {
-      for (const item of entry.items) writes.push({ on: 'proposal_items', type: 'update', id: item.id, changes: { status: 'rejected' } })
+      saysNothing(entry.items)
       if (entry.note && entry.items[0]) note(entry.note, entry.items[0].id)
       continue
     }
     if (entry.readings.length === 0) throw new Error('An entry needs a reading on at least one question to be published.')
 
-    const isNewAct = !actIds.has(entry.act_id)
-    if (isNewAct) {
-      actIds.add(entry.act_id)
+    const cameIn = entry.items.find((i) => i.act_id)?.act_id ?? null
+    const onFile = actById.get(entry.act_id)
+    if (cameIn && cameIn !== entry.act_id) {
+      // The editor found the act that came in to be one already on the record.
+      if (!onFile) throw new Error('The act chosen as the same one is not on file.')
+      writes.push({ on: 'same_acts', type: 'insert', row: { act_id: cameIn, same_as_id: entry.act_id, marked_by: EDITORS_ID, marked_at: now } })
+    } else if (onFile && cameIn) {
+      const facts = { kind: entry.kind, occurred_on: entry.occurred_on || null, body: entry.quote }
+      if (onFile.kind !== facts.kind || onFile.occurred_on !== facts.occurred_on || onFile.body !== facts.body) writes.push({ on: 'acts', type: 'update', id: onFile.id, changes: facts })
+      const report = reportIn.get(`${source.id} ${onFile.id}`)
+      if (report && report.passage !== entry.passage) writes.push({ on: 'reports', type: 'update', id: report.id, changes: { passage: entry.passage } })
+    } else if (!onFile) {
       writes.push({
         on: 'acts',
         type: 'insert',
-        row: { id: entry.act_id, decider_id: entry.decider_id, kind: entry.kind, occurred_on: entry.occurred_on, body: entry.quote, primary_source_id: null, withdrawn_on: null, created_at: now },
+        row: { id: entry.act_id, decider_id: entry.decider_id, kind: entry.kind, occurred_on: entry.occurred_on || null, body: entry.quote, primary_source_id: null, withdrawn_on: null, created_at: now },
       })
     }
-    if (!reported.has(`${source.id} ${entry.act_id}`)) {
-      reported.add(`${source.id} ${entry.act_id}`)
+    if (!cameIn && !reportIn.has(`${source.id} ${entry.act_id}`)) {
+      const row: Report = { id: newId(), source_id: source.id, act_id: entry.act_id, excerpt: onFile ? entry.quote : null, passage: entry.passage, created_at: now }
+      reportIn.set(`${source.id} ${entry.act_id}`, row)
       // For an act already on file the entry's words are this source's wording of it.
-      writes.push({
-        on: 'reports',
-        type: 'insert',
-        row: { id: newId(), source_id: source.id, act_id: entry.act_id, excerpt: isNewAct ? null : entry.quote, passage: entry.passage, created_at: now },
-      })
+      writes.push({ on: 'reports', type: 'insert', row })
     }
 
-    const facts = { act_id: entry.act_id, kind: entry.kind, occurred_on: entry.occurred_on, quote: entry.quote, passage: entry.passage, weight: entry.weight }
-    const kept = new Set<string>()
+    const readOn = new Set<string>()
     let firstItemId: string | null = null
     for (const r of entry.readings) {
       const question = questionById.get(r.question_id)
       if (!question) throw new Error(`Unknown question ${r.question_id}`)
+      readOn.add(question.id)
       review(entry.act_id, question.id, r.reading, entry.weight)
       if (r.item) {
-        kept.add(r.item.id)
         firstItemId ??= r.item.id
-        writes.push({ on: 'proposal_items', type: 'update', id: r.item.id, changes: { ...facts, status: 'accepted', question_id: r.question_id, reading: r.reading } })
+        if (r.item.act_id === null) writes.push({ on: 'proposal_items', type: 'update', id: r.item.id, changes: { act_id: entry.act_id, excerpt: null } })
       } else {
         const id = newId()
         firstItemId ??= id
-        writes.push({
-          on: 'proposal_items',
-          type: 'insert',
-          row: { ...facts, id, proposal_id: proposal.id, sort: nextSort++, decider_id: entry.decider_id, question_id: r.question_id, reading: r.reading, status: 'accepted' },
-        })
+        writes.push({ on: 'proposal_items', type: 'insert', row: { id, proposal_id: proposal.id, sort: nextSort++, decider_id: entry.decider_id, question_id: question.id, act_id: entry.act_id, excerpt: null } })
       }
     }
-    // A reading the editor took off the act.
-    for (const item of entry.items) if (!kept.has(item.id)) writes.push({ on: 'proposal_items', type: 'update', id: item.id, changes: { status: 'rejected' } })
+    // A question the editor took off the act.
+    saysNothing(entry.items.filter((i) => !readOn.has(i.question_id)).map((i) => ({ ...i, act_id: i.act_id && entry.act_id })))
     if (entry.note) note(entry.note, firstItemId)
 
     const decision = entry.decision

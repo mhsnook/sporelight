@@ -32,6 +32,7 @@ const act = (overrides: Partial<Record<keyof ModelAct, unknown>> = {}) => ({
   kind: 'says',
   quote: 'I will vote for this bill',
   occurred_on: '2026-11-16',
+  date_basis: 'stated: on November 16',
   position: 'support',
   weight: 'clear',
   reason: 'A direct statement of how she will vote.',
@@ -287,9 +288,10 @@ describe('passageAround', () => {
 })
 
 describe('readArticle dates', () => {
-  it('drops a date after today, which is a date promised rather than the date of the act', async () => {
+  it('drops a date after today, which is a date promised rather than the date of the act, and says so to the editor', async () => {
     const reading = await read(answer([act({ occurred_on: '2026-12-03' })]))
     expect(reading.ok && reading.acts[0].occurred_on).toBeNull()
+    expect(reading.ok && reading.acts[0].date_basis).toMatch(/^Dropped 2026-12-03, which is after today\./)
   })
 
   it('keeps a date on or before today', async () => {

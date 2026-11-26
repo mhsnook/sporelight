@@ -2,7 +2,7 @@ import { Link } from '@tanstack/react-router'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Decider, Position, Proposal, Question, SetPosition, Source, Weight } from '../../shared/schema.ts'
 import type { Story, StoryItem, WaitingStory } from '../lib/feed.ts'
-import { KIND_LABEL, SPECTRUM, STANDING_COLOR, timeAgo, formatDate, hostOf, publishedLine, sourceLabel, standingLabel } from '../lib/position.ts'
+import { KIND_LABEL, SPECTRUM, STANDING_COLOR, timeAgo, actDate, formatDate, hostOf, publishedLine, sourceLabel, standingLabel } from '../lib/position.ts'
 import { Token } from './bits.tsx'
 import { ActWords, ArchivedCopy, WeightTag } from './RecordItem.tsx'
 
@@ -145,7 +145,7 @@ export function StoryCard({ story }: { story: Story }) {
               <p className="flex flex-wrap items-baseline gap-x-2">
                 <PersonLink slug={item.readings[0].question.slug} decider={item.decider} />
                 <span className="text-xs text-muted">
-                  {KIND_LABEL[item.act.kind]} · <time dateTime={item.act.occurred_on}>{formatDate(item.act.occurred_on)}</time>
+                  {KIND_LABEL[item.act.kind]} · {item.act.occurred_on ? <time dateTime={item.act.occurred_on}>{formatDate(item.act.occurred_on)}</time> : actDate(null)}
                   {item.act.withdrawn_on && ` · withdrawn ${formatDate(item.act.withdrawn_on)}`}
                   {!item.isNew && ' · already on the record'}
                 </span>
@@ -225,7 +225,7 @@ export function WaitingStoryCard({ story, linked = false }: { story: WaitingStor
         <div className="border-t-2 border-dashed border-ink">
           <ol className="divide-y divide-line px-4">
             {story.items.map(({ key, decider, claims }) => {
-              const { kind, occurred_on, quote } = claims[0].item
+              const { kind, occurred_on, quote, passage } = claims[0].claim
               return (
                 <li key={key} className="space-y-1 py-3">
                   <p className="flex flex-wrap items-baseline gap-x-2">
@@ -235,10 +235,10 @@ export function WaitingStoryCard({ story, linked = false }: { story: WaitingStor
                       {occurred_on && ` · ${formatDate(occurred_on)}`}
                     </span>
                   </p>
-                  <ActWords kind={kind} words={quote} passage={claims[0].item.passage} />
+                  <ActWords kind={kind} words={quote} passage={passage} />
                   <ul className="space-y-0.5">
-                    {claims.map(({ item, question, reading }) => (
-                      <ReadingLine key={item.id} decider={decider} position={reading} question={question} weight={item.weight} lead={<span className="text-muted">Claimed:</span>} />
+                    {claims.map(({ item, claim, question, reading }) => (
+                      <ReadingLine key={item.id} decider={decider} position={reading} question={question} weight={claim.weight} lead={<span className="text-muted">Claimed:</span>} />
                     ))}
                   </ul>
                 </li>

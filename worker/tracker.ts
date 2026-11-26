@@ -1,10 +1,13 @@
 import { PartyDbServer, D1Adapter, getTokenFromRequest, type PersistenceAdapter } from 'party-db/server'
 import {
+  EDITORS_ID,
+  NEWS_READER_ID,
   allCollections,
   sourceUrl,
   pairId,
   replacesPublishedOn,
   usualWeight,
+  type Act,
   type Comment,
   type CommentInput,
   type FoundPublishedOn,
@@ -15,10 +18,12 @@ import {
   type ProposalItem,
   type ProposalMention,
   type ProposalNote,
+  type Report,
+  type Review,
   type Source,
 } from '../shared/schema.ts'
 import { isEditorToken } from './editor.ts'
-import { alreadyProposed } from './leads.ts'
+import { alreadyProposed, type Proposed } from './leads.ts'
 
 const MAX_PENDING = 500
 const MAX_NOTE_CHARS = 4000
@@ -56,9 +61,11 @@ export class Tracker extends PartyDbServer<Env> {
     return new D1Adapter(this.env.DB, this.collections, { oplogRetention: this.oplogRetention })
   }
 
-  // Unreviewed proposals enter here rather than through CRUD so readers never
-  // need write access to the room.
-  async propose(draft: ProposalDraft, origin: Proposal['origin'], submittedBy: string | null = null, isRetry = false): Promise<SubmitResult> {
+  // What comes in enters here rather than through CRUD so readers never need
+  // write access to the room. Each item with a reading is written as an act,
+  // its report in the source and the sender's review of it; a search lead,
+  // which names a person and no act, only as an item.
+  async propose(draft: ProposalDraft, origin: Proposal['origin'], submittedBy: string = NEWS_READER_ID, isRetry = false): Promise<SubmitResult> {
     const db = this.env.DB
     const pending = await db.prepare(`SELECT COUNT(*) AS n FROM proposals WHERE status = 'pending'`).first<{ n: number }>()
     if ((pending?.n ?? 0) >= MAX_PENDING) {
@@ -72,11 +79,16 @@ export class Tracker extends PartyDbServer<Env> {
     const undated = replacesPublishedOn('page', { published_on_from: known && !dated.length ? known.published_on_from : (published?.from ?? null) })
     let items = draft.items
     if (known) {
+      // Earlier items from this source, with their words and whether the editors said their act says nothing on the question.
       const seen = await db
-        .prepare(`SELECT i.question_id, i.decider_id, i.status, i.quote FROM proposal_items i JOIN proposals p ON p.id = i.proposal_id WHERE p.source_id = ?`)
-        .bind(known.id)
-        .all<Pick<ProposalItem, 'question_id' | 'decider_id' | 'status' | 'quote'>>()
-      items = items.filter((i) => !alreadyProposed(seen.results, i, origin))
+        .prepare(
+          `SELECT i.question_id, i.decider_id, COALESCE(a.body, i.excerpt, '') AS quote,
+             EXISTS (SELECT 1 FROM reviews r WHERE r.act_id = i.act_id AND r.question_id = i.question_id AND r.reviewer_id = ?2 AND r.position IS NULL) AS turnedDown
+           FROM proposal_items i JOIN proposals p ON p.id = i.proposal_id LEFT JOIN acts a ON a.id = i.act_id WHERE p.source_id = ?1`,
+        )
+        .bind(known.id, EDITORS_ID)
+        .all<Omit<Proposed, 'turnedDown'> & { turnedDown: number }>()
+      items = items.filter((i) => !alreadyProposed(seen.results.map((e) => ({ ...e, turnedDown: e.turnedDown === 1 })), i, origin))
     }
     if (items.length === 0) return { ok: true, queued: 0, proposal_id: null, source_id: await this.catalogue(draft.source), undated }
 
@@ -94,17 +106,19 @@ export class Tracker extends PartyDbServer<Env> {
       created_at: now,
     }
     const proposal: Proposal = { id: crypto.randomUUID(), source_id: source.id, origin, submitted_by: submittedBy, status: 'pending', unread: draft.unread ?? null, created_at: now, reviewed_at: null }
-    const rows: ProposalItem[] = items.map(({ note: _, context: __, ...item }, sort) => ({
-      ...item,
-      id: crypto.randomUUID(),
-      proposal_id: proposal.id,
-      sort,
-      act_id: crypto.randomUUID(),
-      passage: item.passage ?? null,
-      // A lead claims no reading, so it claims no weight.
-      weight: item.reading === null ? null : (item.weight ?? usualWeight(item.kind)),
-      status: 'pending',
-    }))
+    const acts: Act[] = []
+    const reports: Report[] = []
+    const reviews: Review[] = []
+    const rows: ProposalItem[] = items.map((item, sort) => {
+      const row: ProposalItem = { id: crypto.randomUUID(), proposal_id: proposal.id, sort, decider_id: item.decider_id, question_id: item.question_id, act_id: null, excerpt: null }
+      if (item.reading === null) return { ...row, excerpt: item.quote }
+      const act: Act = { id: crypto.randomUUID(), decider_id: item.decider_id, kind: item.kind, occurred_on: item.occurred_on, body: item.quote, primary_source_id: null, withdrawn_on: null, created_at: now }
+      acts.push(act)
+      reports.push({ id: crypto.randomUUID(), source_id: source.id, act_id: act.id, excerpt: null, passage: item.passage ?? null, created_at: now })
+      const weight = item.weight ?? usualWeight(item.kind)
+      reviews.push({ id: crypto.randomUUID(), reviewer_id: submittedBy, act_id: act.id, question_id: item.question_id, position: item.reading, weight, based_on: null, created_at: now, updated_at: now })
+      return { ...row, act_id: act.id }
+    })
     const contexts: ProposalContext[] = items.flatMap((item, i) =>
       item.context ? [{ id: rows[i].id, proposal_id: proposal.id, proposal_item_id: rows[i].id, before: item.context.before, after: item.context.after }] : [],
     )
@@ -125,6 +139,13 @@ export class Tracker extends PartyDbServer<Env> {
       // In this order: each batch may only point at rows an earlier one wrote.
       await this.commit([
         ...(known ? dated : [{ channel: 'sources', ops: [{ type: 'insert' as const, value: source }] }]),
+        ...(acts.length
+          ? [
+              { channel: 'acts', ops: acts.map((value) => ({ type: 'insert' as const, value })) },
+              { channel: 'reports', ops: reports.map((value) => ({ type: 'insert' as const, value })) },
+              { channel: 'reviews', ops: reviews.map((value) => ({ type: 'insert' as const, value })) },
+            ]
+          : []),
         { channel: 'proposals', ops: [{ type: 'insert', value: proposal }] },
         { channel: 'proposal_items', ops: rows.map((value) => ({ type: 'insert' as const, value })) },
         ...(notes.length ? [{ channel: 'proposal_notes', ops: notes.map((value) => ({ type: 'insert' as const, value })) }] : []),

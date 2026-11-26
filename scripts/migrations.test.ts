@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync, readdirSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { EDITORS_ID } from '../shared/schema.ts'
+import { EDITORS_ID, NEWS_READER_ID } from '../shared/schema.ts'
 
 const root = new URL('../', import.meta.url)
 const migrations = readdirSync(new URL('migrations/', root)).sort()
@@ -14,10 +14,12 @@ function database(upTo?: string) {
   db.exec('PRAGMA foreign_keys = ON')
   for (const name of migrations) {
     if (upTo && name >= upTo) break
-    db.exec(migration(name))
+    apply(db, name)
   }
   return db
 }
+// D1 applies each migration file in one transaction, so a deferred foreign key is checked at its end.
+const apply = (db: DatabaseSync, name: string) => db.exec(`BEGIN; ${migration(name)}; COMMIT;`)
 const all = (db: DatabaseSync, query: string) => db.prepare(query).all() as Record<string, any>[]
 const count = (db: DatabaseSync, table: string) => all(db, `SELECT COUNT(*) AS n FROM ${table}`)[0].n as number
 
@@ -403,7 +405,7 @@ describe('the seed', () => {
       db.exec(`
         INSERT INTO sources (id, url, created_at) VALUES ('src-reader', 'https://example.com/harbor-ledger/sato', '2026-11-01');
         INSERT INTO proposals (id, source_id, origin, created_at) VALUES ('p-demo', 'src-reader', 'reader', '2026-11-01');
-        INSERT INTO proposal_items (id, proposal_id, decider_id, question_id, act_id, quote) VALUES ('i-demo', 'p-demo', 'demo-bartholomew-sato', 'free-ferry', 'act-x', 'Words.');
+        INSERT INTO proposal_items (id, proposal_id, decider_id, question_id, act_id, excerpt) VALUES ('i-demo', 'p-demo', 'demo-bartholomew-sato', 'free-ferry', NULL, 'Words.');
         INSERT INTO proposal_notes (id, proposal_id, proposal_item_id, kind, body, created_at) VALUES ('n-item', 'p-demo', 'i-demo', 'submitter', 'Note.', '2026-11-01'), ('n-whole', 'p-demo', NULL, 'submitter', 'Note.', '2026-11-01');
         INSERT INTO proposal_contexts (id, proposal_id, proposal_item_id, before, after) VALUES ('x-demo', 'p-demo', 'i-demo', 'Before.', 'After.');
         INSERT INTO proposal_mentions (id, proposal_id, decider_id, words) VALUES ('m-demo', 'p-demo', 'demo-bartholomew-sato', 'Named.');
@@ -729,5 +731,53 @@ describe('0021_reviews', () => {
   it('refuses a second review by one reviewer of one act on one question, and a reviewer who does not exist', () => {
     expect(() => db.exec(`INSERT INTO reviews (id, reviewer_id, act_id, question_id, position, weight, created_at, updated_at) VALUES ('again', '${EDITORS_ID}', 'signed', 'bill', 'oppose', 'clear', 't', 't')`)).toThrow()
     expect(() => db.exec(`INSERT INTO reviews (id, reviewer_id, act_id, question_id, position, weight, created_at, updated_at) VALUES ('stranger', 'nobody', 'signed', 'policy', 'oppose', 'clear', 't', 't')`)).toThrow()
+  })
+})
+
+describe('0022_reviews_come_in', () => {
+  const db = database('0022')
+  db.exec(`
+    INSERT INTO bodies (id, slug, name) VALUES ('b', 'b', 'Body');
+    INSERT INTO deciders (id, slug, name, sort_name) VALUES ('ann', 'ann', 'Ann', 'Ann');
+    INSERT INTO questions (id, slug, body_id, kind, title, short_title) VALUES ('policy', 'policy', 'b', 'position', 'Policy?', 'Policy');
+    INSERT INTO sources (id, url, created_at) VALUES ('waiting-src', 'https://news.example/waiting', 't'), ('done-src', 'https://news.example/done', 't'), ('empty-src', 'https://news.example/empty', 't');
+    INSERT INTO acts (id, decider_id, kind, occurred_on, body, created_at) VALUES ('published', 'ann', 'says', '2026-01-01', 'I am for it.', 't');
+    INSERT INTO reviews (id, reviewer_id, act_id, question_id, position, weight, created_at, updated_at) VALUES ('rv', '${EDITORS_ID}', 'published', 'policy', 'support', 'clear', 't', 't');
+    INSERT INTO proposals (id, source_id, origin, status, created_at) VALUES ('waiting', 'waiting-src', 'model', 'pending', 't'), ('done', 'done-src', 'model', 'reviewed', 't');
+    INSERT INTO proposal_items (id, proposal_id, decider_id, question_id, act_id, kind, quote, reading, weight, status) VALUES
+      ('w1', 'waiting', 'ann', 'policy', 'not-yet', 'says', 'Maybe.', 'support', 'clear', 'pending'),
+      ('kept', 'done', 'ann', 'policy', 'published', 'says', 'I am for it.', 'support', 'clear', 'accepted'),
+      ('turned-down', 'done', 'ann', 'policy', 'never', 'says', 'Not really.', 'oppose', 'clear', 'rejected');
+    INSERT INTO proposal_notes (id, proposal_id, proposal_item_id, kind, body, created_at) VALUES
+      ('n-waiting', 'waiting', 'w1', 'submitter', 'Why.', 't'), ('n-turned-down', 'done', 'turned-down', 'review', 'Not in the article.', 't');
+    INSERT INTO proposal_contexts (id, proposal_id, proposal_item_id, before, after) VALUES ('c-waiting', 'waiting', 'w1', 'b', 'a'), ('c-turned-down', 'done', 'turned-down', 'b', 'a'), ('c-kept', 'done', 'kept', 'b', 'a');
+    INSERT INTO proposal_mentions (id, proposal_id, decider_id, words) VALUES ('m-waiting', 'waiting', 'ann', 'Named.');
+    INSERT INTO article_reads (source_id, question_id, read_at, outcome) VALUES ('waiting-src', 'policy', 't', 'queued'), ('empty-src', 'policy', 't', 'no_acts');
+  `)
+  apply(db, '0022_reviews_come_in.sql')
+
+  it('drops waiting proposals and what hangs off them, and lets the news search read their articles again', () => {
+    expect(all(db, `SELECT id FROM proposals`)).toEqual([{ id: 'done' }])
+    expect([count(db, 'proposal_mentions'), all(db, `SELECT id FROM proposal_contexts`), all(db, `SELECT source_id FROM article_reads`)]).toEqual([0, [{ id: 'c-kept' }], [{ source_id: 'empty-src' }]])
+    expect(all(db, `PRAGMA foreign_key_check`)).toEqual([])
+  })
+
+  it("keeps a reviewed proposal's link to each act it published, and its editors' notes without a link to a dropped item", () => {
+    expect(all(db, `SELECT id, proposal_id, decider_id, question_id, act_id, excerpt FROM proposal_items`)).toEqual([{ id: 'kept', proposal_id: 'done', decider_id: 'ann', question_id: 'policy', act_id: 'published', excerpt: null }])
+    expect(all(db, `SELECT id, proposal_item_id FROM proposal_notes`)).toEqual([{ id: 'n-turned-down', proposal_item_id: null }])
+  })
+
+  it("names the news reader as the sender of the model's proposals, and as an agent", () => {
+    expect(all(db, `SELECT submitted_by FROM proposals`)).toEqual([{ submitted_by: NEWS_READER_ID }])
+    expect(all(db, `SELECT kind, display_name FROM people WHERE id = '${NEWS_READER_ID}'`)).toEqual([{ kind: 'agent', display_name: 'News reader' }])
+  })
+
+  it('keeps every act and review, and takes an act with no date and a review that says nothing', () => {
+    expect([count(db, 'acts'), count(db, 'reviews')]).toEqual([1, 1])
+    db.exec(`INSERT INTO acts (id, decider_id, kind, occurred_on, body, created_at) VALUES ('undated', 'ann', 'says', NULL, 'Some day.', 't')`)
+    db.exec(`INSERT INTO reviews (id, reviewer_id, act_id, question_id, position, weight, created_at, updated_at) VALUES ('nothing', '${EDITORS_ID}', 'undated', 'policy', NULL, NULL, 't', 't')`)
+    expect(all(db, `SELECT position, weight FROM reviews WHERE id = 'rv'`)).toEqual([{ position: 'support', weight: 'clear' }])
+    expect(() => db.exec(`INSERT INTO reviews (id, reviewer_id, act_id, question_id, position, weight, created_at, updated_at) VALUES ('odd', '${NEWS_READER_ID}', 'undated', 'policy', 'maybe', NULL, 't', 't')`)).toThrow()
+    expect(all(db, `PRAGMA foreign_key_check`)).toEqual([])
   })
 })

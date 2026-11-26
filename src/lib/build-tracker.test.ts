@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { claimLabel, claimTag } from './position.ts'
-import { EDITORS_ID, type SameAct } from '../../shared/schema.ts'
-import { asShown, readingsFrom, type RecordEntry } from './build-tracker.ts'
+import { EDITORS_ID, type Direction, type SameAct, type Weight } from '../../shared/schema.ts'
+import { asShown, readingsFrom, tierOfPeople, type RecordEntry } from './build-tracker.ts'
 import { act, decider, holder, link, office, question, review, relation, report, role, seat, setPosition, source, track } from './fixtures.ts'
 
 const policy = question('policy')
@@ -339,9 +339,9 @@ describe('where an entry not on file yet would leave someone', () => {
     reviews: [review('speech', 'policy', 'support')],
     setPositions: [setPosition('policy', 'ann', 'mixed')],
   })
-  const extra = (questionId: string, position: Parameters<typeof review>[2], weight: Parameters<typeof review>[3] & string, over: Parameters<typeof act>[2] = {}): RecordEntry => {
+  const extra = (questionId: string, position: Direction, weight: Weight, over: Parameters<typeof act>[2] = {}): RecordEntry => {
     const added = act('added', 'ann', { occurred_on: '2026-06-01', ...over })
-    return { act: added, reading: { id: `added ${questionId}`, act_id: 'added', question_id: questionId, position, weight, via_question_id: null }, via: undefined, reports: [], lapse: null, onRecord: weight === 'concrete' && added.kind !== 'says' }
+    return { act: added, reading: { id: `added ${questionId}`, act_id: 'added', question_id: questionId, position, weight, by: 'editor', via_question_id: null }, via: undefined, reports: [], lapse: null, onRecord: weight === 'concrete' && added.kind !== 'says' }
   }
 
   it('counts the entry with the record in what is calculated', () => {
@@ -513,10 +513,20 @@ describe('readingsFrom', () => {
   const bill = question('bill', { parent_id: 'policy', kind: 'formal_act', implies_on_parent: 'support' })
   const letter = question('letter', { parent_id: 'policy', kind: 'formal_act', implies_on_parent: 'oppose' })
   const questions = new Map([policy, bill, letter].map((q) => [q.id, q]))
-  const shown = (reviews: Parameters<typeof readingsFrom>[0]) => readingsFrom(reviews, questions).map((r) => [r.act_id, r.question_id, r.position, r.weight, r.via_question_id])
+  const tierOf = tierOfPeople([{ id: 'model', kind: 'agent' }])
+  const shown = (reviews: Parameters<typeof readingsFrom>[0]) => readingsFrom(reviews, questions, tierOf).map((r) => [r.act_id, r.question_id, r.position, r.weight, r.via_question_id])
 
   it("takes the editors' review over a reader's", () => {
     expect(shown([review('a', 'policy', 'support', 'clear', 'a-reader'), review('a', 'policy', 'oppose', 'passing')])).toEqual([['a', 'policy', 'oppose', 'passing', null]])
+  })
+
+  it("takes a person's review over an agent's, and an agent's when it is all there is", () => {
+    expect(shown([review('a', 'policy', 'oppose', 'concrete', 'model'), review('a', 'policy', 'support', 'clear', 'a-reader')])).toEqual([['a', 'policy', 'support', 'clear', null]])
+    expect(readingsFrom([review('a', 'policy', 'oppose', 'concrete', 'model')], questions, tierOf)[0]).toMatchObject({ position: 'oppose', by: 'agent' })
+  })
+
+  it("drops the act from the question when the editors' review says it says nothing there", () => {
+    expect(shown([review('a', 'policy', 'support', 'concrete', 'model'), { ...review('a', 'policy', 'support'), position: null, weight: null }])).toEqual([])
   })
 
   it('averages the reviews of people when no editor has reviewed the act', () => {
@@ -549,7 +559,7 @@ describe('readingsFrom', () => {
     const onBill = review('a', 'bill', 'support', 'concrete')
     const onLetter = review('a', 'letter', 'support', 'concrete')
     for (const reviews of [[onBill, onLetter], [onLetter, onBill]]) {
-      expect(readingsFrom(reviews, questions).find((r) => r.question_id === 'policy')).toMatchObject({ position: 'mixed', via_question_id: 'bill' })
+      expect(readingsFrom(reviews, questions, tierOf).find((r) => r.question_id === 'policy')).toMatchObject({ position: 'mixed', via_question_id: 'bill' })
     }
   })
 
@@ -622,5 +632,26 @@ describe('acts an editor found to be the same', () => {
     expect(chain.shownAs('feb-11-third')).toBe('feb-11')
     const loop = asShown({ ...rows, sameActs: [same('feb-11', 'feb-11-again'), same('feb-11-again', 'feb-11')] })
     expect([loop.shownAs('feb-11'), loop.shownAs('feb-11-again')]).toEqual(['feb-11', 'feb-11-again'])
+  })
+})
+
+describe('an act with no date yet', () => {
+  const policy = question('policy')
+  const rows = {
+    deciders: [decider('ann')],
+    questions: [policy],
+    seats: [seat('s1')],
+    roles: [role('s1', 'ann')],
+    acts: [act('dated', 'ann', { occurred_on: '2026-03-01' }), act('undated', 'ann', { occurred_on: null, kind: 'does' })],
+    reviews: [review('dated', 'policy', 'support'), review('undated', 'policy', 'oppose', 'concrete')],
+  }
+
+  it('is on the record after every dated act, and counts toward nothing until it is dated', () => {
+    const t = track(rows)
+    expect(t.recordFor(policy, 'ann').map((e) => e.act.id)).toEqual(['dated', 'undated'])
+    expect(t.standingFor(policy, 'ann')).toBe('support')
+    expect(t.board(policy)[0].incumbent!.footing).toBe('sparse')
+    const dated = track({ ...rows, acts: [rows.acts[0], { ...rows.acts[1], occurred_on: '2026-04-01' }] })
+    expect(dated.standingFor(policy, 'ann')).toBe('oppose')
   })
 })

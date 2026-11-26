@@ -1,6 +1,7 @@
 import type { Act, Decider, Office, OfficeHolder, Position, Proposal, ProposalItem, Question, QuestionDecider, QuestionRelation, Report, Review, Role, Seat, SetPosition, Source } from '../../shared/schema.ts'
 import { EDITORS_ID, pairId } from '../../shared/schema.ts'
 import { buildTracker, type TrackerData } from './build-tracker.ts'
+import type { Claim } from './claims.ts'
 
 // Row builders for tests: each takes the fields a test cares about and fills in the rest.
 
@@ -55,13 +56,7 @@ export const item = (id: string, proposalId: string, deciderId: string, question
   decider_id: deciderId,
   question_id: questionId,
   act_id: `act-of-${id}`,
-  kind: 'says',
-  occurred_on: null,
-  quote: `words of ${id}`,
-  passage: null,
-  reading: null,
-  weight: null,
-  status: 'pending',
+  excerpt: null,
   ...over,
 })
 
@@ -83,8 +78,33 @@ export const data = (over: Partial<TrackerData>): TrackerData => ({
   reports: [],
   reviews: [],
   sameActs: [],
+  people: [],
   ...over,
 })
 
 export const TODAY = '2026-11-17'
 export const track = (over: Partial<TrackerData>, asOf = TODAY) => buildTracker(data(over), asOf)
+
+// A claim as the review form gets it, from the fields a test cares about. A
+// lead is an item with no act; `status` is what the editors' review says.
+export const claimed = (
+  id: string,
+  proposalId: string,
+  deciderId: string,
+  questionId: string,
+  { act_id, sort, excerpt, status, ...over }: Partial<Pick<ProposalItem, 'act_id' | 'sort' | 'excerpt'>> & Partial<Omit<Claim, 'item' | 'isLead' | 'verdict'>> & { status?: 'pending' | 'accepted' | 'rejected' } = {},
+): Claim => {
+  const row = item(id, proposalId, deciderId, questionId, { ...(act_id !== undefined && { act_id }), ...(sort !== undefined && { sort }), ...(excerpt !== undefined && { excerpt }) })
+  return {
+    item: row,
+    isLead: row.act_id === null,
+    kind: 'says',
+    occurred_on: null,
+    quote: row.act_id === null ? (row.excerpt ?? '') : `words of ${id}`,
+    passage: null,
+    reading: null,
+    weight: null,
+    verdict: status === 'rejected' ? 'turned_down' : status === 'accepted' ? 'published' : 'waiting',
+    ...over,
+  }
+}

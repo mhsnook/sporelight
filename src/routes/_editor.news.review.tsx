@@ -7,6 +7,7 @@ import { editorFetch, signOut } from '../lib/editor.ts'
 import { commit } from '../lib/review.ts'
 import { planReview, type Write } from '../lib/review-plan.ts'
 import { groupBy } from '../lib/build-tracker.ts'
+import { claimOf, type Claim } from '../lib/claims.ts'
 import { decisionOf, draftEntries, outlook, proposalIsAcross, reportingAct, verdictOf, type EntryDraft } from '../lib/review-form.ts'
 import { narrowQueue, tallyQueue, type QuestionTally } from '../lib/queue-filter.ts'
 import { useTracker } from '../lib/tracker.tsx'
@@ -67,10 +68,11 @@ function Queue() {
     return grouped
   }, [allItems.data])
   const itemsOf = (proposalId: string) => itemsByProposal.get(proposalId) ?? []
+  const claimsOf = (proposal: Proposal) => itemsOf(proposal.id).map((item) => claimOf(tracker, proposal, item))
   // Proposals with a claim across from a position editors set. Those are checked first.
   const { pending, reviewed, acrossIds } = useMemo(() => {
     const waiting = proposals.data.filter((p) => p.status === 'pending')
-    const acrossIds = new Set(waiting.filter((p) => proposalIsAcross(tracker, itemsByProposal.get(p.id) ?? [])).map((p) => p.id))
+    const acrossIds = new Set(waiting.filter((p) => proposalIsAcross(tracker, (itemsByProposal.get(p.id) ?? []).map((item) => claimOf(tracker, p, item)))).map((p) => p.id))
     return {
       acrossIds,
       pending: waiting.sort((a, b) => Number(acrossIds.has(b.id)) - Number(acrossIds.has(a.id)) || a.created_at.localeCompare(b.created_at)),
@@ -202,7 +204,7 @@ function Queue() {
           onLeave={(work) => setStarted(({ [selected.id]: _, ...rest }) => (work ? { ...rest, [selected.id]: work } : rest))}
           proposal={selected}
           source={selectedSource}
-          items={itemsOf(selected.id)}
+          claims={claimsOf(selected)}
           notes={allNotes.data.filter((n) => n.proposal_id === selected.id)}
           contexts={allContexts.data.filter((c) => c.proposal_id === selected.id)}
           mentions={allMentions.data.filter((m) => m.proposal_id === selected.id)}
@@ -215,9 +217,9 @@ function Queue() {
               <h2 className="text-base font-black sm:text-lg">{tab === 'pending' ? 'Waiting' : 'Reviewed'}</h2>
               <ul className="flex flex-col gap-2 sm:gap-2.5">
                 {list.slice(listFrom, listFrom + UP_NEXT).map((p) => {
-                  const items = itemsOf(p.id)
-                  const names = [...new Set(items.map((i) => tracker.deciderById.get(i.decider_id)?.name ?? i.decider_id))]
-                  const accepted = items.filter((i) => i.status === 'accepted').length
+                  const claims = claimsOf(p)
+                  const names = [...new Set(claims.map(({ item }) => tracker.deciderById.get(item.decider_id)?.name ?? item.decider_id))]
+                  const accepted = claims.filter((c) => c.verdict === 'published').length
                   const across = acrossIds.has(p.id)
                   const source = tracker.sourceById.get(p.source_id)
                   const unread = isUnreadLead(p)
@@ -229,13 +231,13 @@ function Queue() {
                         aria-current={p.id === selected.id ? 'true' : undefined}
                         className={`flex w-full cursor-pointer items-start gap-3 rounded-[14px] border-ink px-3.5 py-3 text-left hover:shadow-hard-md ${p.id === selected.id ? 'bg-mint shadow-hard-md' : 'bg-surface'} ${across ? 'border-[3px]' : unread ? 'border-2 border-dashed' : 'border-2'}`}
                       >
-                        <Token standing={items.find((i) => i.reading)?.reading ?? 'unknown'} className="mt-0.5 size-[22px]" />
+                        <Token standing={claims.find((c) => c.reading)?.reading ?? 'unknown'} className="mt-0.5 size-[22px]" />
                         <span className="min-w-0 flex-1">
                           <span className="flex items-baseline justify-between gap-2 font-bold">
                             <span className="line-clamp-2 leading-snug">{source ? sourceLabel(source) : 'A source that no longer exists'}</span>
                             {p.id === selected.id ? <span className="tag shrink-0">open</span> : started[p.id] && <span className="tag shrink-0 text-accent">started</span>}
                             {p.status !== 'pending' && (
-                              <span className="tag shrink-0">{accepted === 0 ? 'dismissed' : accepted === items.length ? 'published' : `${accepted} of ${items.length} published`}</span>
+                              <span className="tag shrink-0">{accepted === 0 ? 'dismissed' : accepted === claims.length ? 'published' : `${accepted} of ${claims.length} published`}</span>
                             )}
                           </span>
                           <span className="mt-0.5 line-clamp-1 text-sm leading-snug text-muted sm:line-clamp-2">
@@ -332,7 +334,7 @@ function QuestionFilter({
 function Desk({
   proposal,
   source,
-  items,
+  claims,
   notes,
   contexts,
   mentions,
@@ -345,7 +347,7 @@ function Desk({
 }: {
   proposal: Proposal
   source: Source
-  items: ProposalItem[]
+  claims: Claim[]
   notes: ProposalNote[]
   contexts: ProposalContext[]
   mentions: ProposalMention[]
@@ -362,7 +364,7 @@ function Desk({
   const [drafts, setDrafts] = useState(
     () =>
       restored?.drafts ??
-      draftEntries(items, contexts).map((d) => {
+      draftEntries(claims, contexts).map((d) => {
         const note = notes.find((n) => n.kind === 'review' && d.items.some((i) => i.id === n.proposal_item_id))?.body ?? ''
         // An item naming an act since marked as the same as another starts as a report of that one.
         const shown = tracker.actById.has(d.act_id) ? tracker.actById.get(tracker.shownAs(d.act_id)) : undefined

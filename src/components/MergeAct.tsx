@@ -2,9 +2,9 @@ import { useState } from 'react'
 import { EDITORS_ID, type Act } from '../../shared/schema.ts'
 import { db } from '../lib/db.ts'
 import { useTracker } from '../lib/tracker.tsx'
-import { KIND_LABEL, formatDate } from '../lib/position.ts'
+import { KIND_LABEL, actDate } from '../lib/position.ts'
 
-const describe = (act: Act) => `${formatDate(act.occurred_on)} · ${KIND_LABEL[act.kind]} · ${act.body.slice(0, 60)}`
+const describe = (act: Act) => `${actDate(act.occurred_on)} · ${KIND_LABEL[act.kind]} · ${act.body.slice(0, 60)}`
 const failed = (setError: (e: string) => void) => (err: unknown) => setError(err instanceof Error ? err.message : String(err))
 
 // Editors only: says this act and another on file are the same thing. Both
@@ -12,12 +12,12 @@ const failed = (setError: (e: string) => void) => (err: unknown) => setError(err
 export function MergeAct({ act }: { act: Act }) {
   const { tracker } = useTracker()
   const [error, setError] = useState<string | null>(null)
-  const others = (tracker.actsByDecider.get(act.decider_id) ?? []).filter((a) => a.id !== act.id).sort((a, b) => b.occurred_on.localeCompare(a.occurred_on))
+  const others = (tracker.actsByDecider.get(act.decider_id) ?? []).filter((a) => a.id !== act.id).sort((a, b) => (b.occurred_on ?? '').localeCompare(a.occurred_on ?? ''))
   const alsoRecordedAs = (tracker.sameActsOf.get(act.id) ?? []).flatMap((s) => tracker.actById.get(s.act_id) ?? [])
 
   function markSame(sameAsId: string) {
     const other = tracker.actById.get(sameAsId)
-    if (!other || !window.confirm(`Show this act as the one from ${formatDate(other.occurred_on)}? Its sources and reviews are counted there. It can be separated again.`)) return
+    if (!other || !window.confirm(`Show this act as the one from ${actDate(other.occurred_on)}? Its sources and reviews are counted there. It can be separated again.`)) return
     setError(null)
     db.same_acts.insert({ act_id: act.id, same_as_id: sameAsId, marked_by: EDITORS_ID, marked_at: new Date().toISOString() }).isPersisted.promise.catch(failed(setError))
   }

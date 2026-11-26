@@ -1,4 +1,5 @@
-import type { Act, Decider, Proposal, ProposalItem, Question, Reading, SetPosition, Source } from '../../shared/schema.ts'
+import type { Act, Decider, Direction, Proposal, ProposalItem, Question, Reading, SetPosition, Source } from '../../shared/schema.ts'
+import { claimOf, type Claim } from './claims.ts'
 import { groupBy, type Tracker } from './build-tracker.ts'
 import type { Standing } from './position.ts'
 
@@ -37,10 +38,10 @@ export type WaitingItem = {
   // The act the claims describe, unique within one proposal.
   key: string
   decider: Decider
-  // The first claim's item carries the act's kind, date and words.
-  // Where the person stands on the question before this claim, which counts only once an editor checks it.
-  // `across` is the position editors set by hand, when the claim sits on the other side of it.
-  claims: { item: ProposalItem; question: Question; reading: NonNullable<ProposalItem['reading']>; before: Standing; across: SetPosition | undefined }[]
+  // The first claim carries the act's kind, date and words.
+  // `before` is where the person stands on the question without this act; `across` is the
+  // position editors set by hand, when the claim sits on the other side of it.
+  claims: { item: ProposalItem; claim: Claim; question: Question; reading: Direction; before: Standing; across: SetPosition | undefined }[]
 }
 
 // A proposal waiting for review: its source and the acts it claims. Nobody has
@@ -81,11 +82,15 @@ function matcher(tracker: Tracker, filter: FeedFilter) {
 
 const isDemoQuestion = (tracker: Tracker, question: Question) => tracker.bodyById.get(question.body_id)?.is_demo === true
 
-// The published record as stories, newest first. A story keeps only the people
-// the filter keeps, and each person's readings that match it come first.
+// What editors have published, as stories, newest first: an act shows once the
+// editors have reviewed it. A story keeps only the people the filter keeps, and
+// each person's readings that match it come first.
 export function buildStories(tracker: Tracker, filter: FeedFilter = {}): Story[] {
   const match = matcher(tracker, filter)
-  const readingsByAct = groupBy(tracker.readings, (r) => r.act_id)
+  const readingsByAct = groupBy(
+    tracker.readings.filter((r) => r.by === 'editor'),
+    (r) => r.act_id,
+  )
   const byKey = new Map<string, Story>()
   for (const report of tracker.shownReports) {
     const act = tracker.actById.get(report.act_id)
@@ -115,29 +120,30 @@ export function buildStories(tracker: Tracker, filter: FeedFilter = {}): Story[]
 }
 
 // What is waiting for review that claims something, one story per proposal,
-// newest first. Only pending items with a reading count: rejected items, and
-// search leads that only name someone, are left out. Items of one proposal
-// that share an act are one item.
+// newest first. Only claims with a reading the editors have not reviewed
+// count: search leads that only name someone are left out. Claims about one
+// act are one item.
 export function buildWaiting(tracker: Tracker, proposals: Proposal[], items: ProposalItem[], filter: FeedFilter = {}): WaitingStory[] {
   const match = matcher(tracker, filter)
   const proposalById = new Map(proposals.map((p) => [p.id, p]))
   const stories = new Map<string, WaitingStory>()
   for (const item of [...items].sort((a, b) => a.sort - b.sort)) {
-    if (item.status !== 'pending' || item.reading === null) continue
     const proposal = proposalById.get(item.proposal_id)
     const decider = tracker.deciderById.get(item.decider_id)
     const question = tracker.questionById.get(item.question_id)
-    if (!proposal || proposal.status !== 'pending' || !decider || !question || !match.person(decider.id) || !match.question(question)) continue
+    if (!proposal || proposal.status !== 'pending' || !item.act_id || !decider || !question || !match.person(decider.id) || !match.question(question)) continue
+    const claim = claimOf(tracker, proposal, item)
+    if (claim.verdict !== 'waiting' || claim.reading === null) continue
     let story = stories.get(proposal.id)
     if (!story) {
       story = { key: `proposal:${proposal.id}`, at: proposal.created_at, proposal, source: tracker.sourceById.get(proposal.source_id), items: [], isDemo: false }
       stories.set(proposal.id, story)
     }
     story.isDemo ||= isDemoQuestion(tracker, question)
-    const claim = { item, question, reading: item.reading, before: tracker.standingFor(question, decider.id), across: tracker.acrossFor(question, decider.id, item.reading) }
+    const line = { item, claim, question, reading: claim.reading, before: tracker.listingFor(question, decider.id, [], [item.act_id]).standing, across: tracker.acrossFor(question, decider.id, claim.reading) }
     const existing = story.items.find((i) => i.key === item.act_id)
-    if (existing) existing.claims.push(claim)
-    else story.items.push({ key: item.act_id, decider, claims: [claim] })
+    if (existing) existing.claims.push(line)
+    else story.items.push({ key: item.act_id, decider, claims: [line] })
   }
   return [...stories.values()].sort((a, b) => b.proposal.created_at.localeCompare(a.proposal.created_at) || a.proposal.id.localeCompare(b.proposal.id))
 }

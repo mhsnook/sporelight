@@ -4,7 +4,7 @@ import { useTracker } from '../../lib/tracker.tsx'
 import { commit } from '../../lib/review.ts'
 import { questionInserts, relatedQuestionRows } from '../../lib/question-form.ts'
 import { dateOffer, decisionStandings, missingFrom, outlook, relatedChoices, reportingAct, withWeight, type EntryDraft, type Outlook, type RelatedChoice } from '../../lib/review-form.ts'
-import { DIRECTION_LABEL, KIND_CHOICE, KIND_LABEL, KIND_NOUN, STANDING_BG, WEIGHT_HINT, WEIGHT_LABEL, formatDate, hostOf, sourceLabel, standingLabel, type Standing } from '../../lib/position.ts'
+import { DIRECTION_LABEL, KIND_CHOICE, KIND_LABEL, KIND_NOUN, STANDING_BG, WEIGHT_HINT, WEIGHT_LABEL, actDate, formatDate, hostOf, sourceLabel, standingLabel, type Standing } from '../../lib/position.ts'
 import { Token } from '../bits.tsx'
 import { Marked, RecordItem, splitPassage } from '../RecordItem.tsx'
 import { Reveal } from './Reveal.tsx'
@@ -144,7 +144,7 @@ export function ReviewEntry({
   }, [open.passage])
 
   const choices = useMemo(() => relatedChoices(tracker, entry), [tracker, entry.question_id, entry.decider_id])
-  const actsOnFile = useMemo(() => [...(tracker.actsByDecider.get(entry.decider_id ?? '') ?? [])].sort((a, b) => b.occurred_on.localeCompare(a.occurred_on)), [tracker, entry.decider_id])
+  const actsOnFile = useMemo(() => [...(tracker.actsByDecider.get(entry.decider_id ?? '') ?? [])].sort((a, b) => (b.occurred_on ?? '').localeCompare(a.occurred_on ?? '')), [tracker, entry.decider_id])
 
   const question = tracker.questionById.get(entry.question_id)
   if (!question) return <p className="py-4 text-muted">This entry points at a question that no longer exists.</p>
@@ -160,7 +160,8 @@ export function ReviewEntry({
   const across = view.across
   const noun = KIND_NOUN[entry.kind]
   const record = decider ? tracker.recordFor(question, decider.id) : []
-  const onFile = tracker.actById.has(entry.act_id)
+  // Another act on the record, chosen as the one this entry reports. The act that came in with the proposal is not one.
+  const onFile = entry.act_id !== entry.newActId && tracker.actById.has(entry.act_id)
   const offer = dateOffer(source)
   const root = tracker.rootOf(question)
   const offered = new Set(choices.map((c) => c.question.id))
@@ -383,10 +384,10 @@ export function ReviewEntry({
                       onChange={(e) => onChange(reportingAct(entry, tracker.actById.get(e.target.value) ?? null))}
                       className="field"
                     >
-                      {!tracker.actById.has(entry.newActId) && <option value={entry.newActId}>A new {noun}, not on the record yet</option>}
-                      {actsOnFile.map((a) => (
+                      <option value={entry.newActId}>{tracker.actById.has(entry.newActId) ? `This ${noun}, as it came in` : `A new ${noun}, not on the record yet`}</option>
+                      {actsOnFile.filter((a) => a.id !== entry.newActId).map((a) => (
                         <option key={a.id} value={a.id}>
-                          On the record: {formatDate(a.occurred_on)} · {KIND_LABEL[a.kind]} · {a.body.slice(0, 60)}
+                          On the record: {actDate(a.occurred_on)} · {KIND_LABEL[a.kind]} · {a.body.slice(0, 60)}
                         </option>
                       ))}
                     </select>

@@ -252,7 +252,8 @@ export const actSchema = z.object({
   id: z.string(),
   decider_id: z.string(),
   kind: actKindSchema,
-  occurred_on: z.string(),
+  // null until the act's date is found. An undated act does not count toward a position.
+  occurred_on: z.string().nullable(),
   body: z.string(),
   // The record of the act itself, as opposed to a source that reports it.
   primary_source_id: z.string().nullable(),
@@ -277,6 +278,8 @@ export type Report = z.infer<typeof reportSchema>
 // Everything written with the editor token is written as this person, until
 // editors are signed-in people.
 export const EDITORS_ID = 'editors'
+// The agent the news search reads articles as. What it finds is its review.
+export const NEWS_READER_ID = 'news-reader'
 
 // One identity's judgement of what an act shows on a question. Only its author changes it.
 export const reviewSchema = z.object({
@@ -284,13 +287,14 @@ export const reviewSchema = z.object({
   reviewer_id: z.string(),
   act_id: z.string(),
   question_id: z.string(),
-  position: directionSchema,
-  weight: weightSchema,
+  // Both null when the reviewer says the act says nothing on this question.
+  position: directionSchema.nullable(),
+  weight: weightSchema.nullable(),
   // The review this one started from, when it was made from someone else's.
   based_on: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
-})
+}).refine((r) => (r.position === null) === (r.weight === null), 'A review gives both a position and a weight, or neither.')
 export type Review = z.infer<typeof reviewSchema>
 
 // An act an editor has found to be the same real-world act as another. The
@@ -311,6 +315,8 @@ export type Reading = {
   question_id: string
   position: Position
   weight: Weight
+  // Whose reviews it was worked out from: the editors', people's or agents'.
+  by: 'editor' | (typeof PERSON_KINDS)[number]
   // Set on a reading worked out from a sub-question that implies this one.
   via_question_id: string | null
 }
@@ -333,25 +339,17 @@ export const proposalSchema = z.object({
 })
 export type Proposal = z.infer<typeof proposalSchema>
 
+// What a proposal put forward: an act, read on one question by whoever sent
+// it, or on a search lead, a person the result names and no act.
 export const proposalItemSchema = z.object({
   id: z.string(),
   proposal_id: z.string(),
   sort: z.number(),
   decider_id: z.string(),
   question_id: z.string(),
-  // Names an act already on file, or the id a new act will take if the item is
-  // accepted, so it may match no row in `acts`. Items that share it describe
-  // one act.
-  act_id: z.string(),
-  kind: actKindSchema,
-  occurred_on: z.string().nullable(),
-  quote: z.string(),
-  // The passage of the source the quote sits in, when the article was read.
-  passage: z.string().nullable(),
-  // Both null on a news-search lead: a search hit names a person, not a position.
-  reading: directionSchema.nullable(),
-  weight: weightSchema.nullable(),
-  status: z.enum(['pending', 'accepted', 'rejected']),
+  act_id: z.string().nullable(),
+  // On a lead, what the search result said. It is nobody's words.
+  excerpt: z.string().nullable(),
 })
 export type ProposalItem = z.infer<typeof proposalItemSchema>
 
@@ -417,8 +415,20 @@ export type ProposalDraft = {
   source: { url: string; title: string | null; published?: FoundPublishedOn | null }
   note: string | null
   unread?: UnreadReason
-  items: (Pick<ProposalItem, 'question_id' | 'decider_id' | 'kind' | 'occurred_on' | 'quote' | 'reading'> &
-    Partial<Pick<ProposalItem, 'weight' | 'passage'>> & { note?: string | null; context?: { before: string; after: string } })[]
+  items: {
+    question_id: string
+    decider_id: string
+    kind: ActKind
+    occurred_on: string | null
+    // The person's words, or on a lead, what the search result said.
+    quote: string
+    // null on a lead: a search hit names a person, not a position.
+    reading: Direction | null
+    weight?: Weight | null
+    passage?: string | null
+    note?: string | null
+    context?: { before: string; after: string }
+  }[]
   mentions?: { decider_id: string; words: string }[]
 }
 

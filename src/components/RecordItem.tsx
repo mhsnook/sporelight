@@ -9,9 +9,13 @@ export function RecordItem({ entry, question, edit = false, children }: { entry:
   return (
     <li className="rounded-xl border-2 border-ink bg-surface p-4">
       <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
-        <time dateTime={act.occurred_on} className="font-semibold text-ink">
-          {formatDate(act.occurred_on)}
-        </time>
+        {act.occurred_on ? (
+          <time dateTime={act.occurred_on} className="font-semibold text-ink">
+            {formatDate(act.occurred_on)}
+          </time>
+        ) : (
+          <span className="font-semibold text-ink">Date not found · not counted until dated</span>
+        )}
         <span>·</span>
         <span>{KIND_LABEL[act.kind]}</span>
         {via && via.id !== question?.id && <span className="rounded bg-paper px-1.5 py-0.5">{via.short_title}</span>}
