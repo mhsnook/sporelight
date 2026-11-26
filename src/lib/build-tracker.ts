@@ -27,6 +27,8 @@ export type RecordEntry = {
   // Why a commitment no longer holds on the day viewed, if it does not: it was
   // taken back, or the measure it was made on has closed.
   lapse: 'withdrawn' | 'closed' | null
+  // The editors have reviewed the act, on this question or on the sub-question it was read through, and it is published. See `editorsVerdict`.
+  checked: boolean
   // The act binds them on this very question and still holds. See `Signal`.
   onRecord: boolean
 }
@@ -164,7 +166,7 @@ export function readingsFrom(reviews: Review[], questionById: ReadonlyMap<string
     // Implied when everything the summary went by was implied; named by the first such sub-question in question order.
     const used = group.filter((c) => c.tier === summary.tier && c.position !== null)
     const via = used.every((c) => c.via) ? used.map((c) => c.via!).sort((x, y) => x.sort - y.sort || x.id.localeCompare(y.id))[0].id : null
-    return [{ id, act_id: group[0].act_id, question_id: group[0].question_id, position: summary.position, weight: summary.weight, by: summary.tier, via_question_id: via }]
+    return [{ id, act_id: group[0].act_id, question_id: group[0].question_id, position: summary.position, weight: summary.weight, via_question_id: via }]
   })
 }
 
@@ -182,7 +184,19 @@ export function buildTracker(c: TrackerData, asOf: string) {
   const shown = asShown(c)
   // Every act on file, so a proposal or a plan can find one shown as another; a shown act as it is shown.
   const actById = indexBy([...c.acts, ...shown.acts], (a) => a.id)
-  const readings = readingsFrom(shown.reviews, questionById, tierOfPeople(c.people))
+  const tierOf = tierOfPeople(c.people)
+  const readings = readingsFrom(shown.reviews, questionById, tierOf)
+  const editorsReviews = groupBy(
+    shown.reviews.filter((r) => tierOf(r.reviewer_id) === 'editor'),
+    (r) => `${r.act_id} ${r.question_id}`,
+  )
+  // What the editors have said of an act on a question, following same-act marks: nothing yet, a
+  // reading (published), or that it says nothing there (turned down). Every "have the editors
+  // checked this" question asks this.
+  const editorsVerdict = (actId: string, questionId: string): 'waiting' | 'published' | 'turned_down' => {
+    const theirs = editorsReviews.get(`${shown.shownAs(actId)} ${questionId}`)
+    return !theirs ? 'waiting' : theirs.some((r) => r.position) ? 'published' : 'turned_down'
+  }
   const seatsByBody = groupBy(c.seats, (s) => s.body_id)
   const SURENESS: Record<Certainty, number> = { certain: 0, likely: 1, possible: 2 }
   // Surest first, so anything that takes the first holder takes the surest.
@@ -261,7 +275,8 @@ export function buildTracker(c: TrackerData, asOf: string) {
       act.kind !== 'commits' ? null : act.withdrawn_on && act.withdrawn_on <= day ? ('withdrawn' as const) : via && !isOpenOn(via, day) ? ('closed' as const) : null
     // An act with no date yet binds them on nothing until it is dated.
     const onRecord = act.occurred_on !== null && reading.weight === 'concrete' && (act.kind === 'does' || (act.kind === 'commits' && lapse === null))
-    return { act, reading, via, reports: reportsOf(act), lapse, onRecord }
+    const checked = editorsVerdict(act.id, via?.id ?? reading.question_id) === 'published'
+    return { act, reading, via, reports: reportsOf(act), lapse, checked, onRecord }
   }
 
   const entriesByPair = new Map<string, RecordEntry[]>()
@@ -445,6 +460,7 @@ export function buildTracker(c: TrackerData, asOf: string) {
     sameActsOf,
     reportIn,
     reviewBy,
+    editorsVerdict,
     deciderById,
     deciderBySlug,
     questionById,

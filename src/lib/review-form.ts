@@ -161,7 +161,7 @@ export function outlook(tracker: Pick<Tracker, 'actById' | 'listingFor' | 'entry
   const without = cameIn ? [cameIn] : []
   const now = tracker.listingFor(question, deciderId, [], without)
   if (!reading || !entry.weight || !entry.decider_id) return { now, then: null, across: undefined }
-  const read = { id: '', act_id: entry.act_id, question_id: question.id, position: reading, weight: entry.weight, by: 'editor' as const, via_question_id: null }
+  const read = { id: '', act_id: entry.act_id, question_id: question.id, position: reading, weight: entry.weight, via_question_id: null }
   const then = tracker.listingFor(question, deciderId, [tracker.entryOf(actOf(tracker, entry), read)], without)
   return { now, then, across: tracker.acrossFor(question, deciderId, reading) }
 }

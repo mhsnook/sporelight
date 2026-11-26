@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { NEWS_READER_ID, type Direction } from '../../shared/schema.ts'
 import type { TrackerData } from './build-tracker.ts'
+import type { Claim } from './claims.ts'
 import { buildStories, buildWaiting, feedPage, mergeFeed, pageHolding, questionFamily } from './feed.ts'
-import { act, data, decider, item, proposal, question, review, report, role, seat, setPosition, source, track } from './fixtures.ts'
+import { act, data, decider, incoming, item, onFile, proposal, question, review, report, role, seat, setPosition, source, track } from './fixtures.ts'
 
 const at = (day: string, time = '12:00') => `${day}T${time}:00.000Z`
 
@@ -162,31 +163,23 @@ describe('what is waiting for review', () => {
     proposal('lead', 'minutes', { origin: 'news_search', submitted_by: NEWS_READER_ID, created_at: at('2026-11-18') }),
     proposal('done', 'paper', { status: 'reviewed', submitted_by: 'a-reader', created_at: at('2026-11-01') }),
   ]
-  // An item as it comes in: its act and report, and the sender's review. `editors` is what the editors' review says, if they reviewed it.
-  const sent = (id: string, proposalId: string, deciderId: string, questionId: string, reading: Direction, over: { act_id?: string; sort?: number; editors?: Direction | null } = {}) => {
-    const p = proposals.find((x) => x.id === proposalId)!
+  const sent = (id: string, proposalId: string, deciderId: string, questionId: string, reading: Direction, over: { act_id?: string; sort?: number; verdict?: Claim['verdict'] } = {}) => {
     const row = item(id, proposalId, deciderId, questionId, { act_id: over.act_id ?? `act-of-${id}`, sort: over.sort ?? 0 })
-    const actId = row.act_id!
-    const editors = over.editors === undefined ? [] : [{ ...review(actId, questionId, over.editors ?? 'support'), position: over.editors, weight: over.editors && ('clear' as const) }]
-    return { item: row, act: act(actId, deciderId, { created_at: p.created_at }), report: report(p.source_id, actId, { created_at: p.created_at }), reviews: [review(actId, questionId, reading, 'clear', p.submitted_by!), ...editors] }
+    return { item: row, rows: incoming(row, proposals.find((x) => x.id === proposalId)!, { reading, weight: 'clear', occurred_on: '2026-01-01', verdict: over.verdict }) }
   }
   const brought = [
     sent('claim', 'from-reader', 'ann', 'policy', 'support'),
-    sent('turned-down', 'from-reader', 'bob', 'policy', 'oppose', { editors: null }),
+    sent('turned-down', 'from-reader', 'bob', 'policy', 'oppose', { verdict: 'turned_down' }),
     sent('on-bill', 'from-model', 'bob', 'bill', 'support', { act_id: 'one-act', sort: 0 }),
     sent('on-policy', 'from-model', 'bob', 'policy', 'support', { act_id: 'one-act', sort: 1 }),
     sent('second-act', 'from-model', 'ann', 'other', 'mixed', { act_id: 'two' }),
-    sent('published', 'done', 'ann', 'policy', 'support', { editors: 'support' }),
+    sent('published', 'done', 'ann', 'policy', 'support', { verdict: 'published' }),
   ]
   const items = [...brought.map((b) => b.item), item('bare-lead', 'lead', 'cy', 'elsewhere', { act_id: null, excerpt: 'Cy was named.' }), item('unknown-person', 'from-reader', 'nobody', 'policy')]
-  const withWaiting = (base: TrackerData) =>
-    track({
-      ...base,
-      acts: [...base.acts, ...brought.map((b) => b.act).filter((a, i, all) => all.findIndex((x) => x.id === a.id) === i)],
-      reports: [...base.reports, ...brought.map((b) => b.report).filter((r, i, all) => all.findIndex((x) => x.id === r.id) === i)],
-      reviews: [...base.reviews, ...brought.flatMap((b) => b.reviews)],
-      people: [{ id: NEWS_READER_ID, kind: 'agent' }],
-    })
+  const withWaiting = (base: TrackerData) => {
+    const rows = onFile(...brought.map((b) => b.rows))
+    return track({ ...base, acts: [...base.acts, ...rows.acts], reports: [...base.reports, ...rows.reports], reviews: [...base.reviews, ...rows.reviews], people: [{ id: NEWS_READER_ID, kind: 'agent' }] })
+  }
   const waitingTracker = withWaiting(trackerData)
   const waiting = buildWaiting(waitingTracker, proposals, items)
   const claimed = (stories: typeof waiting) => stories.map((s) => [s.proposal.id, s.items.map((i) => i.claims.map((c) => c.item.id))])
@@ -230,7 +223,7 @@ describe('what is waiting for review', () => {
       ['policy', 'oppose'],
     ])
     const again = sent('again', 'from-reader', 'ann', 'bill', 'support')
-    const signed = buildWaiting(track({ ...trackerData, acts: [...trackerData.acts, again.act], reports: [...trackerData.reports, again.report], reviews: [...trackerData.reviews, ...again.reviews] }), proposals, [again.item])
+    const signed = buildWaiting(track({ ...trackerData, acts: [...trackerData.acts, ...again.rows.acts], reports: [...trackerData.reports, ...again.rows.reports], reviews: [...trackerData.reviews, ...again.rows.reviews] }), proposals, [again.item])
     expect(signed[0].items[0].claims[0].before).toBe('support')
   })
 
@@ -246,9 +239,7 @@ describe('what is waiting for review', () => {
       deciders: [decider('ann'), decider('bob')],
       questions: [policy, other],
       setPositions: [set, setPosition('other', 'ann', 'mixed')],
-      acts: lines.map((l) => l.act),
-      reports: lines.map((l) => l.report),
-      reviews: lines.flatMap((l) => l.reviews),
+      ...onFile(...lines.map((l) => l.rows)),
     })
     const claims = lines.map((l) => l.item)
     const [story] = buildWaiting(withSet, proposals, claims)

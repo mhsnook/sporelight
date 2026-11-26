@@ -88,7 +88,7 @@ const isDemoQuestion = (tracker: Tracker, question: Question) => tracker.bodyByI
 export function buildStories(tracker: Tracker, filter: FeedFilter = {}): Story[] {
   const match = matcher(tracker, filter)
   const readingsByAct = groupBy(
-    tracker.readings.filter((r) => r.by === 'editor'),
+    tracker.readings.filter((r) => tracker.editorsVerdict(r.act_id, r.via_question_id ?? r.question_id) === 'published'),
     (r) => r.act_id,
   )
   const byKey = new Map<string, Story>()

@@ -4,7 +4,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import type { SearchHit } from '../../worker/leads.ts'
 import { searchNews } from '../../worker/news.ts'
 import type { Tracker } from '../../worker/tracker.ts'
-import { rows, seed, CLAIMS } from './helpers.ts'
+import { claims, rows, seed } from './helpers.ts'
 
 const NOW = new Date('2026-11-19T12:00:00Z')
 
@@ -26,12 +26,10 @@ function stubbedEnv(respond: (query: string) => Response | Promise<Response> = (
 
 const tracker = () => getServerByName<Env, Tracker>(env.Tracker, 'main')
 
-const leads = () =>
-  rows<{ url: string; question_id: string; decider_id: string; origin: string; reading: null; occurred_on: string | null }>(
-    `SELECT s.url, i.question_id, i.decider_id, p.origin, i.reading, i.occurred_on
-     FROM (${CLAIMS}) i JOIN proposals p ON p.id = i.proposal_id JOIN sources s ON s.id = p.source_id
-     ORDER BY s.url, i.question_id, i.decider_id`,
-  )
+const leads = async () =>
+  (await claims())
+    .map(({ url, question_id, decider_id, origin, reading, occurred_on }) => ({ url, question_id, decider_id, origin, reading, occurred_on }))
+    .sort((a, b) => a.url.localeCompare(b.url) || a.question_id.localeCompare(b.question_id) || a.decider_id.localeCompare(b.decider_id))
 
 beforeAll(seed)
 

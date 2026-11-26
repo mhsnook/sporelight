@@ -3,7 +3,7 @@ import { getServerByName } from 'partyserver'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { NEWS_READER_ID, type ProposalDraft } from '../../shared/schema.ts'
 import type { Tracker } from '../../worker/tracker.ts'
-import { postAs, proposal, reader, rows, seed, noOutsidePages, CLAIMS, editorsSay } from './helpers.ts'
+import { postAs, proposal, reader, rows, seed, noOutsidePages, claims, editorsSay } from './helpers.ts'
 
 const tracker = () => getServerByName<Env, Tracker>(env.Tracker, 'main')
 // What the Worker answers a proposal it queued, and one it already had.
@@ -85,13 +85,8 @@ describe('POST /api/proposals: refused input', () => {
     })
     const answer = await res.json()
     expect(answer).toEqual(QUEUED)
-    const [row] = await rows(
-      `SELECT p.id AS proposal_id, p.origin, p.status AS proposal_status, p.submitted_by, p.reviewed_at, p.unread,
-              i.id, i.act_id, i.status, i.weight, i.passage, i.sort
-       FROM (${CLAIMS}) i JOIN proposals p ON p.id = i.proposal_id JOIN sources s ON s.id = p.source_id WHERE s.url = ?`,
-      url,
-    )
-    expect(row).toMatchObject({ origin: 'reader', proposal_status: 'pending', submitted_by: personId, reviewed_at: null, unread: null, status: 'pending', weight: 'clear', passage: null, sort: 0 })
+    const [row] = (await claims()).filter((c) => c.url === url)
+    expect(row).toMatchObject({ origin: 'reader', proposal_status: 'pending', submitted_by: personId, reviewed_at: null, unread: null, verdict: 'waiting', weight: 'clear', passage: null, sort: 0 })
     expect([row.proposal_id, row.id, row.act_id]).not.toContain('forged-proposal')
     expect((answer as { proposal_id: string }).proposal_id).toBe(row.proposal_id)
     expect(row.act_id).not.toBe('forged-act')
@@ -138,7 +133,7 @@ describe('POST /api/proposals: a new source', () => {
     expect(source.title).toBe('Ann Alpha backs the bill')
     const proposals = await rows(`SELECT * FROM proposals WHERE source_id = ?`, source.id)
     expect(proposals).toMatchObject([{ id: answer.proposal_id, origin: 'reader', status: 'pending', unread: null, reviewed_at: null }])
-    const items = await rows(`SELECT * FROM (${CLAIMS}) WHERE proposal_id = ?`, proposals[0].id)
+    const items = (await claims()).filter((c) => c.proposal_id === proposals[0].id)
     expect(items).toMatchObject([
       {
         question_id: 'hot',
@@ -147,7 +142,7 @@ describe('POST /api/proposals: a new source', () => {
         reading: 'support',
         weight: 'clear',
         passage: null,
-        status: 'pending',
+        verdict: 'waiting',
         quote: 'I will vote for this bill when it comes up.',
         occurred_on: '2026-11-01',
       },
@@ -165,12 +160,7 @@ describe('POST /api/proposals: a new source', () => {
 
 describe('POST /api/proposals: duplicates from the same source', () => {
   const url = 'https://news.example/duplicates'
-  const itemsFor = (decider: string) =>
-    rows<{ id: string; status: string; quote: string }>(
-      `SELECT i.id, i.status, i.quote FROM (${CLAIMS}) i JOIN proposals p ON p.id = i.proposal_id JOIN sources s ON s.id = p.source_id WHERE s.url = ? AND i.decider_id = ? ORDER BY p.created_at`,
-      url,
-      decider,
-    )
+  const itemsFor = async (decider: string) => (await claims()).filter((c) => c.url === url && c.decider_id === decider)
   const submit = async (overrides: Record<string, unknown>) =>
     (await (await send('/api/proposals', proposal({ source_url: url, ...overrides }))).json()) as { ok: boolean; duplicate: boolean; proposal_id: string | null }
 
@@ -198,7 +188,7 @@ describe('POST /api/proposals: duplicates from the same source', () => {
     await editorsSay((await itemsFor('ann'))[0].id, null)
     expect(await submit({ decider_id: 'ann', quote: 'The words that were turned down.' })).toEqual(DUPLICATE)
     expect(await submit({ decider_id: 'ann', quote: 'A better quote from the same article.' })).toEqual(QUEUED)
-    expect((await itemsFor('ann')).map((i) => i.status)).toEqual(['rejected', 'pending'])
+    expect((await itemsFor('ann')).map((i) => i.verdict)).toEqual(['turned_down', 'waiting'])
   })
 
   it('a rejected item blocks the news search whatever the quote', async () => {
@@ -222,7 +212,7 @@ describe('Tracker.propose', () => {
     if (!result.ok || !result.proposal_id) throw new Error(`not queued: ${JSON.stringify(result)}`)
     return result.proposal_id
   }
-  const itemsOf = (proposalId: string) => rows<{ id: string; decider_id: string; weight: string | null; passage: string | null }>(`SELECT id, decider_id, weight, passage FROM (${CLAIMS}) WHERE proposal_id = ? ORDER BY sort`, proposalId)
+  const itemsOf = async (proposalId: string) => (await claims()).filter((c) => c.proposal_id === proposalId)
 
   it('returns the id of the proposal it wrote', async () => {
     const id = await propose('id', [draftItem()])
@@ -298,7 +288,7 @@ describe('Tracker.propose', () => {
     expect(await rows(`SELECT proposal_id, proposal_item_id, before, after FROM proposal_contexts WHERE proposal_id = ?`, id)).toEqual([
       { proposal_id: id, proposal_item_id: bob.id, before: 'The paragraph before.', after: 'The paragraph after.' },
     ])
-    expect(await rows(`SELECT 1 FROM (${CLAIMS}) WHERE proposal_id = ?1 AND (quote LIKE '%The paragraph before.%' OR passage LIKE '%The paragraph before.%')`, id)).toEqual([])
+    expect((await itemsOf(id)).filter((c) => c.quote.includes('The paragraph before.') || c.passage?.includes('The paragraph before.'))).toEqual([])
   })
 
   it('stores the people the article only names', async () => {

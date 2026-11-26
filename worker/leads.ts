@@ -81,16 +81,16 @@ export function leadFromHit(
 // Leads nobody typed in. One an editor turned down stays turned down.
 export const isAutomated = (origin: Proposal['origin']) => origin === 'news_search' || origin === 'model'
 
-// An item proposed earlier from the same source. `turnedDown` (SQLite's 0 or 1) when the editors
-// said its act says nothing on the question; `quote` is its words, or a lead's excerpt.
-export type Proposed = Pick<ProposalItem, 'question_id' | 'decider_id'> & { turnedDown: boolean | number; quote: string }
+// An item proposed earlier from the same source. `turnedDown` when its claim's verdict is
+// turned down; `quote` is its words, or a lead's excerpt.
+export type Proposed = Pick<ProposalItem, 'question_id' | 'decider_id'> & { turnedDown: boolean; quote: string }
 
 // Whether an item already proposed from the same source stands in the way of a
 // new one for the same person and question. A search hit or a model's reading
 // is the same lead however it is worded, so anything earlier blocks it,
-// rejected or not. A
-// person can bring a better quote than one that was turned down: theirs is
-// blocked only by an item the editors did not turn down, or by the same words.
+// rejected or not. A person can bring a better quote than one that was turned
+// down: theirs is blocked only by an item the editors did not turn down, or by
+// the same words.
 export function alreadyProposed(earlier: Proposed[], item: Pick<Proposed, 'question_id' | 'decider_id' | 'quote'>, origin: Proposal['origin']): boolean {
   return earlier.some(
     (e) => e.question_id === item.question_id && e.decider_id === item.decider_id && (isAutomated(origin) || !e.turnedDown || e.quote === item.quote),

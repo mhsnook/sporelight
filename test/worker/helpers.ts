@@ -2,7 +2,10 @@ import { env, exports } from 'cloudflare:workers'
 import { vi } from 'vitest'
 import worker from '../../worker/index.ts'
 import { EDITOR_TOKEN } from './editor-token.ts'
-import { EDITORS_ID } from '../../shared/schema.ts'
+import { EDITORS_ID, type Proposal, type ProposalItem } from '../../shared/schema.ts'
+import { buildTracker } from '../../src/lib/build-tracker.ts'
+import { claimOf, type Claim } from '../../src/lib/claims.ts'
+import { loadRecord } from '../../worker/record.ts'
 
 export { EDITOR_TOKEN }
 
@@ -173,17 +176,23 @@ export async function until(check: () => boolean | Promise<boolean>, ms = 2000) 
   }
 }
 
-// Each proposal item with what it claims, in one row: its act and its report
-// in the proposal's source, and the sender's review. `status` is what the
-// editors' review of the act on the item's question says: pending with none,
-// rejected when it says the act says nothing there, accepted otherwise.
-export const CLAIMS = `SELECT i.id, i.proposal_id, i.sort, i.decider_id, i.question_id, i.act_id, a.kind, a.occurred_on, COALESCE(a.body, i.excerpt) AS quote, r.passage,
-    v.position AS reading, v.weight, CASE WHEN e.id IS NULL THEN 'pending' WHEN e.position IS NULL THEN 'rejected' ELSE 'accepted' END AS status
-  FROM proposal_items i JOIN proposals p ON p.id = i.proposal_id
-  LEFT JOIN acts a ON a.id = i.act_id
-  LEFT JOIN reports r ON r.act_id = i.act_id AND r.source_id = p.source_id
-  LEFT JOIN reviews v ON v.act_id = i.act_id AND v.question_id = i.question_id AND v.reviewer_id = p.submitted_by
-  LEFT JOIN reviews e ON e.act_id = i.act_id AND e.question_id = i.question_id AND e.reviewer_id = '${EDITORS_ID}'`
+// Every proposal item as the queue shows it, through claimOf over the record as
+// it is now, with its proposal's fields beside it, oldest proposal first.
+export type ClaimRow = ProposalItem &
+  Omit<Claim, 'item'> &
+  Pick<Proposal, 'origin' | 'submitted_by' | 'reviewed_at' | 'unread'> & { url: string; proposal_status: Proposal['status']; proposed_at: string }
+export async function claims(): Promise<ClaimRow[]> {
+  const tracker = buildTracker(await loadRecord(env.DB), new Date().toISOString().slice(0, 10))
+  const items = await rows<ProposalItem & Proposal & { item_id: string; url: string; proposal_status: Proposal['status']; proposed_at: string }>(
+    `SELECT i.*, i.id AS item_id, p.source_id, p.origin, p.submitted_by, p.reviewed_at, p.unread, p.status AS proposal_status, p.created_at AS proposed_at, s.url
+     FROM proposal_items i JOIN proposals p ON p.id = i.proposal_id JOIN sources s ON s.id = p.source_id ORDER BY p.created_at, i.sort`,
+  )
+  return items.map(({ item_id, source_id, origin, submitted_by, reviewed_at, unread, proposal_status, proposed_at, url, proposal_id, sort, decider_id, question_id, act_id, excerpt }) => {
+    const item: ProposalItem = { id: item_id, proposal_id, sort, decider_id, question_id, act_id, excerpt }
+    const { item: _, ...claim } = claimOf(tracker, { source_id, submitted_by, status: proposal_status }, item)
+    return { ...item, ...claim, origin, submitted_by, reviewed_at, unread, url, proposal_status, proposed_at }
+  })
+}
 
 // The editors' review of an item's act on its question, as publishing or dismissing it writes.
 export async function editorsSay(itemId: string, position: 'support' | null) {

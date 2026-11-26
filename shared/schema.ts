@@ -315,8 +315,6 @@ export type Reading = {
   question_id: string
   position: Position
   weight: Weight
-  // Whose reviews it was worked out from: the editors', people's or agents'.
-  by: 'editor' | (typeof PERSON_KINDS)[number]
   // Set on a reading worked out from a sub-question that implies this one.
   via_question_id: string | null
 }

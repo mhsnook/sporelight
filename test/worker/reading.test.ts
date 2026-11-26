@@ -10,7 +10,7 @@ import { MODEL } from '../../worker/reader.ts'
 import type { Tracker } from '../../worker/tracker.ts'
 import type { NewsStep } from '../../shared/news-run.ts'
 import type { Proposal, ProposalDraft } from '../../shared/schema.ts'
-import { proposal, rows, seed, until, reader, CLAIMS } from './helpers.ts'
+import { claims, proposal, rows, seed, until, reader } from './helpers.ts'
 
 const NOW = new Date('2026-11-19T12:00:00Z')
 const TODAY = NOW.toISOString().slice(0, 10)
@@ -85,12 +85,10 @@ const tracker = () => getServerByName<Env, Tracker>(env.Tracker, 'main')
 
 const proposalsFor = (url: string) =>
   rows<{ id: string; origin: string; unread: string | null }>(`SELECT p.id, p.origin, p.unread FROM proposals p JOIN sources s ON s.id = p.source_id WHERE s.url = ?`, url)
-const itemsFor = (url: string) =>
-  rows(
-    `SELECT i.decider_id, i.question_id, i.kind, i.occurred_on, i.quote, i.reading, i.weight, i.passage
-     FROM (${CLAIMS}) i JOIN proposals p ON p.id = i.proposal_id JOIN sources s ON s.id = p.source_id WHERE s.url = ? ORDER BY i.sort`,
-    url,
-  )
+const claimsAt = async (url: string) => (await claims()).filter((c) => c.url === url)
+const itemsFor = async (url: string) =>
+  (await claimsAt(url)).map(({ decider_id, question_id, kind, occurred_on, quote, reading, weight, passage }) => ({ decider_id, question_id, kind, occurred_on, quote, reading, weight, passage }))
+const claimsSaying = async (words: string) => (await claims()).filter((c) => c.quote.includes(words) || c.passage?.includes(words))
 const notesFor = (url: string) =>
   rows<{ body: string; on_item: number }>(
     `SELECT n.body, n.proposal_item_id IS NOT NULL AS on_item FROM proposal_notes n JOIN proposals p ON p.id = n.proposal_id JOIN sources s ON s.id = p.source_id WHERE s.url = ? ORDER BY on_item, n.body`,
@@ -140,10 +138,10 @@ describe('reading articles', () => {
     const reasons = ['A direct statement of how she will vote.', 'The rule governs debate on the bill.']
     for (const reason of reasons) {
       const like = `%${reason}%`
+      expect(await claimsSaying(reason)).toEqual([])
       expect(
         await rows(
-          `SELECT 1 FROM (${CLAIMS}) WHERE quote LIKE ?1 OR passage LIKE ?1
-           UNION ALL SELECT 1 FROM proposals WHERE submitted_by LIKE ?1
+          `SELECT 1 FROM proposals WHERE submitted_by LIKE ?1
            UNION ALL SELECT 1 FROM sources WHERE title LIKE ?1 OR url LIKE ?1`,
           like,
         ),
@@ -162,7 +160,7 @@ describe('reading articles', () => {
     await searchNews(s.env, await tracker(), NOW)
     expect(await contextsFor(url)).toEqual([{ decider_id: 'ann', before: 'T', after: FILLER.trim() }])
     expect(await mentionsFor(url)).toEqual([{ decider_id: 'bob', words: 'Bob Beta was absent' }])
-    expect(await rows(`SELECT 1 FROM (${CLAIMS}) WHERE quote LIKE ?1 OR passage LIKE ?1`, '%The committee met%')).toEqual([])
+    expect(await claimsSaying('The committee met')).toEqual([])
   })
 
   it('reads for a question linked to the one in the news, in the same body, and queues an act read on it', async () => {
@@ -257,7 +255,7 @@ describe('reading articles', () => {
     const s = stubbed({ hits: [hit(url)], pages: { [url]: body }, answer })
     await searchNews(s.env, await tracker(), NOW)
     expect(await proposalsFor(url)).toEqual([expect.objectContaining({ origin: 'news_search', unread })])
-    expect(await itemsFor(url)).toEqual([expect.objectContaining({ decider_id: 'ann', reading: null, weight: null, passage: null, quote: 'Rep. Alpha spoke about the plan this week.' })])
+    expect(await claimsAt(url)).toEqual([expect.objectContaining({ decider_id: 'ann', act_id: null, reading: null, weight: null, passage: null, excerpt: 'Rep. Alpha spoke about the plan this week.' })])
     expect((await notesFor(url))[0].body).toContain(`The article was not read: ${reason}`)
     expect(await readsOf(url)).toEqual([expect.objectContaining({ outcome: 'not_read', model: null })])
   })
@@ -349,7 +347,7 @@ describe('the publish date', () => {
     await searchNews(s.env, await tracker(), NOW)
     expect(await proposalsFor(url)).toEqual([expect.objectContaining({ origin: 'news_search', unread: 'no_text' })])
     expect(await sourceOf(url)).toEqual({ published_on: '2018-07-19', published_on_from: 'page' })
-    expect(await itemsFor(url)).toEqual([expect.objectContaining({ kind: null, occurred_on: null, reading: null })])
+    expect(await claimsAt(url)).toEqual([expect.objectContaining({ act_id: null, occurred_on: null, reading: null })])
     expect(s.run).not.toHaveBeenCalled()
   })
 

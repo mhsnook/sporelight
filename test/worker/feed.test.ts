@@ -1,7 +1,7 @@
 import { env, exports } from 'cloudflare:workers'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { EDITORS_ID } from '../../shared/schema.ts'
-import { type Frame, partySocket, postAs, proposal, reader, rows, seed, until, noOutsidePages, CLAIMS, editorsSay } from './helpers.ts'
+import { type Frame, partySocket, postAs, proposal, reader, rows, seed, until, noOutsidePages, claims, editorsSay } from './helpers.ts'
 
 const rowsOn = (frames: Frame[], channel: string) => frames.filter((f) => f.channel === channel).flatMap((f) => f.ops.map((op) => op.value))
 const storyIds = (xml: string) => [...xml.matchAll(/<id>urn:sporelight:story:([^:<]+):[^<]+<\/id>/g)].map((m) => m[1])
@@ -46,7 +46,7 @@ beforeAll(async () => {
   ]) {
     expect(await (await send('/api/proposals', proposal({ quote, source_url: url }))).json()).toMatchObject({ ok: true, duplicate: false })
   }
-  const [rejected] = await rows<{ id: string }>(`SELECT id FROM (${CLAIMS}) WHERE quote = ?`, REJECTED)
+  const rejected = (await claims()).find((c) => c.quote === REJECTED)!
   await editorsSay(rejected.id, null)
 })
 
@@ -66,7 +66,7 @@ describe('GET /feed.xml', () => {
 
   it('carries nothing that is waiting for review or was rejected', async () => {
     const xml = await (await feed()).text()
-    expect(await rows(`SELECT status FROM (${CLAIMS}) WHERE quote = ?`, WAITING)).toEqual([{ status: 'pending' }])
+    expect((await claims()).filter((c) => c.quote === WAITING).map((c) => c.verdict)).toEqual(['waiting'])
     expect(xml).not.toContain(WAITING)
     expect(xml).not.toContain(REJECTED)
     expect(xml).not.toContain('news.example/waiting')

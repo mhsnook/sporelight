@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { EDITORS_ID } from '../../shared/schema.ts'
 import { AGENT_KEY_PREFIX } from '../../worker/auth.ts'
 import { FIND_LIMIT } from '../../worker/mcp.ts'
-import { EDITOR_TOKEN, nextIp, partyWrite, post, rows, seed, CLAIMS } from './helpers.ts'
+import { EDITOR_TOKEN, nextIp, partyWrite, post, rows, seed } from './helpers.ts'
 
 // An MCP client talking to the Worker's /mcp, from its own address, with a key if it has one.
 async function connect(from = nextIp(), key?: string) {

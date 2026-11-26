@@ -53,7 +53,7 @@ describe('draftEntries', () => {
   })
 
   it('counts an entry as dismissed only when every one of its items was rejected, and leaves a rejected reading out', () => {
-    const rejected = { status: 'rejected' as const, reading: 'support' as const }
+    const rejected = { verdict: 'turned_down' as const, reading: 'support' as const }
     const [all, some] = draftEntries(
       [
         claimed('a1', 'p1', 'ann', 'policy', { act_id: 'a', sort: 0, ...rejected }),

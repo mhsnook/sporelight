@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { EDITORS_ID, NEWS_READER_ID, type Act, type Direction, type ProposalItem, type Report, type Review, type SetPosition } from '../../shared/schema.ts'
 import { planReview, type EntryVerdict, type PositionDecision, type Published, type Verdict, type Write } from './review-plan.ts'
-import { act, item, proposal, question, report, review, setPosition, source } from './fixtures.ts'
+import { act, incoming, item, onFile, proposal, question, report, review, setPosition, source } from './fixtures.ts'
 
 const NOW = '2026-11-17T12:00:00.000Z'
 const ids = () => {
@@ -37,15 +37,8 @@ const publish = (items: ProposalItem[], over: Partial<Publish> = {}, reading: Di
 })
 
 // What a proposal brings in: for each item, its act, its report in the article and the sender's review.
-const cameIn = (items: ProposalItem[], over: Partial<Published> = {}): Published => {
-  const acts = [...new Set(items.flatMap((i) => (i.act_id ? [i.act_id] : [])))].map((id) => act(id, items.find((i) => i.act_id === id)!.decider_id, { body: `words of ${items.find((i) => i.act_id === id)!.id}`, occurred_on: '2026-11-10' }))
-  return published({
-    acts,
-    reports: acts.map((a) => report('article', a.id)),
-    reviews: items.flatMap((i) => (i.act_id ? [review(i.act_id, i.question_id, 'support', 'clear', NEWS_READER_ID)] : [])),
-    ...over,
-  })
-}
+const cameIn = (items: ProposalItem[], over: Partial<Published> = {}): Published =>
+  published({ ...onFile(...items.map((i) => incoming(i, { ...pending, submitted_by: NEWS_READER_ID }, { occurred_on: '2026-11-10', reading: 'support' }))), ...over })
 const dismiss = (items: ProposalItem[], note: string | null = null): EntryVerdict => ({ decider_id: items[0].decider_id, items, note, publish: false })
 const verdict = (entries: EntryVerdict[], review_note: string | null = null): Verdict => ({ review_note, entries })
 const plan = (v: Verdict, onFile: Published = published()) => planReview(onFile, pending, article, v, NOW, ids())

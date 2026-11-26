@@ -1,7 +1,7 @@
 import type { Act, Decider, Office, OfficeHolder, Position, Proposal, ProposalItem, Question, QuestionDecider, QuestionRelation, Report, Review, Role, Seat, SetPosition, Source } from '../../shared/schema.ts'
-import { EDITORS_ID, pairId } from '../../shared/schema.ts'
+import { EDITORS_ID, NEWS_READER_ID, pairId } from '../../shared/schema.ts'
 import { buildTracker, type TrackerData } from './build-tracker.ts'
-import type { Claim } from './claims.ts'
+import { claimOf, type Claim } from './claims.ts'
 
 // Row builders for tests: each takes the fields a test cares about and fills in the rest.
 
@@ -85,25 +85,38 @@ export const data = (over: Partial<TrackerData>): TrackerData => ({
 export const TODAY = '2026-11-17'
 export const track = (over: Partial<TrackerData>, asOf = TODAY) => buildTracker(data(over), asOf)
 
-// A claim as the review form gets it, from the fields a test cares about. A
-// lead is an item with no act; `status` is what the editors' review says.
+// What one proposal item brings in, as rows on file: its act, its report in
+// the proposal's source and the sender's review (when `reading` is given).
+// `verdict` adds the editors' review: their reading, or saying nothing.
+export type Incoming = Pick<TrackerData, 'acts' | 'reports' | 'reviews'>
+type Sent = Partial<Omit<Claim, 'item'>>
+export const incoming = (row: ProposalItem, from: Pick<Proposal, 'source_id' | 'submitted_by' | 'created_at'>, { kind = 'says', occurred_on = null, quote, passage = null, reading = null, weight = null, verdict = 'waiting' }: Sent = {}): Incoming => {
+  if (!row.act_id) return { acts: [], reports: [], reviews: [] }
+  const actId = row.act_id
+  const editors = verdict === 'published' ? [review(actId, row.question_id, reading ?? 'support', weight ?? 'clear')] : verdict === 'turned_down' ? [{ ...review(actId, row.question_id, 'support'), position: null, weight: null }] : []
+  return {
+    acts: [act(actId, row.decider_id, { kind, occurred_on, body: quote ?? `words of ${row.id}`, created_at: from.created_at })],
+    reports: [report(from.source_id, actId, { passage, created_at: from.created_at })],
+    reviews: [...(reading && from.submitted_by ? [review(actId, row.question_id, reading, weight ?? 'clear', from.submitted_by)] : []), ...editors],
+  }
+}
+
+// Several items' rows together. Items that share an act share its first act and report row.
+export const onFile = (...brought: Incoming[]): Incoming => {
+  const once = <T extends { id: string }>(rows: T[]) => rows.filter((r, i) => rows.findIndex((x) => x.id === r.id) === i)
+  return { acts: once(brought.flatMap((b) => b.acts)), reports: once(brought.flatMap((b) => b.reports)), reviews: once(brought.flatMap((b) => b.reviews)) }
+}
+
+// A claim as the review form gets it, from the rows `incoming` writes for the
+// fields a test cares about. A lead is an item with no act.
 export const claimed = (
   id: string,
   proposalId: string,
   deciderId: string,
   questionId: string,
-  { act_id, sort, excerpt, status, ...over }: Partial<Pick<ProposalItem, 'act_id' | 'sort' | 'excerpt'>> & Partial<Omit<Claim, 'item' | 'verdict'>> & { status?: 'pending' | 'accepted' | 'rejected' } = {},
+  { act_id, sort, excerpt, ...sent }: Partial<Pick<ProposalItem, 'act_id' | 'sort' | 'excerpt'>> & Sent = {},
 ): Claim => {
   const row = item(id, proposalId, deciderId, questionId, { ...(act_id !== undefined && { act_id }), ...(sort !== undefined && { sort }), ...(excerpt !== undefined && { excerpt }) })
-  return {
-    item: row,
-    kind: 'says',
-    occurred_on: null,
-    quote: row.act_id === null ? '' : `words of ${id}`,
-    passage: null,
-    reading: null,
-    weight: null,
-    verdict: status === 'rejected' ? 'turned_down' : status === 'accepted' ? 'published' : 'waiting',
-    ...over,
-  }
+  const from = proposal(proposalId, 'article', { submitted_by: NEWS_READER_ID, status: sent.verdict && sent.verdict !== 'waiting' ? 'reviewed' : 'pending' })
+  return claimOf(track({ ...incoming(row, from, sent), people: [{ id: NEWS_READER_ID, kind: 'agent' }] }), from, row)
 }

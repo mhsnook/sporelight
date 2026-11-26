@@ -1,6 +1,5 @@
 import { PartyDbServer, D1Adapter, getTokenFromRequest, type PersistenceAdapter } from 'party-db/server'
 import {
-  EDITORS_ID,
   NEWS_READER_ID,
   allCollections,
   sourceUrl,
@@ -24,6 +23,8 @@ import {
 } from '../shared/schema.ts'
 import { isEditorToken } from './editor.ts'
 import { alreadyProposed, type Proposed } from './leads.ts'
+import { currentTracker } from './record.ts'
+import { claimOf } from '../src/lib/claims.ts'
 
 const MAX_PENDING = 500
 const MAX_NOTE_CHARS = 4000
@@ -77,22 +78,24 @@ export class Tracker extends PartyDbServer<Env> {
     const published = draft.source.published ?? null
     const dated = known && published ? datingOf(known, published) : []
     const undated = replacesPublishedOn('page', { published_on_from: known && !dated.length ? known.published_on_from : (published?.from ?? null) })
+    const now = new Date().toISOString()
     let items = draft.items
     if (known) {
-      // Earlier items from this source, with their words and whether the editors said their act says nothing on the question.
-      const seen = await db
+      const earlier = await db
         .prepare(
-          `SELECT i.question_id, i.decider_id, COALESCE(a.body, i.excerpt, '') AS quote,
-             EXISTS (SELECT 1 FROM reviews r WHERE r.act_id = i.act_id AND r.question_id = i.question_id AND r.reviewer_id = ?2 AND r.position IS NULL) AS turnedDown
-           FROM proposal_items i JOIN proposals p ON p.id = i.proposal_id LEFT JOIN acts a ON a.id = i.act_id WHERE p.source_id = ?1`,
+          `SELECT i.*, p.submitted_by, p.status AS proposal_status FROM proposal_items i JOIN proposals p ON p.id = i.proposal_id WHERE p.source_id = ?`,
         )
-        .bind(known.id, EDITORS_ID)
-        .all<Proposed>()
-      items = items.filter((i) => !alreadyProposed(seen.results, i, origin))
+        .bind(known.id)
+        .all<ProposalItem & { submitted_by: string | null; proposal_status: Proposal['status'] }>()
+      const tracker = await currentTracker(db, now.slice(0, 10))
+      const seen: Proposed[] = earlier.results.map(({ submitted_by, proposal_status, ...item }) => {
+        const claim = claimOf(tracker, { source_id: known.id, submitted_by, status: proposal_status }, item)
+        return { question_id: item.question_id, decider_id: item.decider_id, turnedDown: claim.verdict === 'turned_down', quote: item.act_id ? claim.quote : (item.excerpt ?? '') }
+      })
+      items = items.filter((i) => !alreadyProposed(seen, i, origin))
     }
     if (items.length === 0) return { ok: true, queued: 0, proposal_id: null, source_id: await this.catalogue(draft.source), undated }
 
-    const now = new Date().toISOString()
     const source: Source = {
       id: known?.id ?? crypto.randomUUID(),
       url,

@@ -341,7 +341,7 @@ describe('where an entry not on file yet would leave someone', () => {
   })
   const extra = (questionId: string, position: Direction, weight: Weight, over: Parameters<typeof act>[2] = {}): RecordEntry => {
     const added = act('added', 'ann', { occurred_on: '2026-06-01', ...over })
-    return { act: added, reading: { id: `added ${questionId}`, act_id: 'added', question_id: questionId, position, weight, by: 'editor', via_question_id: null }, via: undefined, reports: [], lapse: null, onRecord: weight === 'concrete' && added.kind !== 'says' }
+    return { act: added, reading: { id: `added ${questionId}`, act_id: 'added', question_id: questionId, position, weight, via_question_id: null }, via: undefined, reports: [], lapse: null, checked: true, onRecord: weight === 'concrete' && added.kind !== 'says' }
   }
 
   it('counts the entry with the record in what is calculated', () => {
@@ -522,7 +522,7 @@ describe('readingsFrom', () => {
 
   it("takes a person's review over an agent's, and an agent's when it is all there is", () => {
     expect(shown([review('a', 'policy', 'oppose', 'concrete', 'model'), review('a', 'policy', 'support', 'clear', 'a-reader')])).toEqual([['a', 'policy', 'support', 'clear', null]])
-    expect(readingsFrom([review('a', 'policy', 'oppose', 'concrete', 'model')], questions, tierOf)[0]).toMatchObject({ position: 'oppose', by: 'agent' })
+    expect(shown([review('a', 'policy', 'oppose', 'concrete', 'model')])).toEqual([['a', 'policy', 'oppose', 'concrete', null]])
   })
 
   it("drops the act from the question when the editors' review says it says nothing there", () => {
@@ -660,5 +660,29 @@ describe('an act with no date yet', () => {
     expect(t.board(policy)[0].incumbent!.footing).toBe('sparse')
     const dated = track({ ...rows, acts: [rows.acts[0], { ...rows.acts[1], occurred_on: '2026-04-01' }] })
     expect(dated.standingFor(policy, 'ann')).toBe('oppose')
+  })
+})
+
+describe('editorsVerdict', () => {
+  const policy = question('policy')
+  const bill = question('bill', { parent_id: 'policy', kind: 'formal_act', implies_on_parent: 'support' })
+  const rows = { deciders: [decider('ann')], questions: [policy, bill], acts: [act('a', 'ann'), act('b', 'ann')], people: [{ id: 'model', kind: 'agent' as const }] }
+  const saysNothing = (actId: string, questionId: string) => ({ ...review(actId, questionId, 'support'), position: null, weight: null })
+
+  it('is waiting with only the sender’s review, published with an editors’ reading, and turned down when the editors say it says nothing', () => {
+    expect(track({ ...rows, reviews: [review('a', 'policy', 'support', 'clear', 'model')] }).editorsVerdict('a', 'policy')).toBe('waiting')
+    expect(track({ ...rows, reviews: [review('a', 'policy', 'support')] }).editorsVerdict('a', 'policy')).toBe('published')
+    expect(track({ ...rows, reviews: [saysNothing('a', 'policy')] }).editorsVerdict('a', 'policy')).toBe('turned_down')
+  })
+
+  it('follows a same-act mark to the editors’ review of the act it is shown as', () => {
+    const marked = track({ ...rows, reviews: [review('b', 'policy', 'oppose')], sameActs: [{ act_id: 'a', same_as_id: 'b', marked_by: EDITORS_ID, marked_at: 't' }] })
+    expect(marked.editorsVerdict('a', 'policy')).toBe('published')
+  })
+
+  it('marks a record entry checked by the editors’ review of the sub-question it was read through', () => {
+    const t = track({ ...rows, reviews: [review('a', 'bill', 'support', 'concrete')] })
+    expect(t.recordFor(policy, 'ann').map((e) => [e.act.id, e.via?.id, e.checked])).toEqual([['a', 'bill', true]])
+    expect(track({ ...rows, reviews: [review('a', 'bill', 'support', 'concrete', 'model')] }).recordFor(policy, 'ann')[0].checked).toBe(false)
   })
 })
