@@ -4,7 +4,7 @@ import { atomFeed } from './atom.ts'
 import { loadRecord } from './record.ts'
 
 // The published tables the feed reads. Proposals and their notes are never read here.
-const FEED_TABLES = new Set(['bodies', 'deciders', 'seats', 'roles', 'questions', 'question_bodies', 'sources', 'acts', 'reports', 'readings'])
+const FEED_TABLES = new Set(['bodies', 'deciders', 'seats', 'roles', 'questions', 'question_bodies', 'sources', 'acts', 'reports', 'reviews', 'same_acts'])
 
 // GET /feed.xml, with the same `question` and `body` filters as /news.
 export async function atomResponse(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {

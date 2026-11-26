@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { PositionDecision } from './review-plan.ts'
 import { addedEntry, decisionOf, dateOffer, draftEntries, missingFrom, outlook, presumedEntry, relatedChoices, reportingAct, verdictOf, withWeight, type EntryDraft } from './review-form.ts'
-import { act, decider, item, link, proposal, question, reading, relation, role, seat, setPosition, source, track } from './fixtures.ts'
+import { act, decider, item, link, proposal, question, review, relation, role, seat, setPosition, source, track } from './fixtures.ts'
 
 
 // An entry ready to publish: one reader's item with both answers and a date.
@@ -141,7 +141,7 @@ describe('outlook', () => {
     deciders: [decider('ann'), decider('bob')],
     questions: [policy, bill],
     acts: [act('speech', 'ann', { occurred_on: '2026-02-01' }), act('vote', 'ann', { kind: 'does', occurred_on: '2026-03-01' })],
-    readings: [reading('speech', 'policy', 'lean_support')],
+    reviews: [review('speech', 'policy', 'lean_support')],
     setPositions: [set],
   })
   const entry = (over: Partial<EntryDraft> = {}) => ready({ act_id: 'new-act', ...over })

@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:workers'
 import { getServerByName } from 'partyserver'
 import { beforeAll, describe, expect, it } from 'vitest'
-import type { ProposalDraft } from '../../shared/schema.ts'
+import { EDITORS_ID, type ProposalDraft } from '../../shared/schema.ts'
 import type { Tracker } from '../../worker/tracker.ts'
 import { EDITOR_TOKEN, type Frame, mailbox, partySocket, partyWrite, postAs, proposal, reader, rows, seed, signIn, until, noOutsidePages } from './helpers.ts'
 
@@ -293,5 +293,97 @@ describe('what a socket is sent', () => {
     expect(rowsOn(editor.frames.slice(seen.editor), 'proposal_mentions').map((m) => [m.decider_id, m.words])).toEqual([['eve', 'Eve Epsilon was absent, live']])
     reader.close()
     editor.close()
+  })
+})
+
+describe('reviews in the sync room', () => {
+  const mail = mailbox()
+  let cookie = ''
+  let personId = ''
+  let sessionToken = ''
+  const review = (id: string, reviewer_id: string, position = 'support') => ({
+    id,
+    reviewer_id,
+    act_id: 'act-reviewed',
+    question_id: 'hot',
+    position,
+    weight: 'clear',
+    based_on: null,
+    created_at: '2026-11-24T00:00:00.000Z',
+    updated_at: '2026-11-24T00:00:00.000Z',
+  })
+  const insert = (value: Record<string, unknown>) => [{ channel: 'reviews', ops: [{ type: 'insert', value }] }]
+
+  beforeAll(async () => {
+    await env.DB.prepare(`INSERT INTO acts (id, decider_id, kind, occurred_on, body, created_at) VALUES ('act-reviewed', 'ann', 'says', '2026-11-20', 'I am for it.', '2026-11-20T00:00:00Z')`).run()
+    cookie = await signIn(mail, 'reviewer@reader.test')
+    const [row] = await rows<{ id: string; token: string }>(`SELECT u.id, s.token FROM auth_users u JOIN auth_sessions s ON s."userId" = u.id WHERE u.email = 'reviewer@reader.test'`)
+    personId = row.id
+    sessionToken = row.token
+  })
+
+  it('refuses a review from a signed-out reader, and one with the wrong token', async () => {
+    expect((await partyWrite(insert(review('signed-out', EDITORS_ID)))).status).toBe(401)
+    expect((await partyWrite(insert(review('wrong-token', EDITORS_ID)), 'not-the-token')).status).toBe(401)
+    expect(await rows(`SELECT id FROM reviews WHERE act_id = 'act-reviewed'`)).toEqual([])
+  })
+
+  it('refuses a signed-in reader writing a review, even under their own id', async () => {
+    expect((await partyWrite(insert(review('by-cookie', personId)), undefined, cookie)).status).toBe(401)
+    expect((await partyWrite(insert(review('by-token', personId)), sessionToken)).status).toBe(401)
+    expect(await rows(`SELECT id FROM reviews WHERE act_id = 'act-reviewed'`)).toEqual([])
+  })
+
+  it("takes the editors' review from an editor, and lets the editor change it", async () => {
+    expect((await partyWrite(insert(review('by-editors', EDITORS_ID)), EDITOR_TOKEN)).status).toBe(200)
+    const change = [{ channel: 'reviews', ops: [{ type: 'update', value: { id: 'by-editors', position: 'mixed', updated_at: '2026-11-24T01:00:00.000Z' } }] }]
+    expect((await partyWrite(change, EDITOR_TOKEN)).status).toBe(200)
+    expect(await rows(`SELECT reviewer_id, position FROM reviews WHERE id = 'by-editors'`)).toEqual([{ reviewer_id: EDITORS_ID, position: 'mixed' }])
+  })
+
+  it('refuses a second review by one reviewer of one act on one question', async () => {
+    expect((await partyWrite(insert(review('by-editors-again', EDITORS_ID, 'oppose')), EDITOR_TOKEN)).ok).toBe(false)
+    expect(await rows(`SELECT id FROM reviews WHERE act_id = 'act-reviewed'`)).toEqual([{ id: 'by-editors' }])
+  })
+
+  it('sends every review to a signed-out reader', async () => {
+    const socket = await partySocket()
+    await until(() => rowsOn(socket.frames, 'reviews').some((r) => r.id === 'by-editors'))
+    expect(rowsOn(socket.frames, 'reviews').find((r) => r.id === 'by-editors')).toMatchObject({ reviewer_id: EDITORS_ID, position: 'mixed' })
+    socket.close()
+  })
+})
+
+describe('acts marked as the same in the sync room', () => {
+  const mail = mailbox()
+  let cookie = ''
+  const mark = { act_id: 'act-again', same_as_id: 'act-first', marked_by: EDITORS_ID, marked_at: '2026-11-25T00:00:00.000Z' }
+  const insert = [{ channel: 'same_acts', ops: [{ type: 'insert', value: mark }] }]
+
+  beforeAll(async () => {
+    await env.DB.batch(
+      [
+        `INSERT INTO acts (id, decider_id, kind, occurred_on, body, created_at) VALUES ('act-first', 'ann', 'says', '2026-11-20', 'First.', '2026-11-20T00:00:00Z')`,
+        `INSERT INTO acts (id, decider_id, kind, occurred_on, body, created_at) VALUES ('act-again', 'ann', 'says', '2026-11-20', 'Again.', '2026-11-21T00:00:00Z')`,
+      ].map((sql) => env.DB.prepare(sql)),
+    )
+    cookie = await signIn(mail, 'marker@reader.test')
+  })
+
+  it('refuses a mark from a signed-out reader, a wrong token and a signed-in reader', async () => {
+    expect((await partyWrite(insert)).status).toBe(401)
+    expect((await partyWrite(insert, 'not-the-token')).status).toBe(401)
+    expect((await partyWrite(insert, undefined, cookie)).status).toBe(401)
+    expect(await rows(`SELECT act_id FROM same_acts`)).toEqual([])
+  })
+
+  it('takes a mark from an editor, sends it to a signed-out reader, and lets the editor take it away', async () => {
+    expect((await partyWrite(insert, EDITOR_TOKEN)).status).toBe(200)
+    const socket = await partySocket()
+    await until(() => rowsOn(socket.frames, 'same_acts').some((r) => r.act_id === 'act-again'))
+    socket.close()
+    expect((await partyWrite([{ channel: 'same_acts', ops: [{ type: 'delete', value: { act_id: 'act-again' } }] }], EDITOR_TOKEN)).status).toBe(200)
+    expect(await rows(`SELECT act_id FROM same_acts`)).toEqual([])
+    expect(await rows(`SELECT id FROM acts WHERE id IN ('act-first', 'act-again') ORDER BY id`)).toEqual([{ id: 'act-again' }, { id: 'act-first' }])
   })
 })

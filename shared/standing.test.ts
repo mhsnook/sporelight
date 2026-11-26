@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Direction, Weight } from './schema.ts'
-import { calculatePosition, footingOf, isAcross, type Read } from './standing.ts'
+import { calculatePosition, footingOf, isAcross, summarize, type Read, type ReviewOf } from './standing.ts'
 
 const now = new Date('2026-11-12T00:00:00Z')
 const said = (occurred_on: string) => ({ occurred_on, onRecord: false })
@@ -128,5 +128,58 @@ describe('isAcross', () => {
     expect(isAcross('lean_oppose', 'oppose')).toBe(false)
     expect(isAcross('mixed', 'oppose')).toBe(false)
     expect(isAcross('support', 'mixed')).toBe(false)
+  })
+})
+
+const review = (tier: ReviewOf['tier'], position: Direction, weight: Weight = 'clear'): ReviewOf => ({ tier, position, weight })
+
+describe('summarize', () => {
+  it('is null with no reviews', () => {
+    expect(summarize([])).toBeNull()
+  })
+
+  it('takes an editor review over any number of people who disagree', () => {
+    const reviews = [review('person', 'support'), review('person', 'support'), review('editor', 'oppose', 'passing')]
+    expect(summarize(reviews)).toEqual({ position: 'oppose', weight: 'passing' })
+  })
+
+  it('takes people over an agent, and an agent when it is all there is', () => {
+    expect(summarize([review('agent', 'oppose'), review('person', 'support')])).toEqual({ position: 'support', weight: 'clear' })
+    expect(summarize([review('agent', 'oppose', 'concrete')])).toEqual({ position: 'oppose', weight: 'concrete' })
+  })
+
+  it('averages a yes and a no to mixed', () => {
+    expect(summarize([review('person', 'support'), review('person', 'oppose')])?.position).toBe('mixed')
+  })
+
+  it('averages a mixed and a no to probably no', () => {
+    expect(summarize([review('person', 'mixed'), review('person', 'oppose')])?.position).toBe('lean_oppose')
+  })
+
+  it('rounds halves toward mixed', () => {
+    expect(summarize([review('person', 'support'), review('person', 'lean_support')])?.position).toBe('lean_support')
+    expect(summarize([review('person', 'lean_support'), review('person', 'mixed')])?.position).toBe('mixed')
+    expect(summarize([review('person', 'support'), review('person', 'support'), review('person', 'lean_support')])?.position).toBe('support')
+  })
+
+  it('rounds the weight down', () => {
+    expect(summarize([review('person', 'support', 'concrete'), review('person', 'support', 'clear')])?.weight).toBe('clear')
+    expect(summarize([review('person', 'support', 'clear'), review('person', 'support', 'presumed')])?.weight).toBe('passing')
+  })
+
+
+})
+
+describe('calculatePosition over summaries', () => {
+  it('moves off what the model guessed once a person reviews the act', () => {
+    const guess = summarize([review('agent', 'support', 'concrete')])!
+    const reviewed = summarize([review('agent', 'support', 'concrete'), review('person', 'oppose', 'clear')])!
+    expect(calculatePosition([{ ...guess, occurred_on: '2026-01-01', inForce: true }])).toBe('support')
+    expect(calculatePosition([{ ...reviewed, occurred_on: '2026-01-01', inForce: true }])).toBe('oppose')
+  })
+
+  it('treats a summary of probably no on a concrete act as where they stand', () => {
+    const summary = summarize([review('person', 'mixed', 'concrete'), review('person', 'oppose', 'concrete')])!
+    expect(calculatePosition([{ ...summary, occurred_on: '2026-01-01', inForce: true }])).toBe('lean_oppose')
   })
 })

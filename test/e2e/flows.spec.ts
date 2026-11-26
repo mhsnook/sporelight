@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test'
 import { SPECTRUM, STANDINGS, STANDING_COLOR, standingLabel, type Standing } from '../../src/lib/position.ts'
+import { EDITORS_ID } from '../../shared/schema.ts'
 import { query } from './db.ts'
 import { TODAY, editorToken, partyWrite, signInWithCode } from './fixtures.ts'
 
@@ -95,8 +96,8 @@ test("a member's seat is lit in the colour of where their record leaves them whe
     WHERE s.body_id = 'harbor-city-council' AND s.is_voting = 1 AND r.certainty = 'certain'
       AND (r.starts_on IS NULL OR r.starts_on <= '${DAY}') AND (r.ends_on IS NULL OR r.ends_on > '${DAY}')
       AND NOT EXISTS (SELECT 1 FROM set_positions sp WHERE sp.question_id = 'free-ferry' AND sp.decider_id = d.id)
-      AND EXISTS (SELECT 1 FROM readings rd JOIN acts a ON a.id = rd.act_id WHERE rd.question_id = 'free-ferry' AND a.decider_id = d.id)
-      AND NOT EXISTS (SELECT 1 FROM readings rd JOIN acts a ON a.id = rd.act_id WHERE rd.question_id = 'free-ferry' AND a.decider_id = d.id AND rd.position <> 'oppose')
+      AND EXISTS (SELECT 1 FROM reviews rd JOIN acts a ON a.id = rd.act_id WHERE rd.question_id = 'free-ferry' AND a.decider_id = d.id)
+      AND NOT EXISTS (SELECT 1 FROM reviews rd JOIN acts a ON a.id = rd.act_id WHERE rd.question_id = 'free-ferry' AND a.decider_id = d.id AND rd.position <> 'oppose')
     ORDER BY d.sort_name LIMIT 1`)
   expect(member, 'the seed has a council member whose record is all against').toBeDefined()
 
@@ -382,7 +383,7 @@ test('an entry can be published as a report of an act already on the record, rea
   await page.getByRole('button', { name: /Publish 1 person/ }).click()
   await expect(page.getByRole('status')).toContainText('Published 1 person')
   await expect.poll(acts).toBe(before)
-  expect(query(`SELECT rd.question_id FROM reports r JOIN sources s ON s.id = r.source_id JOIN readings rd ON rd.act_id = r.act_id WHERE s.title = '${sourceTitle}' ORDER BY rd.question_id`).map((r) => r.question_id)).toEqual(['free-ferry', 'free-ferry-ord-26-114'])
+  expect(query(`SELECT rd.question_id FROM reports r JOIN sources s ON s.id = r.source_id JOIN reviews rd ON rd.act_id = r.act_id WHERE s.title = '${sourceTitle}' ORDER BY rd.question_id`).map((r) => r.question_id)).toEqual(['free-ferry', 'free-ferry-ord-26-114'])
 })
 
 test('a card whose publish fails comes back as the editor left it', async ({ page, request }) => {
@@ -409,7 +410,7 @@ test('a card whose publish fails comes back as the editor left it', async ({ pag
   await page.unroute('**/parties/tracker/**')
   await page.getByRole('button', { name: /Publish 1 person/ }).click()
   await expect(page.getByRole('status')).toContainText('Published 1 person')
-  await expect.poll(() => query(`SELECT rd.position FROM reports r JOIN sources s ON s.id = r.source_id JOIN readings rd ON rd.act_id = r.act_id WHERE s.title = '${sourceTitle}'`)).toEqual([{ position: 'mixed' }])
+  await expect.poll(() => query(`SELECT rd.position FROM reports r JOIN sources s ON s.id = r.source_id JOIN reviews rd ON rd.act_id = r.act_id WHERE s.title = '${sourceTitle}'`)).toEqual([{ position: 'mixed' }])
 })
 
 test('the list beside the open card pages through every waiting proposal', async ({ page, request }) => {
@@ -542,7 +543,7 @@ test('work on a card is kept while another card is open, and a question added fr
 
   await page.getByRole('button', { name: /Publish 1 person/ }).click()
   await expect(page.getByRole('status')).toContainText('Published 1 person')
-  await expect.poll(() => query(`SELECT rd.position FROM readings rd JOIN questions q ON q.id = rd.question_id WHERE q.short_title = '${shortName}'`)).toEqual([{ position: 'support' }])
+  await expect.poll(() => query(`SELECT rd.position FROM reviews rd JOIN questions q ON q.id = rd.question_id WHERE q.short_title = '${shortName}'`)).toEqual([{ position: 'support' }])
   expect(query(`SELECT r.kind FROM question_relations r JOIN questions q ON q.id = r.related_id WHERE q.short_title = '${shortName}' AND r.question_id = 'free-ferry'`)).toEqual([{ kind: 'smaller_step' }])
 })
 
@@ -567,7 +568,7 @@ test('someone the article only describes can be recorded as presumed, and their 
   await page.goto('/q/free-ferry/desmond-kowalczyk')
   await expect(page.getByText(words, { exact: false }).first()).toBeVisible()
   await expect(page.getByText('Presumed, no quote of their own yet')).toBeVisible()
-  expect(query(`SELECT rd.weight FROM readings rd JOIN acts a ON a.id = rd.act_id WHERE a.body = '${words}'`)).toEqual([{ weight: 'presumed' }])
+  expect(query(`SELECT rd.weight FROM reviews rd JOIN acts a ON a.id = rd.act_id WHERE a.body = '${words}'`)).toEqual([{ weight: 'presumed' }])
 })
 
 test('a news search shows each search and article as a step, with what became of each, and carries on past one that could not be queued', async ({ page }) => {
@@ -922,4 +923,42 @@ test('an editor adds a person with no page yet, gives them a seat found by chamb
   await page.getByRole('button', { name: 'Save changes' }).click()
   await expect(page.getByRole('status').filter({ hasText: 'Saved.' })).toBeVisible()
   await expect.poll(() => query(`SELECT name, slug FROM deciders WHERE slug = 'ines-okonkwo-${stamp}'`)).toEqual([{ name: `Ines A. Okonkwo ${stamp}`, slug: `ines-okonkwo-${stamp}` }])
+})
+
+test('an editor shows one act as the same as another, sees one entry with both sources, and separates them again', async ({ page, request }) => {
+  const stamp = Date.now()
+  const at = TODAY.toISOString()
+  const first = `Whitlock backs the free ferry (${stamp})`
+  const again = `Whitlock says again he backs the free ferry (${stamp})`
+  const acts = [
+    { id: `act-${stamp}-a`, body: first, source: `src-${stamp}-a` },
+    { id: `act-${stamp}-b`, body: again, source: `src-${stamp}-b` },
+  ]
+  const write = await partyWrite(request, [
+    { channel: 'sources', ops: acts.map((a) => ({ type: 'insert', value: { id: a.source, url: `https://example.com/${a.source}`, title: `Source ${a.source}`, publisher: null, published_on: null, published_on_from: null, kind: 'article', archive_url: null, stored_copy: null, created_at: at } })) },
+    { channel: 'acts', ops: acts.map((a) => ({ type: 'insert', value: { id: a.id, decider_id: 'demo-tomas-whitlock', kind: 'says', occurred_on: '2026-11-10', body: a.body, primary_source_id: null, withdrawn_on: null, created_at: at } })) },
+    { channel: 'reports', ops: acts.map((a) => ({ type: 'insert', value: { id: `rep-${a.id}`, source_id: a.source, act_id: a.id, excerpt: null, passage: null, created_at: at } })) },
+    {
+      channel: 'reviews',
+      ops: acts.map((a) => ({ type: 'insert', value: { id: `rv-${a.id}`, reviewer_id: EDITORS_ID, act_id: a.id, question_id: 'free-ferry', position: 'support', weight: 'clear', based_on: null, created_at: at, updated_at: at } })),
+    },
+  ])
+  expect(write.ok()).toBe(true)
+
+  await signInAsEditor(page)
+  await page.goto('/q/free-ferry/tomas-whitlock')
+  const entry = (words: string) => page.getByRole('listitem').filter({ has: page.getByRole('blockquote').filter({ hasText: words }) })
+  await expect(entry(first)).toBeVisible()
+  await expect(entry(again)).toBeVisible()
+
+  page.once('dialog', (dialog) => dialog.accept())
+  await entry(again).getByLabel('Same act as').selectOption(acts[0].id)
+  await expect(entry(first).getByText(`Also recorded as`)).toBeVisible()
+  await expect(entry(first)).toContainText(`Source src-${stamp}-b`)
+  await expect(entry(again)).toHaveCount(0)
+  expect(query(`SELECT COUNT(*) AS n FROM acts WHERE id LIKE 'act-${stamp}-%'`)[0].n).toBe(2)
+
+  await entry(first).getByRole('button', { name: 'Separate' }).click()
+  await expect(entry(again)).toBeVisible()
+  await expect.poll(() => query(`SELECT COUNT(*) AS n FROM same_acts WHERE act_id = 'act-${stamp}-b'`)[0].n).toBe(0)
 })

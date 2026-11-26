@@ -87,7 +87,7 @@ export function buildStories(tracker: Tracker, filter: FeedFilter = {}): Story[]
   const match = matcher(tracker, filter)
   const readingsByAct = groupBy(tracker.readings, (r) => r.act_id)
   const byKey = new Map<string, Story>()
-  for (const report of tracker.reports) {
+  for (const report of tracker.shownReports) {
     const act = tracker.actById.get(report.act_id)
     const source = tracker.sourceById.get(report.source_id)
     const decider = act && tracker.deciderById.get(act.decider_id)

@@ -156,7 +156,7 @@ export function outlook(tracker: Pick<Tracker, 'actById' | 'listingFor' | 'recor
   if (!reading || !entry.weight || !entry.decider_id) return { now, then: null, across: undefined }
   // An act on file that is already read here is on the record as it stands.
   const alreadyRead = tracker.recordFor(question, deciderId).some((e) => e.act.id === entry.act_id)
-  const read = { id: '', act_id: entry.act_id, question_id: question.id, position: reading, weight: entry.weight, via_question_id: null, created_at: '' }
+  const read = { id: '', act_id: entry.act_id, question_id: question.id, position: reading, weight: entry.weight, via_question_id: null }
   const then = alreadyRead ? now : tracker.listingFor(question, deciderId, [tracker.entryOf(actOf(tracker, entry), read)])
   return { now, then, across: tracker.acrossFor(question, deciderId, reading) }
 }

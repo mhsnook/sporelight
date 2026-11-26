@@ -5,7 +5,7 @@
 // from the snapshot).
 import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { carriesUp, slugOf, usualWeight } from '../shared/schema.ts'
+import { EDITORS_ID, slugOf, usualWeight } from '../shared/schema.ts'
 
 const read = (name: string) => JSON.parse(readFileSync(new URL(`../seed/data/${name}`, import.meta.url), 'utf8'))
 const congress = read('us-congress.json')
@@ -48,10 +48,8 @@ function source(ref: SourceRef, created_at: string) {
   )
 }
 
-const questions = new Map<string, { parent_id: string | null; implies_on_parent: string | null }>()
 function question(row: { id: string; parent_id: string | null; implies_on_parent?: string | null } & Record<string, unknown>) {
   const full = { threshold: null, act_label: null, status: 'open', closed_on: null, closed_note: null, decides_on: null, implies_on_parent: null, ...row }
-  questions.set(full.id, full)
   insert('questions', full)
 }
 
@@ -90,11 +88,7 @@ function act(a: {
     created_at,
   })
   insert('reports', { id: a.id, source_id: sourceId(a.source.url), act_id: a.id, excerpt: null, passage: null, created_at })
-  insert('readings', { id: a.id, act_id: a.id, question_id: a.question_id, position: a.position, weight, via_question_id: null, created_at })
-  const q = questions.get(a.question_id)!
-  if (q.implies_on_parent && q.parent_id && a.position === 'support' && carriesUp(weight)) {
-    insert('readings', { id: `${a.id}:parent`, act_id: a.id, question_id: q.parent_id, position: q.implies_on_parent, weight, via_question_id: a.question_id, created_at })
-  }
+  insert('reviews', { id: a.id, reviewer_id: EDITORS_ID, act_id: a.id, question_id: a.question_id, position: a.position, weight, based_on: null, created_at, updated_at: created_at })
 }
 
 const slugs = new Set<string>()

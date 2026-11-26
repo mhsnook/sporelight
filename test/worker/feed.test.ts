@@ -1,5 +1,6 @@
 import { env, exports } from 'cloudflare:workers'
 import { beforeAll, describe, expect, it } from 'vitest'
+import { EDITORS_ID } from '../../shared/schema.ts'
 import { type Frame, partySocket, postAs, proposal, reader, rows, seed, until, noOutsidePages } from './helpers.ts'
 
 const rowsOn = (frames: Frame[], channel: string) => frames.filter((f) => f.channel === channel).flatMap((f) => f.ops.map((op) => op.value))
@@ -33,11 +34,10 @@ beforeAll(async () => {
       `INSERT INTO reports (id, source_id, act_id, created_at) VALUES
         ('rep-1', 'src-1', 'act-hot', '2026-11-10T09:00:00.000Z'), ('rep-2', 'src-2', 'act-cold', '2026-11-11T09:00:00.000Z'),
         ('rep-3', 'src-1', 'act-bob', '2026-11-10T09:00:00.000Z')`,
-      `INSERT INTO readings (id, act_id, question_id, position, weight, via_question_id, created_at) VALUES
-        ('rd-1', 'act-hot', 'hot-bill', 'support', 'clear', NULL, '2026-11-10T09:00:00.000Z'),
-        ('rd-2', 'act-hot', 'hot', 'support', 'clear', 'hot-bill', '2026-11-10T09:00:00.000Z'),
-        ('rd-3', 'act-cold', 'cold', 'oppose', 'passing', NULL, '2026-11-11T09:00:00.000Z'),
-        ('rd-4', 'act-bob', 'hot', 'oppose', 'clear', NULL, '2026-11-10T09:00:00.000Z')`,
+      `INSERT INTO reviews (id, reviewer_id, act_id, question_id, position, weight, created_at, updated_at) VALUES
+        ('rd-1', '${EDITORS_ID}', 'act-hot', 'hot-bill', 'support', 'clear', '2026-11-10T09:00:00.000Z', '2026-11-10T09:00:00.000Z'),
+        ('rd-3', '${EDITORS_ID}', 'act-cold', 'cold', 'oppose', 'passing', '2026-11-11T09:00:00.000Z', '2026-11-11T09:00:00.000Z'),
+        ('rd-4', '${EDITORS_ID}', 'act-bob', 'hot', 'oppose', 'clear', '2026-11-10T09:00:00.000Z', '2026-11-10T09:00:00.000Z')`,
     ].map((sql) => (sql.includes('?1') ? env.DB.prepare(sql).bind(PUBLISHED) : env.DB.prepare(sql))),
   )
   for (const [quote, url] of [
@@ -142,7 +142,7 @@ describe('GET /feed.xml', () => {
 describe('what a reader socket is sent of proposals', () => {
   it('sends none until the reader subscribes, then the whole table', async () => {
     const reader = await partySocket()
-    await until(() => reader.channels().has('bodies') && reader.channels().has('readings'))
+    await until(() => reader.channels().has('bodies') && reader.channels().has('reviews'))
 
     // A new proposal while connected: its source reaches the reader, the proposal does not.
     const seen = reader.frames.length

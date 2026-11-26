@@ -18,7 +18,7 @@ import {
   seatsIn,
   threadsFor,
 } from './role-form.ts'
-import { act, decider, holder, item, link, office, question, reading, role, seat, setPosition, track } from './fixtures.ts'
+import { act, decider, holder, item, link, office, question, review, role, seat, setPosition, track } from './fixtures.ts'
 import type { Comment, ProposalMention } from '../../shared/schema.ts'
 
 const form = (fields: [string, string][]) => {
@@ -150,7 +150,7 @@ describe('roleDependents', () => {
   const none = { proposalItems: [], proposalMentions: [], comments: [] }
 
   it('is nothing for someone with nothing on file in the body', () => {
-    const t = track({ ...base, roles: [running], acts: [act('far-act', 'kit')], readings: [reading('far-act', 'elsewhere', 'support')] })
+    const t = track({ ...base, roles: [running], acts: [act('far-act', 'kit')], reviews: [review('far-act', 'elsewhere', 'support')] })
     expect(roleDependents(running, t, none)).toEqual([])
   })
 
@@ -159,7 +159,7 @@ describe('roleDependents', () => {
       ...base,
       roles: [running],
       acts: [act('a1', 'kit'), act('a2', 'kit')],
-      readings: [reading('a1', 'policy', 'support'), reading('a2', 'policy', 'oppose')],
+      reviews: [review('a1', 'policy', 'support'), review('a2', 'policy', 'oppose')],
       setPositions: [setPosition('policy', 'kit', 'support')],
       questionDeciders: [link('policy', 'kit')],
       offices: [office('chair')],
@@ -179,7 +179,7 @@ describe('roleDependents', () => {
   })
 
   it('is nothing when another seat of theirs in the body keeps the record in place', () => {
-    const t = track({ ...base, roles: [running, role('ward-2', 'kit')], acts: [act('a1', 'kit')], readings: [reading('a1', 'policy', 'support')] })
+    const t = track({ ...base, roles: [running, role('ward-2', 'kit')], acts: [act('a1', 'kit')], reviews: [review('a1', 'policy', 'support')] })
     expect(roleDependents(running, t, none)).toEqual([])
   })
 

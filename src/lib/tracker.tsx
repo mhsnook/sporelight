@@ -30,7 +30,8 @@ export function TrackerProvider({ asOf, children }: { asOf?: string; children: R
   const sources = useLiveQuery((q) => q.from({ row: db.sources }))
   const acts = useLiveQuery((q) => q.from({ row: db.acts }))
   const reports = useLiveQuery((q) => q.from({ row: db.reports }))
-  const readings = useLiveQuery((q) => q.from({ row: db.readings }))
+  const reviews = useLiveQuery((q) => q.from({ row: db.reviews }))
+  const sameActs = useLiveQuery((q) => q.from({ row: db.same_acts }))
 
   const day = asOf ?? today()
   const tracker = useMemo(
@@ -51,11 +52,12 @@ export function TrackerProvider({ asOf, children }: { asOf?: string; children: R
         sources: sources.data,
         acts: acts.data,
         reports: reports.data,
-        readings: readings.data,
+        reviews: reviews.data,
+        sameActs: sameActs.data,
       }, day),
-    [bodies.data, deciders.data, seats.data, roles.data, questions.data, questionBodies.data, questionDeciders.data, offices.data, officeHolders.data, questionOffices.data, questionRelations.data, setPositions.data, sources.data, acts.data, reports.data, readings.data, day],
+    [bodies.data, deciders.data, seats.data, roles.data, questions.data, questionBodies.data, questionDeciders.data, offices.data, officeHolders.data, questionOffices.data, questionRelations.data, setPositions.data, sources.data, acts.data, reports.data, reviews.data, sameActs.data, day],
   )
-  const isReady = [bodies, deciders, seats, roles, questions, questionBodies, questionDeciders, offices, officeHolders, questionOffices, questionRelations, setPositions, sources, acts, reports, readings].every((q) => q.isReady)
+  const isReady = [bodies, deciders, seats, roles, questions, questionBodies, questionDeciders, offices, officeHolders, questionOffices, questionRelations, setPositions, sources, acts, reports, reviews, sameActs].every((q) => q.isReady)
 
   return <TrackerContext value={{ tracker, isReady }}>{children}</TrackerContext>
 }

@@ -27,7 +27,8 @@ export async function loadRecord(db: D1Database, tables: ReadonlySet<string> = A
     sources: of('sources'),
     acts: of('acts'),
     reports: of('reports'),
-    readings: of('readings'),
+    reviews: of('reviews'),
+    sameActs: of('same_acts'),
   }
 }
 

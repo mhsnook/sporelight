@@ -274,17 +274,46 @@ export const reportSchema = z.object({
 })
 export type Report = z.infer<typeof reportSchema>
 
-export const readingSchema = z.object({
+// Everything written with the editor token is written as this person, until
+// editors are signed-in people.
+export const EDITORS_ID = 'editors'
+
+// One identity's judgement of what an act shows on a question. Only its author changes it.
+export const reviewSchema = z.object({
   id: z.string(),
+  reviewer_id: z.string(),
   act_id: z.string(),
   question_id: z.string(),
   position: directionSchema,
   weight: weightSchema,
-  // Set on a reading written because a sub-question implies support on this one.
-  via_question_id: z.string().nullable(),
+  // The review this one started from, when it was made from someone else's.
+  based_on: z.string().nullable(),
   created_at: z.string(),
+  updated_at: z.string(),
 })
-export type Reading = z.infer<typeof readingSchema>
+export type Review = z.infer<typeof reviewSchema>
+
+// An act an editor has found to be the same real-world act as another. The
+// record shows it as the other: its reports there, its reviews counted there.
+export const sameActSchema = z.object({
+  act_id: z.string(),
+  same_as_id: z.string(),
+  marked_by: z.string(),
+  marked_at: z.string(),
+})
+export type SameAct = z.infer<typeof sameActSchema>
+
+// What the reviews of an act on a question come to, worked out and never
+// stored. Two reviews can average to lean_oppose, which no review can say.
+export type Reading = {
+  id: string
+  act_id: string
+  question_id: string
+  position: Position
+  weight: Weight
+  // Set on a reading worked out from a sub-question that implies this one.
+  via_question_id: string | null
+}
 
 export const PROPOSAL_ORIGINS = ['reader', 'news_search', 'partner', 'model'] as const
 
@@ -476,7 +505,8 @@ export const publicCollections = [
   definePartyCollection({ name: 'sources', key: 'id', schema: sourceSchema, access: editorWrites }),
   definePartyCollection({ name: 'acts', key: 'id', schema: actSchema, access: editorWrites }),
   definePartyCollection({ name: 'reports', key: 'id', schema: reportSchema, access: editorWrites }),
-  definePartyCollection({ name: 'readings', key: 'id', schema: readingSchema, access: editorWrites }),
+  definePartyCollection({ name: 'reviews', key: 'id', schema: reviewSchema, access: editorWrites }),
+  definePartyCollection({ name: 'same_acts', key: 'act_id', schema: sameActSchema, access: editorWrites }),
 ] as const
 
 // Unreviewed proposals are public. Add no column here that only an editor

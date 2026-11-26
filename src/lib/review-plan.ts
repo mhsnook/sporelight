@@ -1,6 +1,6 @@
 import {
   EARLIEST_PUBLISHED,
-  carriesUp,
+  EDITORS_ID,
   isPublishDay,
   pairId,
   type Act,
@@ -16,8 +16,8 @@ import {
   type QuestionDecider,
   type QuestionOffice,
   type QuestionRelation,
-  type Reading,
   type Report,
+  type Review,
   type Role,
   type SetPosition,
   type Source,
@@ -35,7 +35,7 @@ type Rows = {
   sources: Source
   acts: Act
   reports: Report
-  readings: Reading
+  reviews: Review
   set_positions: SetPosition
   proposals: Proposal
   proposal_items: ProposalItem
@@ -54,7 +54,7 @@ export type Published = {
   questions: Question[]
   acts: Act[]
   reports: Report[]
-  readings: Reading[]
+  reviews: Review[]
   setPositions: SetPosition[]
 }
 
@@ -97,7 +97,7 @@ export type Verdict = {
 // The store sends a transaction as one batch per table, in the order each table
 // first appears, and every batch may only point at rows an earlier one wrote.
 // Plans list their writes in an order that respects that.
-const APPROVAL_ORDER: (keyof Rows)[] = ['sources', 'acts', 'reports', 'readings', 'set_positions', 'proposal_items', 'proposal_notes', 'proposals']
+const APPROVAL_ORDER: (keyof Rows)[] = ['sources', 'acts', 'reports', 'reviews', 'set_positions', 'proposal_items', 'proposal_notes', 'proposals']
 
 // Everything publishing one reviewed proposal changes, as a list of writes for
 // a single transaction. Every row it writes is stamped with the same `now`:
@@ -117,27 +117,18 @@ export function planReview(
   const questionById = new Map(published.questions.map((q) => [q.id, q]))
   const actIds = new Set(published.acts.map((a) => a.id))
   const reported = new Set(published.reports.map((r) => `${r.source_id} ${r.act_id}`))
-  const readingByPair = new Map(published.readings.map((r) => [`${r.act_id} ${r.question_id}`, r]))
-  const newReadings = new Map<string, Reading>()
+  const editorsReview = new Map(published.reviews.filter((r) => r.reviewer_id === EDITORS_ID).map((r) => [`${r.act_id} ${r.question_id}`, r]))
   const setPositionIds = new Set(published.setPositions.map((s) => s.id))
   let nextSort = Math.max(-1, ...verdict.entries.flatMap((e) => e.items.map((i) => i.sort))) + 1
 
-  const read = (actId: string, questionId: string, position: Direction, weight: Weight, via: string | null) => {
+  // Publishing is the editors' review of the act on each question it is read on.
+  const review = (actId: string, questionId: string, position: Direction, weight: Weight) => {
     const key = `${actId} ${questionId}`
-    const mine = newReadings.get(key)
-    const existing = mine ?? readingByPair.get(key)
-    if (!existing) {
-      const row: Reading = { id: newId(), act_id: actId, question_id: questionId, position, weight, via_question_id: via, created_at: now }
-      newReadings.set(key, row)
-      writes.push({ on: 'readings', type: 'insert', row })
-    } else if (via) {
-      // A reading implied by a sub-question never replaces one already there.
-    } else if (mine) {
-      Object.assign(mine, { position, weight, via_question_id: null })
-    } else if (existing.position !== position || existing.weight !== weight || existing.via_question_id) {
-      // Read directly, it stops being a reading the sub-question implied.
-      writes.push({ on: 'readings', type: 'update', id: existing.id, changes: { position, weight, via_question_id: null } })
-    }
+    const existing = editorsReview.get(key)
+    if (existing?.position === position && existing.weight === weight) return
+    const row: Review = existing ? { ...existing, position, weight, updated_at: now } : { id: newId(), reviewer_id: EDITORS_ID, act_id: actId, question_id: questionId, position, weight, based_on: null, created_at: now, updated_at: now }
+    editorsReview.set(key, row)
+    writes.push(existing ? { on: 'reviews', type: 'update', id: row.id, changes: { position, weight, updated_at: now } } : { on: 'reviews', type: 'insert', row })
   }
 
   const note = (body: string, itemId: string | null) =>
@@ -176,13 +167,7 @@ export function planReview(
     for (const r of entry.readings) {
       const question = questionById.get(r.question_id)
       if (!question) throw new Error(`Unknown question ${r.question_id}`)
-      read(entry.act_id, question.id, r.reading, entry.weight, null)
-      // Doing the thing a sub-question asks about says something on its parent
-      // too, if the sub-question says what. A passing or presumed reading is too loose
-      // to carry upward.
-      if (question.implies_on_parent && question.parent_id && r.reading === 'support' && carriesUp(entry.weight)) {
-        read(entry.act_id, question.parent_id, question.implies_on_parent, entry.weight, question.id)
-      }
+      review(entry.act_id, question.id, r.reading, entry.weight)
       if (r.item) {
         kept.add(r.item.id)
         firstItemId ??= r.item.id
@@ -229,44 +214,4 @@ export function planReview(
   writes.push({ on: 'proposals', type: 'update', id: proposal.id, changes: { status: 'reviewed', reviewed_at: now } })
 
   return writes.sort((a, b) => APPROVAL_ORDER.indexOf(a.on) - APPROVAL_ORDER.indexOf(b.on))
-}
-
-// Folds one act into another when both turn out to be the same real-world
-// thing. Reports and readings move to the survivor; where the survivor already
-// has a report from that source or a reading on that question, its own stands
-// and the duplicate is deleted. The dropped act goes last, once nothing points
-// at it.
-export function planMerge(published: Pick<Published, 'acts' | 'reports' | 'readings'> & { proposalItems: ProposalItem[] }, keepId: string, dropId: string): Write[] {
-  const keep = published.acts.find((a) => a.id === keepId)
-  const drop = published.acts.find((a) => a.id === dropId)
-  if (!keep || !drop) throw new Error('Both acts have to be on file.')
-  if (keep.id === drop.id) throw new Error('An act cannot be merged into itself.')
-  if (keep.decider_id !== drop.decider_id) throw new Error('Acts by different people cannot be the same act.')
-
-  const writes: Write[] = []
-  const keptReports = new Map(published.reports.filter((r) => r.act_id === keepId).map((r) => [r.source_id, r]))
-  for (const report of published.reports.filter((r) => r.act_id === dropId)) {
-    const kept = keptReports.get(report.source_id)
-    if (!kept) {
-      // Keeps the words this source printed, which may not be the survivor's.
-      const excerpt = report.excerpt ?? (drop.body !== keep.body ? drop.body : null)
-      writes.push({ on: 'reports', type: 'update', id: report.id, changes: excerpt === report.excerpt ? { act_id: keepId } : { act_id: keepId, excerpt } })
-      continue
-    }
-    writes.push({ on: 'reports', type: 'delete', id: report.id })
-    if (!kept.excerpt && report.excerpt) writes.push({ on: 'reports', type: 'update', id: kept.id, changes: { excerpt: report.excerpt } })
-  }
-
-  const keptQuestions = new Set(published.readings.filter((r) => r.act_id === keepId).map((r) => r.question_id))
-  for (const reading of published.readings.filter((r) => r.act_id === dropId)) {
-    writes.push(keptQuestions.has(reading.question_id) ? { on: 'readings', type: 'delete', id: reading.id } : { on: 'readings', type: 'update', id: reading.id, changes: { act_id: keepId } })
-  }
-
-  for (const item of published.proposalItems.filter((i) => i.act_id === dropId)) {
-    writes.push({ on: 'proposal_items', type: 'update', id: item.id, changes: { act_id: keepId } })
-  }
-
-  if (!keep.primary_source_id && drop.primary_source_id) writes.push({ on: 'acts', type: 'update', id: keepId, changes: { primary_source_id: drop.primary_source_id } })
-  writes.push({ on: 'acts', type: 'delete', id: dropId })
-  return writes
 }
