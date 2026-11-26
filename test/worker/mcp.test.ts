@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { EDITORS_ID } from '../../shared/schema.ts'
 import { AGENT_KEY_PREFIX } from '../../worker/auth.ts'
 import { FIND_LIMIT } from '../../worker/mcp.ts'
-import { EDITOR_TOKEN, nextIp, partyWrite, post, rows, seed } from './helpers.ts'
+import { EDITOR_TOKEN, nextIp, partyWrite, post, rows, seed, CLAIMS } from './helpers.ts'
 
 // An MCP client talking to the Worker's /mcp, from its own address, with a key if it has one.
 async function connect(from = nextIp(), key?: string) {
@@ -132,8 +132,8 @@ describe('/mcp: agents sign up and send evidence as people', () => {
     const proposalId = result.structuredContent!.proposal_id as string
     expect(await rows(`SELECT origin, submitted_by, status FROM proposals WHERE id = ?`, proposalId)).toEqual([{ origin: 'reader', submitted_by: agent.id, status: 'pending' }])
     expect((await rows<{ body: string }>(`SELECT body FROM proposal_notes WHERE proposal_id = ?`, proposalId)).map((n) => n.body)).toEqual(['From our council monitor.'])
-    // Nothing reaches the record before review.
-    expect(await rows(`SELECT id FROM reviews WHERE act_id IN (SELECT act_id FROM proposal_items WHERE proposal_id = ?)`, proposalId)).toEqual([])
+    // The act is on file with the agent's own review of it, and the editors have not reviewed it.
+    expect(await rows(`SELECT reviewer_id, position FROM reviews WHERE act_id IN (SELECT act_id FROM proposal_items WHERE proposal_id = ?)`, proposalId)).toEqual([{ reviewer_id: agent.id, position: 'support' }])
   })
 
   it('refuses evidence sent with no key, as the site refuses a post from someone signed out, and writes nothing', async () => {

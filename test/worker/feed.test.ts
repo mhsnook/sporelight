@@ -1,7 +1,7 @@
 import { env, exports } from 'cloudflare:workers'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { EDITORS_ID } from '../../shared/schema.ts'
-import { type Frame, partySocket, postAs, proposal, reader, rows, seed, until, noOutsidePages } from './helpers.ts'
+import { type Frame, partySocket, postAs, proposal, reader, rows, seed, until, noOutsidePages, CLAIMS, editorsSay } from './helpers.ts'
 
 const rowsOn = (frames: Frame[], channel: string) => frames.filter((f) => f.channel === channel).flatMap((f) => f.ops.map((op) => op.value))
 const storyIds = (xml: string) => [...xml.matchAll(/<id>urn:sporelight:story:([^:<]+):[^<]+<\/id>/g)].map((m) => m[1])
@@ -46,7 +46,8 @@ beforeAll(async () => {
   ]) {
     expect(await (await send('/api/proposals', proposal({ quote, source_url: url }))).json()).toMatchObject({ ok: true, duplicate: false })
   }
-  await env.DB.prepare(`UPDATE proposal_items SET status = 'rejected' WHERE quote = ?`).bind(REJECTED).run()
+  const [rejected] = await rows<{ id: string }>(`SELECT id FROM (${CLAIMS}) WHERE quote = ?`, REJECTED)
+  await editorsSay(rejected.id, null)
 })
 
 describe('GET /feed.xml', () => {
@@ -65,7 +66,7 @@ describe('GET /feed.xml', () => {
 
   it('carries nothing that is waiting for review or was rejected', async () => {
     const xml = await (await feed()).text()
-    expect(await rows(`SELECT status FROM proposal_items WHERE quote = ?`, WAITING)).toEqual([{ status: 'pending' }])
+    expect(await rows(`SELECT status FROM (${CLAIMS}) WHERE quote = ?`, WAITING)).toEqual([{ status: 'pending' }])
     expect(xml).not.toContain(WAITING)
     expect(xml).not.toContain(REJECTED)
     expect(xml).not.toContain('news.example/waiting')
@@ -158,8 +159,10 @@ describe('what a reader socket is sent of proposals', () => {
     reader.send({ subscribe: 'proposals' })
     reader.send({ subscribe: 'proposal_items' })
     await until(() => rowsOn(reader.frames, 'proposal_items').length > 0 && rowsOn(reader.frames, 'proposals').length > 0)
-    const quotes = rowsOn(reader.frames, 'proposal_items').map((i) => i.quote)
-    expect(quotes).toEqual(expect.arrayContaining([WAITING, 'Posted while a reader is connected.']))
+    const sentIn = new Set(rowsOn(reader.frames, 'proposal_items').map((i) => i.act_id))
+    const acts = await rows<{ id: string }>(`SELECT id FROM acts WHERE body IN (?, ?)`, WAITING, 'Posted while a reader is connected.')
+    expect(acts).toHaveLength(2)
+    for (const a of acts) expect(sentIn).toContain(a.id)
     expect(rowsOn(reader.frames, 'proposal_notes')).toEqual([])
     reader.close()
   })

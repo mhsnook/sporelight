@@ -111,8 +111,8 @@ export const modelOutputSchema = z.object({
         .string()
         .nullable()
         .transform((d) => (d && isoDate.safeParse(d).success ? d : null)),
-      // How the date was worked out, or what in the article left it unknown.
-      date_basis: z.string(),
+      // How the date was worked out, or what in the article left it unknown. Left out, the act is kept.
+      date_basis: z.string().default(''),
       position: z.enum(DIRECTIONS),
       weight: z.enum(OWN_WEIGHTS),
       reason: z.string(),
@@ -402,7 +402,7 @@ export function draftFromReading(article: ArticleRef, acts: ModelAct[], dropped:
       passage: a.passage,
       reading: a.position,
       weight: a.weight,
-      note: `Model's reason: ${a.reason}\nDate: ${a.date_basis}`,
+      note: `Model's reason: ${a.reason}\nDate: ${a.date_basis || 'the model did not say how it found the date.'}`,
       context: a.context,
     })),
     mentions: mentions.map((m) => ({ decider_id: m.person_id, words: m.words })),

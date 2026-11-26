@@ -10,7 +10,7 @@ import { MODEL } from '../../worker/reader.ts'
 import type { Tracker } from '../../worker/tracker.ts'
 import type { NewsStep } from '../../shared/news-run.ts'
 import type { Proposal, ProposalDraft } from '../../shared/schema.ts'
-import { proposal, rows, seed, until, reader } from './helpers.ts'
+import { proposal, rows, seed, until, reader, CLAIMS } from './helpers.ts'
 
 const NOW = new Date('2026-11-19T12:00:00Z')
 const TODAY = NOW.toISOString().slice(0, 10)
@@ -88,7 +88,7 @@ const proposalsFor = (url: string) =>
 const itemsFor = (url: string) =>
   rows(
     `SELECT i.decider_id, i.question_id, i.kind, i.occurred_on, i.quote, i.reading, i.weight, i.passage
-     FROM proposal_items i JOIN proposals p ON p.id = i.proposal_id JOIN sources s ON s.id = p.source_id WHERE s.url = ? ORDER BY i.sort`,
+     FROM (${CLAIMS}) i JOIN proposals p ON p.id = i.proposal_id JOIN sources s ON s.id = p.source_id WHERE s.url = ? ORDER BY i.sort`,
     url,
   )
 const notesFor = (url: string) =>
@@ -131,7 +131,8 @@ describe('reading articles', () => {
     const notes = await notesFor(url)
     expect(notes[0]).toMatchObject({ on_item: 0 })
     expect(notes[0].body).toContain(MODEL)
-    expect(notes.slice(1).map((n) => n.body)).toEqual(["Model's reason: A direct statement of how she will vote.", "Model's reason: The rule governs debate on the bill."])
+    const noDateBasis = '\nDate: the model did not say how it found the date.'
+    expect(notes.slice(1).map((n) => n.body)).toEqual([`Model's reason: A direct statement of how she will vote.${noDateBasis}`, `Model's reason: The rule governs debate on the bill.${noDateBasis}`])
     expect(await readsOf(url)).toEqual([{ question_id: 'hot', outcome: 'queued', model: MODEL, detail: null }])
   })
 
@@ -141,7 +142,7 @@ describe('reading articles', () => {
       const like = `%${reason}%`
       expect(
         await rows(
-          `SELECT 1 FROM proposal_items WHERE quote LIKE ?1 OR passage LIKE ?1
+          `SELECT 1 FROM (${CLAIMS}) WHERE quote LIKE ?1 OR passage LIKE ?1
            UNION ALL SELECT 1 FROM proposals WHERE submitted_by LIKE ?1
            UNION ALL SELECT 1 FROM sources WHERE title LIKE ?1 OR url LIKE ?1`,
           like,
@@ -161,7 +162,7 @@ describe('reading articles', () => {
     await searchNews(s.env, await tracker(), NOW)
     expect(await contextsFor(url)).toEqual([{ decider_id: 'ann', before: 'T', after: FILLER.trim() }])
     expect(await mentionsFor(url)).toEqual([{ decider_id: 'bob', words: 'Bob Beta was absent' }])
-    expect(await rows(`SELECT 1 FROM proposal_items WHERE quote LIKE ?1 OR passage LIKE ?1`, '%The committee met%')).toEqual([])
+    expect(await rows(`SELECT 1 FROM (${CLAIMS}) WHERE quote LIKE ?1 OR passage LIKE ?1`, '%The committee met%')).toEqual([])
   })
 
   it('reads for a question linked to the one in the news, in the same body, and queues an act read on it', async () => {
@@ -314,7 +315,7 @@ describe('the publish date', () => {
     expect(promptOf(s)).toContain(`${url}\nPublished 2018-07-19, according to the page`)
     expect(promptOf(s)).not.toContain('2026-11-17')
     // The rule that an act's date is not the article's still stands.
-    expect(s.run.mock.calls[0][1].messages[0].content).toContain("This is not the article's date unless the article says the act happened that day")
+    expect(s.run.mock.calls[0][1].messages[0].content).toContain("Work out a relative one (\"on Tuesday\", \"yesterday\", \"last week's vote\") from the article's publish date")
   })
 
   it('falls back to the search result’s date, and says what it is', async () => {
@@ -342,13 +343,13 @@ describe('the publish date', () => {
     expect(promptOf(s)).toContain(`${url}\nPublish date not known`)
   })
 
-  it('dates a lead from the page when the page was fetched but not read', async () => {
+  it('dates the source of a lead from the page when the page was fetched but not read', async () => {
     const url = 'https://news.example/date-lead'
     const s = stubbed({ hits: [hit(url)], pages: { [url]: `<html><head>${PUBLISHED}</head><body><p>Subscribe to read this story.</p></body></html>` }, answer: () => ({ acts: [] }) })
     await searchNews(s.env, await tracker(), NOW)
     expect(await proposalsFor(url)).toEqual([expect.objectContaining({ origin: 'news_search', unread: 'no_text' })])
     expect(await sourceOf(url)).toEqual({ published_on: '2018-07-19', published_on_from: 'page' })
-    expect(await itemsFor(url)).toEqual([expect.objectContaining({ occurred_on: '2018-07-19' })])
+    expect(await itemsFor(url)).toEqual([expect.objectContaining({ kind: null, occurred_on: null, reading: null })])
     expect(s.run).not.toHaveBeenCalled()
   })
 

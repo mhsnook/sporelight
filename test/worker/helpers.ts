@@ -2,6 +2,7 @@ import { env, exports } from 'cloudflare:workers'
 import { vi } from 'vitest'
 import worker from '../../worker/index.ts'
 import { EDITOR_TOKEN } from './editor-token.ts'
+import { EDITORS_ID } from '../../shared/schema.ts'
 
 export { EDITOR_TOKEN }
 
@@ -170,4 +171,26 @@ export async function until(check: () => boolean | Promise<boolean>, ms = 2000) 
     if (Date.now() > end) throw new Error('timed out waiting')
     await new Promise((r) => setTimeout(r, 10))
   }
+}
+
+// Each proposal item with what it claims, in one row: its act and its report
+// in the proposal's source, and the sender's review. `status` is what the
+// editors' review of the act on the item's question says: pending with none,
+// rejected when it says the act says nothing there, accepted otherwise.
+export const CLAIMS = `SELECT i.id, i.proposal_id, i.sort, i.decider_id, i.question_id, i.act_id, a.kind, a.occurred_on, COALESCE(a.body, i.excerpt) AS quote, r.passage,
+    v.position AS reading, v.weight, CASE WHEN e.id IS NULL THEN 'pending' WHEN e.position IS NULL THEN 'rejected' ELSE 'accepted' END AS status
+  FROM proposal_items i JOIN proposals p ON p.id = i.proposal_id
+  LEFT JOIN acts a ON a.id = i.act_id
+  LEFT JOIN reports r ON r.act_id = i.act_id AND r.source_id = p.source_id
+  LEFT JOIN reviews v ON v.act_id = i.act_id AND v.question_id = i.question_id AND v.reviewer_id = p.submitted_by
+  LEFT JOIN reviews e ON e.act_id = i.act_id AND e.question_id = i.question_id AND e.reviewer_id = '${EDITORS_ID}'`
+
+// The editors' review of an item's act on its question, as publishing or dismissing it writes.
+export async function editorsSay(itemId: string, position: 'support' | null) {
+  const [i] = await rows<{ act_id: string; question_id: string }>(`SELECT act_id, question_id FROM proposal_items WHERE id = ?`, itemId)
+  await env.DB.prepare(
+    `INSERT INTO reviews (id, reviewer_id, act_id, question_id, position, weight, created_at, updated_at) VALUES (?, '${EDITORS_ID}', ?, ?, ?, ?, '2026-11-26T00:00:00Z', '2026-11-26T00:00:00Z')`,
+  )
+    .bind(crypto.randomUUID(), i.act_id, i.question_id, position, position && 'clear')
+    .run()
 }
