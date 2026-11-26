@@ -14,11 +14,11 @@ export function reviewToConfirm(reviews: TieredReview[], reviewerId: string): Re
   const others = reviews.filter((r) => r.review.reviewer_id !== reviewerId)
   const summary = summarize(others.map(({ review, tier }) => ({ tier, position: review.position, weight: review.weight })))
   if (!summary) return null
-  const tier = others
+  const newestInTier = others
     .filter((r) => r.tier === summary.tier && r.review.position !== null)
     .map((r) => r.review)
     .sort((a, b) => b.updated_at.localeCompare(a.updated_at) || a.id.localeCompare(b.id))
-  return tier.find((r) => r.position === summary.position) ?? tier[0]
+  return newestInTier.find((r) => r.position === summary.position) ?? newestInTier[0]
 }
 
 // A new review of an act on a question, or `started` from someone else's with its answers.

@@ -160,7 +160,7 @@ function DeciderOnQuestion() {
             <ol className="space-y-3">
               {me.record.map((entry) => (
                 <RecordItem key={entry.reading.id} entry={entry} question={question}>
-                  <OwnReview act={entry.act} question={entry.via ?? question} />
+                  <OwnReview act={entry.act} question={question} />
                   {editor && <WithdrawAct act={entry.act} />}
                   {editor && <MergeAct act={entry.act} />}
                 </RecordItem>

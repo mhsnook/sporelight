@@ -11,7 +11,7 @@ import type { Tracker } from './tracker.ts'
 // What a client reads before it calls any tool.
 const INSTRUCTIONS = `Sporelight tracks where the people in a body (a legislature, a council) stand on open questions, from dated acts: things they said, commitments they made, and uses of their office.
 
-Read with list_questions, find_deciders, get_positions and get_record. A decider is someone a question is put to, such as a member of a legislature. Everything they return is published: an editor has checked it against its source.
+Read with list_questions, find_deciders, get_positions and get_record. A decider is someone a question is put to, such as a member of a legislature. They return everything on the record, including readings an editor has not checked yet; each record entry says whether one has.
 
 Send evidence with submit_evidence. It counts at once as your reading, and an editor then checks it against its source.
 
@@ -149,7 +149,7 @@ function serverFor(env: Env, req: Request) {
   server.registerTool(
     'get_record',
     {
-      description: 'The published acts behind one person’s position on one question, newest first, with the sources that report each.',
+      description: 'The acts behind one person’s position on one question, newest first, with the sources that report each. `checked` is false for a reading only readers or agents have given.',
       inputSchema: z.object({
         question: z.string().describe('A question id or slug.'),
         person: z.string().describe('A decider’s id or slug from find_deciders or get_positions.'),
@@ -169,6 +169,7 @@ function serverFor(env: Env, req: Request) {
         reading: e.reading.position,
         weight: e.reading.weight,
         via_sub_question: e.via?.title ?? null,
+        checked: e.checked,
         no_longer_holds: e.lapse,
         sources: e.reports.map((r) => ({ url: r.source.url, title: r.source.title, archived: r.source.archive_url })),
       })

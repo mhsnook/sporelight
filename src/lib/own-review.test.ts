@@ -82,3 +82,17 @@ describe('saidNothingOn', () => {
     ])
   })
 })
+
+describe('a member saying an act says nothing on the question its reading was implied on', () => {
+  it('takes it off the record there, below their own tier, and lists it as said to say nothing', () => {
+    const policy = question('policy')
+    const bill = question('bill', { parent_id: 'policy', kind: 'formal_act', implies_on_parent: 'support' })
+    const people = [{ id: NEWS_READER_ID, kind: 'agent' as const, role: 'member' as const }, { id: 'cy', kind: 'person' as const, role: 'member' as const }]
+    const rows = { deciders: [decider('ann')], questions: [policy, bill], acts: [act('x', 'ann')], people }
+    const implied = review('x', 'bill', 'support', 'concrete', NEWS_READER_ID)
+    expect(track({ ...rows, reviews: [implied] }).recordFor(policy, 'ann').map((e) => e.via?.id)).toEqual(['bill'])
+    const t = track({ ...rows, reviews: [implied, { ...review('x', 'policy', 'support', 'clear', 'cy'), position: null, weight: null }] })
+    expect(t.recordFor(policy, 'ann')).toEqual([])
+    expect(t.saidNothingOn(policy, 'ann').map((s) => [s.act.id, s.question.id])).toEqual([['x', 'policy']])
+  })
+})

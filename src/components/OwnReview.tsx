@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { useId, useState, useSyncExternalStore } from 'react'
 import { DIRECTIONS, WEIGHTS, type Act, type Direction, type Question, type Review, type Weight } from '../../shared/schema.ts'
 import { useSession } from '../lib/auth.ts'
 import { db } from '../lib/db.ts'
@@ -7,36 +7,53 @@ import { DIRECTION_LABEL, WEIGHT_HINT, WEIGHT_LABEL } from '../lib/position.ts'
 import { useTracker } from '../lib/tracker.tsx'
 
 const answersOf = (r: Pick<Review, 'position' | 'weight'>) => (r.position && r.weight ? `${DIRECTION_LABEL[r.position]} · ${WEIGHT_LABEL[r.weight]}` : 'says nothing on this question')
-const failed = (setError: (e: string) => void) => (err: unknown) => setError(err instanceof Error ? err.message : String(err))
 
-// A signed-in person's own review of an act on the question it is read on:
-// confirming the reading shown, giving their own answers, or changing or
-// removing what they gave.
+// Saving can move the act between the record and the list of acts said to say
+// nothing, which remounts this component, so a failed save's message is kept
+// here by act and question rather than in its state.
+const failures = new Map<string, string>()
+const listeners = new Set<() => void>()
+const setFailure = (key: string, message: string | null) => {
+  if (message) failures.set(key, message)
+  else failures.delete(key)
+  listeners.forEach((l) => l())
+}
+const subscribe = (l: () => void) => {
+  listeners.add(l)
+  return () => void listeners.delete(l)
+}
+
+// A member's own review of an act on a question: confirming the reading
+// shown, giving their own answers, or changing or removing what they gave.
+// Editors review in the queue, where publishing also settles the proposal.
 export function OwnReview({ act, question }: { act: Act; question: Question }) {
   const { tracker } = useTracker()
-  const reviewerId = useSession().id
+  const { id: reviewerId, role } = useSession()
   const [editing, setEditing] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  if (!reviewerId) return null
+  const key = `${act.id} ${question.id}`
+  const error = useSyncExternalStore(subscribe, () => failures.get(key) ?? null)
+  if (!reviewerId || role === 'editor') return null
   const reviews = tracker.reviewsOn(act.id, question.id)
   const mine = reviews.find((r) => r.review.reviewer_id === reviewerId)?.review
   const toConfirm = reviewToConfirm(reviews, reviewerId)
   const on = ` on ${question.short_title}`
 
+  const failed = (err: unknown) => setFailure(key, err instanceof Error ? err.message : String(err))
+
   function save(answers: Answers, started: Review | null = null) {
-    setError(null)
+    setFailure(key, null)
     const now = new Date().toISOString()
     const write = mine
       ? db.reviews.update(mine.id, (r) => void Object.assign(r, answers, { updated_at: now }))
       : db.reviews.insert(newReview(reviewerId!, act.id, question.id, answers, now, crypto.randomUUID(), started))
     setEditing(false)
-    write.isPersisted.promise.catch(failed(setError))
+    write.isPersisted.promise.catch(failed)
   }
 
   function remove() {
     if (!mine || !window.confirm('Remove your review? The reading shown goes back to what the other reviews say.')) return
-    setError(null)
-    db.reviews.delete(mine.id).isPersisted.promise.catch(failed(setError))
+    setFailure(key, null)
+    db.reviews.delete(mine.id).isPersisted.promise.catch(failed)
   }
 
   return (

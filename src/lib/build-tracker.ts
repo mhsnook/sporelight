@@ -142,19 +142,19 @@ export function asShown(c: Pick<TrackerData, 'acts' | 'reports' | 'reviews' | 's
   return { acts, reports: [...reports.values()], reviews: [...reviews.values()], shownAs, alsoRecordedAs }
 }
 
-// What the reviews come to for each act on each question. A review of support
-// on a sub-question that implies something on its parent also counts there, by
-// the same reviewer, unless they reviewed the act on the parent directly; too
-// loose a review does not carry upward.
-// The tier a reviewer's reviews count in, from their row: an editor's role, then
-// whether they are an agent. A reviewer with no row counts in the lowest tier.
 export type TieredReview = { review: Review; tier: ReviewerTier }
 
+// The tier a reviewer's reviews count in, from their row: an editor's role, then
+// whether they are an agent. A reviewer with no row counts in the lowest tier.
 export function reviewerTiers(people: TrackerData['people']): (reviewerId: string) => ReviewerTier {
   const tiers = new Map(people.map((p): [string, ReviewerTier] => [p.id, p.role === 'editor' ? 'editor' : p.kind]))
   return (reviewerId) => tiers.get(reviewerId) ?? REVIEWER_TIERS[REVIEWER_TIERS.length - 1]
 }
 
+// What the reviews come to for each act on each question. A review of support
+// on a sub-question that implies something on its parent also counts there, by
+// the same reviewer, unless they reviewed the act on the parent directly; too
+// loose a review does not carry upward.
 export function readingsFrom(reviews: Review[], questionById: ReadonlyMap<string, Question>, tierOf: (reviewerId: string) => ReviewerTier): Reading[] {
   const readDirectly = new Set(reviews.map((r) => `${r.reviewer_id} ${r.act_id} ${r.question_id}`))
   const counted = reviews.flatMap((r) => {

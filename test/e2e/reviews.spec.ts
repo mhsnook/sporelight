@@ -29,7 +29,7 @@ test('a member confirms the reading the news reader gave an act, changes it to t
 
   await page.goto(person)
   const onRecord = page.getByRole('listitem').filter({ hasText: words })
-  await expect(onRecord).toContainText('Yes')
+  await expect(onRecord.getByText('Yes', { exact: true })).toBeVisible()
   await expect(onRecord.getByText('Not checked by an editor')).toBeVisible()
   // Signed out, there is nothing to review with.
   await expect(onRecord.getByRole('button', { name: /^Confirm/ })).toHaveCount(0)
@@ -49,7 +49,7 @@ test('a member confirms the reading the news reader gave an act, changes it to t
   await onRecord.getByLabel('How much it counts').selectOption('passing')
   await onRecord.getByRole('button', { name: 'Save your review' }).click()
   await expect(onRecord.getByText('Your review on Fare-free ferry: Against · Passing')).toBeVisible()
-  await expect(onRecord).toContainText('No')
+  await expect(onRecord.getByText('No', { exact: true })).toBeVisible()
   await expect(onRecord.getByText('Signal')).toBeVisible()
 
   page.once('dialog', (d) => d.accept())
@@ -91,5 +91,5 @@ test('a member says an act says nothing on the question, which moves it off the 
   await saidNothing.getByRole('radio', { name: 'Mixed' }).check()
   await saidNothing.getByRole('button', { name: 'Save your review' }).click()
   await expect(page.getByText('Reviewed as saying nothing on this question')).toHaveCount(0)
-  await expect(page.getByRole('listitem').filter({ hasText: words })).toContainText('Mixed')
+  await expect(page.getByRole('listitem').filter({ hasText: words }).getByText('Mixed', { exact: true })).toBeVisible()
 })
