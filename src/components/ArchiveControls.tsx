@@ -1,13 +1,13 @@
 import { useId, useRef, useState } from 'react'
 import { isWebAddress, type ArchiveNow, type Source } from '../../shared/schema.ts'
 import { db } from '../lib/db.ts'
-import { editorFetch } from '../lib/editor.ts'
+import { errorText } from '../lib/errors.ts'
+import { postAsReader, useIsEditor } from '../lib/auth.ts'
 
-const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err))
-
-// Editors only: ask for a Wayback Machine capture of a source now, or give the
-// address of a copy kept anywhere else.
+// Anyone signed in can ask for a Wayback Machine capture of a source now. An
+// editor can also give the address of a copy kept anywhere else.
 export function ArchiveControls({ source }: { source: Pick<Source, 'id' | 'url' | 'archive_url'> }) {
+  const editor = useIsEditor()
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -22,7 +22,7 @@ export function ArchiveControls({ source }: { source: Pick<Source, 'id' | 'url' 
     setBusy(true)
     show(null)
     try {
-      const res = await editorFetch('/api/editor/archive', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ source_id: source.id }) })
+      const res = await postAsReader('/api/archive', { source_id: source.id })
       const answer = (await res.json().catch(() => ({ error: `The Worker answered ${res.status}.`, status: res.status }))) as ArchiveNow
       if ('error' in answer) show(null, `Not archived: ${answer.error}`)
       else show(answer.outcome === 'archived' ? 'Archived.' : (answer.detail ?? answer.outcome))
@@ -51,6 +51,7 @@ export function ArchiveControls({ source }: { source: Pick<Source, 'id' | 'url' 
         </button>
       )}
       {/* Not a form: this sits inside the editor's review form. */}
+      {editor && (
       <details>
         <summary className="cursor-pointer">{source.archive_url ? 'Change archived copy' : 'Give an archived copy'}</summary>
         <span className="mt-1 flex flex-wrap items-center gap-2">
@@ -74,6 +75,7 @@ export function ArchiveControls({ source }: { source: Pick<Source, 'id' | 'url' 
           </button>
         </span>
       </details>
+      )}
       {note && <span role="status">{note}</span>}
       {error && <span role="status" className="text-oppose">{error}</span>}
     </div>

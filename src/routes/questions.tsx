@@ -1,13 +1,14 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
-import { isEditor } from '../lib/editor.ts'
 import { useTracker } from '../lib/tracker.tsx'
 import { Syncing } from '../components/bits.tsx'
 import { QuestionCard } from '../components/QuestionCard.tsx'
+import { useIsEditor } from '../lib/auth.ts'
 
 export const Route = createFileRoute('/questions')({ component: Questions })
 
 function Questions() {
   const { tracker, isReady } = useTracker()
+  const editor = useIsEditor()
   if (!isReady) return <Syncing />
   const bodies = tracker.bodiesInOrder
 
@@ -15,8 +16,8 @@ function Questions() {
     <div className="space-y-12">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="h-page">Questions</h1>
-        {isEditor() && (
-          <Link to="/questions/new" className="btn">
+        {editor && (
+          <Link to="/questions/new" className="btn btn-editor">
             Add a question
           </Link>
         )}

@@ -8,8 +8,8 @@ import { CertaintyTag, FootingTag, NotFound, StandingDot, StandingPill, Syncing,
 import { Hemicycle } from '../components/Hemicycle.tsx'
 import { QuestionHeader } from '../components/QuestionHeader.tsx'
 import { AskStatus, CloseQuestion, ClosedNote, KeyPeople } from '../components/Asks.tsx'
-import { isEditor } from '../lib/editor.ts'
 import { nounOf } from '../lib/question-form.ts'
+import { useIsEditor } from '../lib/auth.ts'
 
 // How many of a group to list before a reader has to ask for the rest.
 const PREVIEW = 12
@@ -274,10 +274,10 @@ function Ask({ question, bodyId }: { question: Question; bodyId: string }) {
 
 function EditorTools({ question }: { question: Question }) {
   const { tracker } = useTracker()
-  if (!isEditor()) return null
+  if (!useIsEditor()) return null
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Link to="/q/$slug/edit" params={{ slug: question.slug }} className="btn">
+      <Link to="/q/$slug/edit" params={{ slug: question.slug }} className="btn btn-editor">
         Edit this {nounOf(question, tracker.isAsk(question))}
       </Link>
       <CloseQuestion question={question} />
@@ -350,7 +350,7 @@ function SeatCard({ row, question }: { row: HeldSeat; question: Question }) {
 
 // Editors only: starts a role for someone running for this seat, and comes back here once it is saved.
 function AddRunning({ seat, question, compact }: { seat: Seat; question: Question; compact?: boolean }) {
-  if (!isEditor()) return null
+  if (!useIsEditor()) return null
   return (
     <Link to="/roles/new" search={{ seat: seat.id, running: true, question: question.slug }} className={compact ? 'mt-1 block text-xs link' : 'block border-t border-line py-1.5 pr-3 pl-4 text-xs link'}>
       Add someone running <span className="sr-only">for {seat.label}</span>

@@ -49,7 +49,7 @@ function source(ref: SourceRef, created_at: string) {
 }
 
 function question(row: { id: string; parent_id: string | null; implies_on_parent?: string | null } & Record<string, unknown>) {
-  const full = { threshold: null, act_label: null, status: 'open', closed_on: null, closed_note: null, decides_on: null, implies_on_parent: null, ...row }
+  const full = { threshold: null, act_label: null, status: 'open', closed_on: null, closed_note: null, decides_on: null, archived_at: null, implies_on_parent: null, ...row }
   insert('questions', full)
 }
 

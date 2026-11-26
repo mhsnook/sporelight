@@ -2,12 +2,12 @@ import { Link } from '@tanstack/react-router'
 import { useState, type FormEvent } from 'react'
 import { isOpenOn, type Question } from '../../shared/schema.ts'
 import { db } from '../lib/db.ts'
-import { isEditor } from '../lib/editor.ts'
 import { nounOf } from '../lib/question-form.ts'
 import { formatDate } from '../lib/position.ts'
 import { today, useTracker, type KeyPerson } from '../lib/tracker.tsx'
 import { CertaintyTag, StandingPill } from './bits.tsx'
 import { Modal } from './Modal.tsx'
+import { useIsEditor } from '../lib/auth.ts'
 
 const CLOSED_LABEL = { resolved: 'Resolved', lapsed: 'Lapsed' } as const
 
@@ -64,7 +64,7 @@ export function CloseQuestion({ question }: { question: Question }) {
   const { tracker } = useTracker()
   const [open, setOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  if (!isEditor()) return null
+  if (!useIsEditor()) return null
   const noun = nounOf(question, tracker.isAsk(question))
 
   const save = (changes: Pick<Question, 'status' | 'closed_on' | 'closed_note'>) => {
@@ -86,7 +86,7 @@ export function CloseQuestion({ question }: { question: Question }) {
   if (question.status !== 'open') {
     return (
       <span className="flex items-center gap-2">
-        <button type="button" className="btn" onClick={() => save({ status: 'open', closed_on: null, closed_note: null })}>
+        <button type="button" className="btn btn-editor" onClick={() => save({ status: 'open', closed_on: null, closed_note: null })}>
           {isOpenOn(question, today()) ? 'Remove the closing date' : `Reopen this ${noun}`}
         </button>
         {error && <span className="text-sm text-oppose">Not saved: {error}</span>}
@@ -96,7 +96,7 @@ export function CloseQuestion({ question }: { question: Question }) {
 
   return (
     <>
-      <button type="button" className="btn" onClick={() => setOpen(true)}>
+      <button type="button" className="btn btn-editor" onClick={() => setOpen(true)}>
         Close this {noun}
       </button>
       <Modal open={open} onClose={() => setOpen(false)} title={`Close this ${noun}`} description={question.title}>

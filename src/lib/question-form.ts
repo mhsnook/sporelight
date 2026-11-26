@@ -133,6 +133,7 @@ export function newQuestionRows(input: QuestionInput, place: Placement, existing
     status: closes ? 'lapsed' : 'open',
     closed_on: closes || null,
     closed_note: null,
+    archived_at: null,
     decides_on: input.decides_on,
     implies_on_parent: parent ? input.implies_on_parent : null,
   }

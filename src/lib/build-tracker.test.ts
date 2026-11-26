@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { claimLabel, claimTag } from './position.ts'
 import { EDITORS_ID, type Direction, type SameAct, type Weight } from '../../shared/schema.ts'
-import { asShown, readingsFrom, tierOfPeople, type RecordEntry } from './build-tracker.ts'
+import { asShown, readingsFrom, reviewerTiers, type RecordEntry } from './build-tracker.ts'
 import { act, decider, holder, link, office, question, review, relation, report, role, seat, setPosition, source, track } from './fixtures.ts'
 
 const policy = question('policy')
@@ -513,8 +513,20 @@ describe('readingsFrom', () => {
   const bill = question('bill', { parent_id: 'policy', kind: 'formal_act', implies_on_parent: 'support' })
   const letter = question('letter', { parent_id: 'policy', kind: 'formal_act', implies_on_parent: 'oppose' })
   const questions = new Map([policy, bill, letter].map((q) => [q.id, q]))
-  const tierOf = tierOfPeople([{ id: 'model', kind: 'agent' }])
+  const tierOf = reviewerTiers([
+    { id: EDITORS_ID, role: 'editor', kind: 'person' },
+    ...['a-reader', 'one', 'two', 'former-editor'].map((id) => ({ id, role: 'member' as const, kind: 'person' as const })),
+    ...['news-reader', 'model'].map((id) => ({ id, role: 'member' as const, kind: 'agent' as const })),
+  ])
   const shown = (reviews: Parameters<typeof readingsFrom>[0]) => readingsFrom(reviews, questions, tierOf).map((r) => [r.act_id, r.question_id, r.position, r.weight, r.via_question_id])
+
+  it("counts a review in its author's tier now: an editor's role, then a person over an agent, and a reviewer with no row with the agents", () => {
+    expect(shown([review('a', 'policy', 'support', 'clear', 'news-reader'), review('a', 'policy', 'oppose', 'clear', 'one')])).toEqual([['a', 'policy', 'oppose', 'clear', null]])
+    expect(shown([review('a', 'policy', 'support', 'clear', 'nobody-on-file'), review('a', 'policy', 'oppose', 'clear', 'one')])).toEqual([['a', 'policy', 'oppose', 'clear', null]])
+    expect(shown([review('a', 'policy', 'support', 'clear', 'nobody-on-file'), review('a', 'policy', 'oppose', 'clear', 'news-reader')])).toEqual([['a', 'policy', 'mixed', 'clear', null]])
+    // A former editor is a member now, so their review counts as a person's.
+    expect(shown([review('a', 'policy', 'support', 'clear', 'former-editor'), review('a', 'policy', 'oppose', 'clear', 'one')])).toEqual([['a', 'policy', 'mixed', 'clear', null]])
+  })
 
   it("takes the editors' review over a reader's", () => {
     expect(shown([review('a', 'policy', 'support', 'clear', 'a-reader'), review('a', 'policy', 'oppose', 'passing')])).toEqual([['a', 'policy', 'oppose', 'passing', null]])
@@ -666,7 +678,7 @@ describe('an act with no date yet', () => {
 describe('editorsVerdict', () => {
   const policy = question('policy')
   const bill = question('bill', { parent_id: 'policy', kind: 'formal_act', implies_on_parent: 'support' })
-  const rows = { deciders: [decider('ann')], questions: [policy, bill], acts: [act('a', 'ann'), act('b', 'ann')], people: [{ id: 'model', kind: 'agent' as const }] }
+  const rows = { deciders: [decider('ann')], questions: [policy, bill], acts: [act('a', 'ann'), act('b', 'ann')], people: [{ id: EDITORS_ID, role: 'editor' as const, kind: 'person' as const }, { id: 'model', role: 'member' as const, kind: 'agent' as const }] }
   const saysNothing = (actId: string, questionId: string) => ({ ...review(actId, questionId, 'support'), position: null, weight: null })
 
   it('is waiting with only the sender’s review, published with an editors’ reading, and turned down when the editors say it says nothing', () => {

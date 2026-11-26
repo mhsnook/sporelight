@@ -112,7 +112,7 @@ export async function searchNews(env: Env, tracker: Submitter, now: Date = new D
   const hot = await env.DB.prepare(
     `SELECT q.id, q.short_title, q.body_id, b.name AS body_name
      FROM questions q JOIN bodies b ON b.id = q.body_id
-     WHERE q.is_hot = 1 AND b.is_demo = 0 AND (q.status = 'open' OR q.closed_on > ?)`,
+     WHERE q.is_hot = 1 AND q.archived_at IS NULL AND b.is_demo = 0 AND (q.status = 'open' OR q.closed_on > ?)`,
   )
     .bind(today)
     .all<HotQuestion>()

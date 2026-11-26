@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
-import { EDITORS_ID, NEWS_READER_ID } from '../../shared/schema.ts'
-import { TODAY, partyWrite } from './fixtures.ts'
+import { NEWS_READER_ID } from '../../shared/schema.ts'
+import { query } from './db.ts'
+import { TODAY, editorId, partyWrite } from './fixtures.ts'
 
 test.beforeEach(async ({ page }) => {
   await page.clock.setFixedTime(TODAY)
@@ -78,7 +79,7 @@ test('an article with several people in it is one story, with the people as repl
       channel: 'reviews',
       ops: people.map((_, i) => ({
         type: 'insert',
-        value: { id: ids[i].reading, reviewer_id: EDITORS_ID, act_id: ids[i].act, question_id: 'free-ferry', position: positions[i], weight: 'clear', based_on: null, created_at: at, updated_at: at },
+        value: { id: ids[i].reading, act_id: ids[i].act, question_id: 'free-ferry', position: positions[i], weight: 'clear', based_on: null, created_at: at, updated_at: at },
       })),
     },
   ])
@@ -156,13 +157,7 @@ test('what is waiting shows in the feed as a short unchecked line that opens to 
     { channel: 'sources', ops: names.map((n) => source(`${n}-${stamp}`)) },
     { channel: 'acts', ops: claims.map(act) },
     { channel: 'reports', ops: claims.map((c) => ({ type: 'insert', value: { id: `rep-${c.name}-${stamp}`, source_id: `${c.name}-${stamp}`, act_id: `act-${c.name}-${stamp}`, excerpt: null, passage: null, created_at: now } })) },
-    {
-      channel: 'reviews',
-      ops: [
-        ...claims.map((c) => reviewRow(`rv-${c.name}-${stamp}`, NEWS_READER_ID, `act-${c.name}-${stamp}`, c.reading)),
-        reviewRow(`rv-editors-rej-${stamp}`, EDITORS_ID, `act-rej-${stamp}`, null),
-      ],
-    },
+    { channel: 'reviews', ops: [reviewRow(`rv-editors-rej-${stamp}`, editorId(), `act-rej-${stamp}`, null)] },
     { channel: 'proposals', ops: [proposal(`p-claim-${stamp}`, `claim-${stamp}`, 'reader'), proposal(`p-rej-${stamp}`, `rej-${stamp}`, 'reader'), proposal(`p-lead-${stamp}`, `lead-${stamp}`, 'news_search')] },
     {
       channel: 'proposal_items',
@@ -171,18 +166,26 @@ test('what is waiting shows in the feed as a short unchecked line that opens to 
     { channel: 'proposal_notes', ops: [{ type: 'insert', value: { id: `note-${stamp}`, proposal_id: `p-claim-${stamp}`, proposal_item_id: null, kind: 'submitter', body: 'Only editors read this note.', created_at: now } }] },
   ])
   expect(write.ok()).toBe(true)
+  // Only a review's author writes it through the room, so the news reader's are put in directly.
+  query(
+    `INSERT INTO reviews (id, reviewer_id, act_id, question_id, position, weight, based_on, created_at, updated_at) VALUES ${claims
+      .map((c) => `('rv-${c.name}-${stamp}', '${NEWS_READER_ID}', 'act-${c.name}-${stamp}', 'free-ferry', '${c.reading}', 'clear', NULL, '${now}', '${now}')`)
+      .join(', ')}`,
+  )
   // The editor flows expect the queue to hold only what they put there.
   const remove = (channel: string, ids: string[], key = 'id') => ({ channel, ops: ids.map((id) => ({ type: 'delete', value: { [key]: id } })) })
-  cleanup = () =>
-    partyWrite(request, [
+  cleanup = () => {
+    query(`DELETE FROM reviews WHERE id IN (${claims.map((c) => `'rv-${c.name}-${stamp}'`).join(', ')})`)
+    return partyWrite(request, [
       remove('proposal_notes', [`note-${stamp}`]),
       remove('proposal_items', names.map((n) => `i-${n}-${stamp}`)),
-      remove('reviews', [...claims.map((c) => `rv-${c.name}-${stamp}`), `rv-editors-rej-${stamp}`]),
+      remove('reviews', [`rv-editors-rej-${stamp}`]),
       remove('reports', claims.map((c) => `rep-${c.name}-${stamp}`)),
       remove('acts', claims.map((c) => `act-${c.name}-${stamp}`)),
       remove('proposals', names.map((n) => `p-${n}-${stamp}`)),
       remove('sources', names.map((n) => `${n}-${stamp}`)),
     ])
+  }
 
   const frames = recordFrames(page)
   await page.goto('/news?recordOnly=true')

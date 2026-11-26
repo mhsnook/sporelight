@@ -1,4 +1,4 @@
-import { PartyDbServer, D1Adapter, getTokenFromRequest, type PersistenceAdapter } from 'party-db/server'
+import { PartyDbServer, D1Adapter, type PersistenceAdapter } from 'party-db/server'
 import {
   NEWS_READER_ID,
   allCollections,
@@ -21,7 +21,8 @@ import {
   type Review,
   type Source,
 } from '../shared/schema.ts'
-import { isEditorToken } from './editor.ts'
+import { roleOf } from '../shared/account-roles.ts'
+import { auth } from './auth.ts'
 import { alreadyProposed, type Proposed } from './leads.ts'
 import { currentTracker } from './record.ts'
 import { claimOf } from '../src/lib/claims.ts'
@@ -40,9 +41,10 @@ const datingOf = (known: Pick<Source, 'id' | 'published_on_from'>, published: Fo
 export class Tracker extends PartyDbServer<Env> {
   collections = [...allCollections]
 
+  // Everyone signed in has a uid here, and their role. A deactivated person has no session.
   auth = async (req: Request) => {
-    const token = getTokenFromRequest(req)
-    return token && (await isEditorToken(token, this.env)) ? { claims: { sub: 'editor' } } : null
+    const session = await auth(this.env).api.getSession({ headers: req.headers, request: req, asResponse: false })
+    return session ? { claims: { sub: session.user.id, roles: [roleOf(session.user)] } } : null
   }
 
   // party-db replays its change log to a reconnecting client, and sends entries
@@ -108,7 +110,7 @@ export class Tracker extends PartyDbServer<Env> {
       stored_copy: null,
       created_at: now,
     }
-    const proposal: Proposal = { id: crypto.randomUUID(), source_id: source.id, origin, submitted_by: submittedBy, status: 'pending', unread: draft.unread ?? null, created_at: now, reviewed_at: null }
+    const proposal: Proposal = { id: crypto.randomUUID(), source_id: source.id, origin, submitted_by: submittedBy, status: 'pending', unread: draft.unread ?? null, created_at: now, reviewed_at: null, reviewed_by: null }
     const acts: Act[] = []
     const reports: Report[] = []
     const reviews: Review[] = []
@@ -222,12 +224,23 @@ export class Tracker extends PartyDbServer<Env> {
 
   // Two requests from one new session can both find no row and both add it.
   async addPerson(id: string, createdAt: string, kind: Person['kind']) {
-    const person: Person = { id, kind, display_name: null, created_at: createdAt }
+    const person: Person = { id, kind, display_name: null, role: 'member', deactivated_at: null, created_at: createdAt }
     try {
       await this.commit([{ channel: 'people', ops: [{ type: 'insert', value: person }] }])
     } catch (e) {
       if (!String(e).includes('UNIQUE')) throw e
     }
+  }
+
+  // Copies a role or a deactivation from Better Auth onto the public row. A
+  // socket keeps the identity it connected with, so the person's sockets are
+  // closed and come back under their new role, or not at all once deactivated.
+  async syncAccount(personId: string, role: Person['role'], deactivated: boolean) {
+    const row = await this.env.DB.prepare(`SELECT role, deactivated_at FROM people WHERE id = ?`).bind(personId).first<Pick<Person, 'role' | 'deactivated_at'>>()
+    if (!row || (row.role === role && (row.deactivated_at !== null) === deactivated)) return
+    const deactivated_at = deactivated ? (row.deactivated_at ?? new Date().toISOString()) : null
+    await this.commit([{ channel: 'people', ops: [{ type: 'update', value: { id: personId, role, deactivated_at } }] }])
+    this.reconnectUser(personId)
   }
 
   async setDisplayName(personId: string, displayName: string) {

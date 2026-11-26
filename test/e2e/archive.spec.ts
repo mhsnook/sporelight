@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { editorToken } from './fixtures.ts'
+import { editorPage } from './fixtures.ts'
 
 const PERSON = '/q/free-ferry/odalys-brennan'
 const SOURCE = 'Tideline Radio: Morning interview'
@@ -12,12 +12,7 @@ test('an archive address an editor gives a source shows beside it for a reader a
   // Readers get no archiving controls.
   await expect(page.getByText('Give an archived copy')).toHaveCount(0)
 
-  const context = await browser.newContext()
-  const editor = await context.newPage()
-  await editor.goto('/news/review')
-  await editor.getByLabel('Editor token').fill(editorToken())
-  await editor.getByRole('button', { name: 'Sign in' }).click()
-  await expect(editor.getByRole('heading', { name: 'Review queue' })).toBeVisible()
+  const editor = await editorPage(browser)
   await editor.goto(PERSON)
   const editorItem = editor.getByRole('listitem').filter({ hasText: SOURCE }).last()
   const copy = `https://archive.example/copy-${Date.now()}`
@@ -27,5 +22,5 @@ test('an archive address an editor gives a source shows beside it for a reader a
   await expect(editorItem.getByRole('status')).toHaveText('Saved.')
 
   await expect(readerItem.getByRole('link', { name: 'archived' })).toHaveAttribute('href', copy)
-  await context.close()
+  await editor.context().close()
 })

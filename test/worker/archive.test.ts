@@ -7,7 +7,7 @@ import { NEWS_CRON } from '../../worker/news.ts'
 import worker from '../../worker/index.ts'
 import wranglerConfig from '../../wrangler.jsonc?raw'
 import type { Tracker } from '../../worker/tracker.ts'
-import { EDITOR_TOKEN, partySocket, post, rows, seed, until } from './helpers.ts'
+import { editor, partySocket, post, reader, rows, seed, until } from './helpers.ts'
 
 const NOW = new Date('2026-11-19T12:00:00Z')
 const HOUR = 3_600_000
@@ -318,23 +318,57 @@ describe('archiveNow', () => {
   })
 })
 
-describe('POST /api/editor/archive', () => {
-  const call = (body: unknown, token?: string) => post('/api/editor/archive', body, undefined, token)
+describe('POST /api/archive', () => {
+  let member = ''
+  let editorCookie = ''
+  beforeAll(async () => {
+    member = (await reader('archiver@reader.test')).cookie
+    editorCookie = (await editor('archive-editor@reader.test')).cookie
+  })
+  const call = (body: unknown, cookie?: string) => post('/api/archive', body, undefined, undefined, cookie)
 
-  it('is for editors only', async () => {
+  it('is for people who are signed in', async () => {
     expect((await call({ source_id: 'x' })).status).toBe(401)
   })
 
-  it('archives the source from an existing capture', async () => {
+  it.each([
+    ['a member', () => member],
+    ['an editor', () => editorCookie],
+  ])('archives the source from an existing capture for %s', async (_, cookie) => {
     await addSource('s')
     archive({ available: (page) => snapshot(page, '20261102000000') })
-    const res = await call({ source_id: 's' }, EDITOR_TOKEN)
+    const res = await call({ source_id: 's' }, cookie())
     expect(await res.json()).toEqual({ outcome: 'archived', archive_url: 'https://web.archive.org/web/20261102000000/https://news.example/s' })
   })
 
+  it('answers a member from the last attempt while it is backing off, without asking the archive, and still asks for an editor', async () => {
+    await addSource('t')
+    await env.DB.prepare(`INSERT INTO archive_attempts (source_id, attempts, tried_at, outcome, next_try_at, detail) VALUES ('t', 1, ?, 'failed', ?, 'The capture failed.')`)
+      .bind(new Date().toISOString(), new Date(Date.now() + 12 * HOUR).toISOString())
+      .run()
+    const ia = archive({ available: (page) => snapshot(page, '20261102000000') })
+    expect(await (await call({ source_id: 't' }, member)).json()).toMatchObject({ outcome: 'failed', detail: 'The capture failed.' })
+    expect(ia.calls).toEqual([])
+    expect(await (await call({ source_id: 't' }, editorCookie)).json()).toMatchObject({ outcome: 'archived' })
+  })
+
+  it('makes one request when the same source is asked for twice at once', async () => {
+    await addSource('u')
+    let release = () => {}
+    const held = new Promise<void>((resolve) => (release = resolve))
+    const ia = archive({ available: async (page) => (await held, snapshot(page, '20261102000000')) })
+    const first = call({ source_id: 'u' }, member)
+    await until(() => ia.calls.length > 0)
+    const second = await call({ source_id: 'u' }, editorCookie)
+    release()
+    expect(second.status).toBe(409)
+    expect((await first).status).toBe(200)
+    expect(ia.kinds()).toEqual(['available'])
+  })
+
   it('answers 400 without a source id and 404 for one that does not exist', async () => {
-    expect((await call({}, EDITOR_TOKEN)).status).toBe(400)
-    expect((await call({ source_id: 'nope' }, EDITOR_TOKEN)).status).toBe(404)
+    expect((await call({}, member)).status).toBe(400)
+    expect((await call({ source_id: 'nope' }, member)).status).toBe(404)
   })
 })
 

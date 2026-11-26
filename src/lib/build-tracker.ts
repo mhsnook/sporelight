@@ -1,6 +1,6 @@
-import type { Act, Body, Decider, Office, OfficeHolder, Position, Question, QuestionBody, QuestionDecider, QuestionOffice, QuestionRelation, Person, Reading, Report, Review, Role, SameAct, Seat, SetPosition, Source } from '../../shared/schema.ts'
-import { EDITORS_ID, carriesUp, inEffect, isOpenOn, pairId, stillAhead, type Certainty } from '../../shared/schema.ts'
-import { calculatePosition, footingOf, isAcross, summarize, type Footing, type ReviewerTier } from '../../shared/standing.ts'
+import type { Act, Body, Decider, Office, OfficeHolder, Person, Position, Question, QuestionBody, QuestionDecider, QuestionOffice, QuestionRelation, Reading, Report, Review, Role, SameAct, Seat, SetPosition, Source } from '../../shared/schema.ts'
+import { carriesUp, inEffect, isOpenOn, pairId, stillAhead, type Certainty } from '../../shared/schema.ts'
+import { REVIEWER_TIERS, calculatePosition, footingOf, isAcross, summarize, type Footing, type ReviewerTier } from '../../shared/standing.ts'
 import type { Standing } from './position.ts'
 
 export function groupBy<T, K>(items: readonly T[], key: (item: T) => K): Map<K, T[]> {
@@ -87,14 +87,8 @@ export type TrackerData = {
   reports: Report[]
   reviews: Review[]
   sameActs: SameAct[]
-  people: Pick<Person, 'id' | 'kind'>[]
-}
-
-// Which tier of reviewer someone is, for the summary: the editors' identity,
-// an agent, or a person. Someone not loaded yet counts as a person.
-export function tierOfPeople(people: TrackerData['people']): (reviewerId: string) => ReviewerTier {
-  const agents = new Set(people.filter((p) => p.kind === 'agent').map((p) => p.id))
-  return (reviewerId) => (reviewerId === EDITORS_ID ? 'editor' : agents.has(reviewerId) ? 'agent' : 'person')
+  // Who wrote each review, for the tier it counts in.
+  people: Pick<Person, 'id' | 'role' | 'kind'>[]
 }
 
 // The record as readers see it: an act an editor found to be the same as
@@ -152,10 +146,18 @@ export function asShown(c: Pick<TrackerData, 'acts' | 'reports' | 'reviews' | 's
 // on a sub-question that implies something on its parent also counts there, by
 // the same reviewer, unless they reviewed the act on the parent directly; too
 // loose a review does not carry upward.
+// The tier a reviewer's reviews count in, from their row: an editor's role, then
+// whether they are an agent. A reviewer with no row counts in the lowest tier.
+export function reviewerTiers(people: TrackerData['people']): (reviewerId: string) => ReviewerTier {
+  const tiers = new Map(people.map((p): [string, ReviewerTier] => [p.id, p.role === 'editor' ? 'editor' : p.kind]))
+  return (reviewerId) => tiers.get(reviewerId) ?? REVIEWER_TIERS[REVIEWER_TIERS.length - 1]
+}
+
 export function readingsFrom(reviews: Review[], questionById: ReadonlyMap<string, Question>, tierOf: (reviewerId: string) => ReviewerTier): Reading[] {
   const readDirectly = new Set(reviews.map((r) => `${r.reviewer_id} ${r.act_id} ${r.question_id}`))
   const counted = reviews.flatMap((r) => {
-    const own = { act_id: r.act_id, question_id: r.question_id, via: null as Question | null, tier: tierOf(r.reviewer_id), position: r.position, weight: r.weight }
+    const tier = tierOf(r.reviewer_id)
+    const own = { act_id: r.act_id, question_id: r.question_id, via: null as Question | null, tier, position: r.position, weight: r.weight }
     const q = questionById.get(r.question_id)
     const implies = q?.parent_id && q.implies_on_parent && r.position === 'support' && r.weight && carriesUp(r.weight) && !readDirectly.has(`${r.reviewer_id} ${r.act_id} ${q.parent_id}`)
     return implies ? [own, { ...own, question_id: q.parent_id!, via: q, position: q.implies_on_parent! }] : [own]
@@ -184,7 +186,7 @@ export function buildTracker(c: TrackerData, asOf: string) {
   const shown = asShown(c)
   // Every act on file, so a proposal or a plan can find one shown as another; a shown act as it is shown.
   const actById = indexBy([...c.acts, ...shown.acts], (a) => a.id)
-  const tierOf = tierOfPeople(c.people)
+  const tierOf = reviewerTiers(c.people)
   const readings = readingsFrom(shown.reviews, questionById, tierOf)
   const editorsReviews = groupBy(
     shown.reviews.filter((r) => tierOf(r.reviewer_id) === 'editor'),
@@ -238,7 +240,8 @@ export function buildTracker(c: TrackerData, asOf: string) {
   const bodyIdsOf = (question: Question): string[] => [question.body_id, ...(alsoPutTo.get(question.id) ?? []).map((l) => l.body_id).filter((id) => id !== question.body_id)]
   const bodiesOf = (question: Question): Body[] => bodyIdsOf(question).flatMap((id) => bodyById.get(id) ?? [])
   const appliesIn = (question: Question, bodyId: string) => bodyIdsOf(question).includes(bodyId)
-  const questionsIn = (bodyId: string): Question[] => c.questions.filter((q) => !q.parent_id && appliesIn(q, bodyId)).sort((a, b) => a.sort - b.sort)
+  // The questions listed under a body. An archived one is left out, and is still found by its address.
+  const questionsIn = (bodyId: string): Question[] => c.questions.filter((q) => !q.parent_id && q.archived_at === null && appliesIn(q, bodyId)).sort((a, b) => a.sort - b.sort)
 
   const isAsk = (question: Question) => namedIn.has(question.id) || officesOf.has(question.id)
   const isOpen = (question: Question) => isOpenOn(question, asOf)

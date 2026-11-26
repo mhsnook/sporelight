@@ -1,6 +1,5 @@
 import {
   EARLIEST_PUBLISHED,
-  EDITORS_ID,
   isPublishDay,
   pairId,
   type Act,
@@ -118,6 +117,7 @@ export function planReview(
   proposal: Proposal,
   source: Source,
   verdict: Verdict,
+  reviewerId: string,
   now: string,
   newId: () => string = () => crypto.randomUUID(),
 ): Write[] {
@@ -125,17 +125,18 @@ export function planReview(
   const questionById = new Map(published.questions.map((q) => [q.id, q]))
   const actById = indexBy(published.acts, (a) => a.id)
   const reportIn = indexBy(published.reports, (r) => `${r.source_id} ${r.act_id}`)
-  const editorsReview = new Map(published.reviews.filter((r) => r.reviewer_id === EDITORS_ID).map((r) => [`${r.act_id} ${r.question_id}`, r]))
+  const ownReview = new Map(published.reviews.filter((r) => r.reviewer_id === reviewerId).map((r) => [`${r.act_id} ${r.question_id}`, r]))
   const setPositionIds = new Set(published.setPositions.map((s) => s.id))
   const markedAs = new Map(published.sameActs.map((s) => [s.act_id, s.same_as_id]))
   let nextSort = Math.max(-1, ...verdict.entries.flatMap((e) => e.items.map((i) => i.sort))) + 1
 
+  // Publishing is the reviewer's own review of the act on each question it is read on.
   const review = (actId: string, questionId: string, position: Direction | null, weight: Weight | null) => {
     const key = `${actId} ${questionId}`
-    const existing = editorsReview.get(key)
+    const existing = ownReview.get(key)
     if (existing && existing.position === position && existing.weight === weight) return
-    const row: Review = existing ? { ...existing, position, weight, updated_at: now } : { id: newId(), reviewer_id: EDITORS_ID, act_id: actId, question_id: questionId, position, weight, based_on: null, created_at: now, updated_at: now }
-    editorsReview.set(key, row)
+    const row: Review = existing ? { ...existing, position, weight, updated_at: now } : { id: newId(), reviewer_id: reviewerId, act_id: actId, question_id: questionId, position, weight, based_on: null, created_at: now, updated_at: now }
+    ownReview.set(key, row)
     writes.push(existing ? { on: 'reviews', type: 'update', id: row.id, changes: { position, weight, updated_at: now } } : { on: 'reviews', type: 'insert', row })
   }
   const saysNothing = (items: ProposalItem[]) => {
@@ -160,8 +161,8 @@ export function planReview(
       if (!onFile) throw new Error('The act chosen as the same one is not on file.')
       // It may have been marked already, from the person's page, while the card waited.
       const marked = markedAs.get(cameIn)
-      if (marked === undefined) writes.push({ on: 'same_acts', type: 'insert', row: { act_id: cameIn, same_as_id: entry.act_id, marked_by: EDITORS_ID, marked_at: now } })
-      else if (marked !== entry.act_id) writes.push({ on: 'same_acts', type: 'update', id: cameIn, changes: { same_as_id: entry.act_id, marked_by: EDITORS_ID, marked_at: now } })
+      if (marked === undefined) writes.push({ on: 'same_acts', type: 'insert', row: { act_id: cameIn, same_as_id: entry.act_id, marked_by: reviewerId, marked_at: now } })
+      else if (marked !== entry.act_id) writes.push({ on: 'same_acts', type: 'update', id: cameIn, changes: { same_as_id: entry.act_id, marked_by: reviewerId, marked_at: now } })
     } else if (onFile && cameIn) {
       const facts = { kind: entry.kind, occurred_on: entry.occurred_on || null, body: entry.quote }
       if (onFile.kind !== facts.kind || onFile.occurred_on !== facts.occurred_on || onFile.body !== facts.body) writes.push({ on: 'acts', type: 'update', id: onFile.id, changes: facts })
@@ -226,7 +227,7 @@ export function planReview(
     writes.push({ on: 'sources', type: 'update', id: source.id, changes: { published_on: verdict.published_on, published_on_from: 'editor' } })
   }
   if (verdict.review_note) note(verdict.review_note, null)
-  writes.push({ on: 'proposals', type: 'update', id: proposal.id, changes: { status: 'reviewed', reviewed_at: now } })
+  writes.push({ on: 'proposals', type: 'update', id: proposal.id, changes: { status: 'reviewed', reviewed_at: now, reviewed_by: reviewerId } })
 
   return writes.sort((a, b) => APPROVAL_ORDER.indexOf(a.on) - APPROVAL_ORDER.indexOf(b.on))
 }

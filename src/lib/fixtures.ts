@@ -23,6 +23,7 @@ export const question = (id: string, over: Partial<Question> = {}): Question => 
   status: 'open',
   closed_on: null,
   closed_note: null,
+  archived_at: null,
   decides_on: null,
   implies_on_parent: null,
   ...over,
@@ -48,7 +49,7 @@ export const source = (id: string, over: Partial<Source> = {}): Source => ({ id,
 export const act = (id: string, deciderId: string, over: Partial<Act> = {}): Act => ({ id, decider_id: deciderId, kind: 'says', occurred_on: '2026-01-01', body: id, primary_source_id: null, withdrawn_on: null, created_at: '2026-01-01T00:00:00.000Z', ...over })
 export const report = (sourceId: string, actId: string, over: Partial<Report> = {}): Report => ({ id: `${sourceId}>${actId}`, source_id: sourceId, act_id: actId, excerpt: null, passage: null, created_at: '2026-01-01T00:00:00.000Z', ...over })
 export const review = (actId: string, questionId: string, position: Review['position'], weight: Review['weight'] = 'clear', reviewerId = EDITORS_ID): Review => ({ id: `${reviewerId}:${actId}@${questionId}`, reviewer_id: reviewerId, act_id: actId, question_id: questionId, position, weight, based_on: null, created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' })
-export const proposal = (id: string, sourceId: string, over: Partial<Proposal> = {}): Proposal => ({ id, source_id: sourceId, origin: 'reader', submitted_by: null, status: 'pending', unread: null, created_at: '2026-01-01T00:00:00.000Z', reviewed_at: null, ...over })
+export const proposal = (id: string, sourceId: string, over: Partial<Proposal> = {}): Proposal => ({ id, source_id: sourceId, origin: 'reader', submitted_by: null, status: 'pending', unread: null, created_at: '2026-01-01T00:00:00.000Z', reviewed_at: null, reviewed_by: null, ...over })
 export const item = (id: string, proposalId: string, deciderId: string, questionId: string, over: Partial<ProposalItem> = {}): ProposalItem => ({
   id,
   proposal_id: proposalId,
@@ -78,7 +79,7 @@ export const data = (over: Partial<TrackerData>): TrackerData => ({
   reports: [],
   reviews: [],
   sameActs: [],
-  people: [],
+  people: [{ id: EDITORS_ID, role: 'editor', kind: 'person' }],
   ...over,
 })
 
@@ -118,5 +119,5 @@ export const claimed = (
 ): Claim => {
   const row = item(id, proposalId, deciderId, questionId, { ...(act_id !== undefined && { act_id }), ...(sort !== undefined && { sort }), ...(excerpt !== undefined && { excerpt }) })
   const from = proposal(proposalId, 'article', { submitted_by: NEWS_READER_ID, status: sent.verdict && sent.verdict !== 'waiting' ? 'reviewed' : 'pending' })
-  return claimOf(track({ ...incoming(row, from, sent), people: [{ id: NEWS_READER_ID, kind: 'agent' }] }), from, row)
+  return claimOf(track({ ...incoming(row, from, sent), people: [{ id: EDITORS_ID, role: 'editor', kind: 'person' }, { id: NEWS_READER_ID, role: 'member', kind: 'agent' }] }), from, row)
 }

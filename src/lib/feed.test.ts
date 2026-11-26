@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { NEWS_READER_ID, type Direction } from '../../shared/schema.ts'
+import { EDITORS_ID, NEWS_READER_ID, type Direction } from '../../shared/schema.ts'
 import type { TrackerData } from './build-tracker.ts'
 import type { Claim } from './claims.ts'
 import { buildStories, buildWaiting, feedPage, mergeFeed, pageHolding, questionFamily } from './feed.ts'
@@ -178,7 +178,7 @@ describe('what is waiting for review', () => {
   const items = [...brought.map((b) => b.item), item('bare-lead', 'lead', 'cy', 'elsewhere', { act_id: null, excerpt: 'Cy was named.' }), item('unknown-person', 'from-reader', 'nobody', 'policy')]
   const withWaiting = (base: TrackerData) => {
     const rows = onFile(...brought.map((b) => b.rows))
-    return track({ ...base, acts: [...base.acts, ...rows.acts], reports: [...base.reports, ...rows.reports], reviews: [...base.reviews, ...rows.reviews], people: [{ id: NEWS_READER_ID, kind: 'agent' }] })
+    return track({ ...base, acts: [...base.acts, ...rows.acts], reports: [...base.reports, ...rows.reports], reviews: [...base.reviews, ...rows.reviews], people: [{ id: EDITORS_ID, role: 'editor', kind: 'person' }, { id: NEWS_READER_ID, role: 'member', kind: 'agent' }] })
   }
   const waitingTracker = withWaiting(trackerData)
   const waiting = buildWaiting(waitingTracker, proposals, items)

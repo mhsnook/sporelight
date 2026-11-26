@@ -1,5 +1,4 @@
 # Copy to .dev.vars for local development. In production set these with `wrangler secret put`.
-EDITOR_TOKEN=change-me
 # An archive.org S3 key, as accesskey:secret, from https://archive.org/account/s3.php.
 # Left empty, the archiving pass only looks for captures that already exist.
 ARCHIVE_ORG_KEY=
@@ -9,3 +8,5 @@ BETTER_AUTH_SECRET=change-me-to-a-long-random-string
 AUTH_HOSTS=localhost:*
 # The address sign-in codes are sent from. Locally the email binding does not deliver mail, so any address will do.
 EMAIL_FROM=sign-in@example.org
+# Optional. When set, only this address can become a new deployment's first editor at /setup. In production `wrangler secret put FIRST_EDITOR_EMAIL`.
+FIRST_EDITOR_EMAIL=

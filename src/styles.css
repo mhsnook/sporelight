@@ -23,6 +23,9 @@
   --color-lean-oppose: oklch(0.85 0.08 28);
   --color-oppose: oklch(0.62 0.21 28);
   --color-unknown: #bdb6a6;
+  /* Parts of a page only editors can act on. Blue is not a standing colour, and it is never the only sign: a tag or a diamond goes with it. */
+  --color-editor: oklch(0.92 0.045 240);
+  --color-editor-deep: oklch(0.82 0.085 240);
 
   --shadow-hard-sm: 0 3px 0 var(--color-ink);
   --shadow-hard-md: 0 4px 0 var(--color-ink);
@@ -108,5 +111,35 @@ html:has(dialog[open]) {
   }
   .kbd {
     @apply rounded border-2 border-ink bg-surface px-1.5 py-px font-mono text-[11px] font-semibold;
+  }
+  .editor-tag {
+    @apply inline-flex items-center gap-1.5 rounded-full border-2 border-ink bg-editor-deep px-2.5 py-0.5 font-mono text-xs font-semibold text-ink uppercase;
+  }
+  .editor-tag::before,
+  .btn-editor::before,
+  .nav-editor::before {
+    content: '';
+    @apply size-2 shrink-0 rotate-45 bg-ink;
+  }
+  .editor-inline {
+    @apply inline-flex flex-wrap items-center gap-x-3 rounded-full border-2 border-ink bg-editor pr-3 pl-1;
+  }
+  .editor-inline > .editor-inline-label {
+    @apply rounded-full bg-editor-deep px-2 py-0.5 font-mono text-[11px] font-semibold uppercase;
+  }
+  .editor-inline > button {
+    @apply min-h-11 text-sm font-bold underline underline-offset-2 sm:min-h-9;
+  }
+  .btn-editor {
+    @apply bg-editor;
+  }
+  .nav-editor {
+    @apply inline-flex items-center gap-2;
+  }
+  .nav-editor.active::before {
+    @apply bg-paper;
+  }
+  .editor-band {
+    @apply -mx-5 flex items-center gap-2.5 border-b-2 border-ink bg-editor-deep px-5 py-2 text-sm font-semibold sm:-mx-8 sm:px-8;
   }
 }

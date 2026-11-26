@@ -32,7 +32,10 @@ export function TrackerProvider({ asOf, children }: { asOf?: string; children: R
   const reports = useLiveQuery((q) => q.from({ row: db.reports }))
   const reviews = useLiveQuery((q) => q.from({ row: db.reviews }))
   const sameActs = useLiveQuery((q) => q.from({ row: db.same_acts }))
-  const people = useLiveQuery((q) => q.from({ row: db.people }))
+  const people = useLiveQuery((q) => q.from({ row: db.people }).select(({ row }) => ({ id: row.id, role: row.role, kind: row.kind })))
+  // Keyed on everyone's tier, so a new display name or a deactivation does not rebuild the tracker.
+  const tierKey = people.data.map((p) => `${p.id}:${p.role}:${p.kind}`).sort().join(' ')
+  const reviewers = useMemo(() => people.data, [tierKey])
 
   const day = asOf ?? today()
   const tracker = useMemo(
@@ -55,9 +58,9 @@ export function TrackerProvider({ asOf, children }: { asOf?: string; children: R
         reports: reports.data,
         reviews: reviews.data,
         sameActs: sameActs.data,
-        people: people.data,
+        people: reviewers,
       }, day),
-    [bodies.data, deciders.data, seats.data, roles.data, questions.data, questionBodies.data, questionDeciders.data, offices.data, officeHolders.data, questionOffices.data, questionRelations.data, setPositions.data, sources.data, acts.data, reports.data, reviews.data, sameActs.data, people.data, day],
+    [bodies.data, deciders.data, seats.data, roles.data, questions.data, questionBodies.data, questionDeciders.data, offices.data, officeHolders.data, questionOffices.data, questionRelations.data, setPositions.data, sources.data, acts.data, reports.data, reviews.data, sameActs.data, reviewers, day],
   )
   const isReady = [bodies, deciders, seats, roles, questions, questionBodies, questionDeciders, offices, officeHolders, questionOffices, questionRelations, setPositions, sources, acts, reports, reviews, sameActs, people].every((q) => q.isReady)
 

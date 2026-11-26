@@ -1,8 +1,8 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test'
 import { SPECTRUM, STANDINGS, STANDING_COLOR, standingLabel, type Standing } from '../../src/lib/position.ts'
-import { EDITORS_ID, NEWS_READER_ID } from '../../shared/schema.ts'
+import { NEWS_READER_ID } from '../../shared/schema.ts'
 import { query } from './db.ts'
-import { TODAY, editorToken, partyWrite, signInWithCode } from './fixtures.ts'
+import { TODAY, editorId, editorPage, partyWrite, signInAsEditor, signInWithCode } from './fixtures.ts'
 
 test.beforeEach(async ({ page }) => {
   await page.clock.setFixedTime(TODAY)
@@ -122,7 +122,7 @@ test('a question with its own threshold puts the line there, not at a majority',
   expect(sum(told)).toBe(seen.length)
 })
 
-test('evidence a reader sends reaches the editor under its question and, once approved, the record', async ({ page, context }) => {
+test('evidence a reader sends reaches the editor under its question and, once approved, the record', async ({ page, context, browser }) => {
   const quote = `The ferry should be free, and I will vote to make it so. (${Date.now()})`
   const sourceTitle = `Harbor Ledger: Sato on the ferry ${Date.now()}`
   const person = '/q/free-ferry/bartholomew-sato'
@@ -159,14 +159,14 @@ test('evidence a reader sends reaches the editor under its question and, once ap
   await expect(waiting.getByText('Can you review this?')).toBeVisible()
   await expect(waiting.getByText(quote)).toBeVisible()
 
-  const editor = await context.newPage()
+  // The person who sent it is a member, and the review queue is for editors.
+  const sender = await context.newPage()
+  await sender.goto('/news/review')
+  await expect(sender.getByRole('heading', { name: 'Editors only' })).toBeVisible()
+  await expect(sender.getByRole('heading', { name: 'Review queue' })).toHaveCount(0)
+  await sender.close()
+  const editor = await editorPage(browser)
   await editor.goto('/news/review')
-  await editor.getByLabel('Editor token').fill(`${editorToken()}x`)
-  await editor.getByRole('button', { name: 'Sign in' }).click()
-  await expect(editor.getByText('That token was not accepted.')).toBeVisible()
-  await expect(editor.getByRole('heading', { name: 'Review queue' })).toHaveCount(0)
-  await editor.getByLabel('Editor token').fill(editorToken())
-  await editor.getByRole('button', { name: 'Sign in' }).click()
   await expect(editor.getByRole('heading', { name: 'Review queue' })).toBeVisible()
 
   const upNext = editor.getByRole('button').filter({ hasText: sourceTitle })
@@ -195,6 +195,8 @@ test('evidence a reader sends reaches the editor under its question and, once ap
   await expect(page.locator('section.card').getByText(standingLabel('support', { kind: 'position', act_label: null }), { exact: true })).toBeVisible()
 })
 
+const insertReviews = (rows: string[]) => query(`INSERT INTO reviews (id, reviewer_id, act_id, question_id, position, weight, based_on, created_at, updated_at) VALUES ${rows.join(', ')}`)
+
 // The rows a news search run queues for a model-read article, written through
 // the editor's party endpoint since no model runs in tests.
 async function queueModelRead(
@@ -202,6 +204,8 @@ async function queueModelRead(
   item: { decider_id: string; quote: string; passage: string; reading: string; weight: string; kind: string; question_id?: string },
   sourceTitle: string,
   dated: { published_on: string | null; published_on_from: string | null } = { published_on: null, published_on_from: null },
+  // Collects the review's row instead of writing it, for a caller that queues many and writes them at once.
+  reviewRows?: string[],
 ) {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
   const now = TODAY.toISOString()
@@ -211,7 +215,6 @@ async function queueModelRead(
     { channel: 'sources', ops: [{ type: 'insert', value: { id: ids.source, url: `https://example.com/harbor-ledger/model-${stamp}`, title: sourceTitle, publisher: null, ...dated, kind: null, archive_url: null, stored_copy: null, created_at: now } }] },
     { channel: 'acts', ops: [{ type: 'insert', value: { id: ids.act, decider_id, kind, occurred_on: '2026-11-15', body: quote, primary_source_id: null, withdrawn_on: null, created_at: now } }] },
     { channel: 'reports', ops: [{ type: 'insert', value: { id: `rep-${stamp}`, source_id: ids.source, act_id: ids.act, excerpt: null, passage, created_at: now } }] },
-    { channel: 'reviews', ops: [{ type: 'insert', value: { id: `rv-${stamp}`, reviewer_id: NEWS_READER_ID, act_id: ids.act, question_id, position: reading, weight, based_on: null, created_at: now, updated_at: now } }] },
     { channel: 'proposals', ops: [{ type: 'insert', value: { id: ids.proposal, source_id: ids.source, origin: 'model', submitted_by: NEWS_READER_ID, status: 'pending', unread: null, created_at: now, reviewed_at: null } }] },
     { channel: 'proposal_items', ops: [{ type: 'insert', value: { id: ids.item, proposal_id: ids.proposal, sort: 0, decider_id, question_id, act_id: ids.act, excerpt: null } }] },
     {
@@ -224,15 +227,16 @@ async function queueModelRead(
     { channel: 'proposal_contexts', ops: [{ type: 'insert', value: { id: ids.item, proposal_id: ids.proposal, proposal_item_id: ids.item, before: 'The council takes up the amendment on December 2.', after: 'The fiscal note is due before the vote.' } }] },
   ])
   expect(write.ok()).toBe(true)
+  // Only a review's author writes it through the room, so the news reader's is put in directly.
+  const reviewRow = `('rv-${stamp}', '${NEWS_READER_ID}', '${ids.act}', '${question_id}', '${reading}', '${weight}', NULL, '${now}', '${now}')`
+  if (reviewRows) reviewRows.push(reviewRow)
+  else insertReviews([reviewRow])
   return ids
 }
 
 // Opens a waiting proposal: it is the open card already, or in the list beside it, on whichever page.
 async function openCard(page: Page, sourceTitle: string) {
-  await page.goto('/news/review')
-  await page.getByLabel('Editor token').fill(editorToken())
-  await page.getByRole('button', { name: 'Sign in' }).click()
-  await expect(page.getByRole('heading', { name: 'Review queue' })).toBeVisible()
+  await signInAsEditor(page)
   const heading = page.getByRole('heading', { name: sourceTitle })
   const inList = page.getByRole('complementary').getByRole('button').filter({ hasText: sourceTitle })
   const next = page.getByRole('navigation', { name: 'Pages of what is waiting' }).getByRole('button', { name: 'Next' })
@@ -393,7 +397,7 @@ test('an entry can be published as a report of an act already on the record, rea
   // The act that came in is marked as the one on the record, which the editors read on the measure; they say it says nothing on the question left out.
   const [cameIn] = query<{ act_id: string }>(`SELECT r.act_id FROM reports r JOIN sources s ON s.id = r.source_id WHERE s.title = '${sourceTitle}'`)
   expect(query(`SELECT same_as_id FROM same_acts WHERE act_id = '${cameIn.act_id}'`)).toEqual([{ same_as_id: chosen }])
-  expect(query(`SELECT act_id, question_id, position FROM reviews WHERE reviewer_id = '${EDITORS_ID}' AND act_id IN ('${chosen}', '${cameIn.act_id}') AND created_at > '2026-11-18' ORDER BY question_id`)).toEqual([
+  expect(query(`SELECT act_id, question_id, position FROM reviews WHERE reviewer_id = '${editorId()}' AND act_id IN ('${chosen}', '${cameIn.act_id}') AND created_at > '2026-11-18' ORDER BY question_id`)).toEqual([
     { act_id: cameIn.act_id, question_id: 'free-ferry', position: null },
     { act_id: chosen, question_id: 'free-ferry-ord-26-114', position: 'oppose' },
   ])
@@ -423,19 +427,19 @@ test('a card whose publish fails comes back as the editor left it', async ({ pag
   await page.unroute('**/parties/tracker/**')
   await page.getByRole('button', { name: /Publish 1 person/ }).click()
   await expect(page.getByRole('status')).toContainText('Published 1 person')
-  await expect.poll(() => query(`SELECT rd.position FROM reports r JOIN sources s ON s.id = r.source_id JOIN reviews rd ON rd.act_id = r.act_id AND rd.reviewer_id = '${EDITORS_ID}' WHERE s.title = '${sourceTitle}'`)).toEqual([{ position: 'mixed' }])
+  await expect.poll(() => query(`SELECT rd.position FROM reports r JOIN sources s ON s.id = r.source_id JOIN reviews rd ON rd.act_id = r.act_id AND rd.reviewer_id = '${editorId()}' WHERE s.title = '${sourceTitle}'`)).toEqual([{ position: 'mixed' }])
 })
 
 test('the list beside the open card pages through every waiting proposal', async ({ page, request }) => {
   const stamp = Date.now()
   const title = (n: number) => `Paged ${stamp} no. ${String(n).padStart(2, '0')}`
   // More than two pages' worth, whatever earlier tests left waiting.
+  const reviewRows: string[] = []
   for (let n = 1; n <= 26; n++) {
-    await queueModelRead(request, { decider_id: 'demo-bartholomew-sato', quote: `Words for paging ${stamp} ${n}.`, passage: `Words for paging ${stamp} ${n}.`, reading: 'support', weight: 'passing', kind: 'says' }, title(n))
+    await queueModelRead(request, { decider_id: 'demo-bartholomew-sato', quote: `Words for paging ${stamp} ${n}.`, passage: `Words for paging ${stamp} ${n}.`, reading: 'support', weight: 'passing', kind: 'says' }, title(n), undefined, reviewRows)
   }
-  await page.goto('/news/review')
-  await page.getByLabel('Editor token').fill(editorToken())
-  await page.getByRole('button', { name: 'Sign in' }).click()
+  insertReviews(reviewRows)
+  await signInAsEditor(page)
   const pages = page.getByRole('navigation', { name: 'Pages of what is waiting' })
   const waiting = query<{ n: number }>(`SELECT COUNT(*) AS n FROM proposals WHERE status = 'pending'`)[0].n
   await expect(pages).toContainText(`1–12 of ${waiting}`)
@@ -701,13 +705,6 @@ test('choosing the next term shows the viewing-another-day strip, and its link r
   await expect(page).not.toHaveURL(/[?&]as=/)
 })
 
-async function signInAsEditor(page: Page) {
-  await page.goto('/news/review')
-  await page.getByLabel('Editor token').fill(editorToken())
-  await page.getByRole('button', { name: 'Sign in' }).click()
-  await expect(page.getByRole('heading', { name: 'Review queue' })).toBeVisible()
-}
-
 test('an editor adds a question with a measure and an ask, sees it listed and on its own page, and edits it', async ({ page }) => {
   const stamp = Date.now()
   const title = `Should the pier reopen to cars? (${stamp})`
@@ -953,7 +950,7 @@ test('an editor shows one act as the same as another, sees one entry with both s
     { channel: 'reports', ops: acts.map((a) => ({ type: 'insert', value: { id: `rep-${a.id}`, source_id: a.source, act_id: a.id, excerpt: null, passage: null, created_at: at } })) },
     {
       channel: 'reviews',
-      ops: acts.map((a) => ({ type: 'insert', value: { id: `rv-${a.id}`, reviewer_id: EDITORS_ID, act_id: a.id, question_id: 'free-ferry', position: 'support', weight: 'clear', based_on: null, created_at: at, updated_at: at } })),
+      ops: acts.map((a) => ({ type: 'insert', value: { id: `rv-${a.id}`, act_id: a.id, question_id: 'free-ferry', position: 'support', weight: 'clear', based_on: null, created_at: at, updated_at: at } })),
     },
   ])
   expect(write.ok()).toBe(true)

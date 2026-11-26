@@ -1,7 +1,6 @@
 import path from 'node:path'
 import { cloudflareTest, readD1Migrations } from '@cloudflare/vitest-plugin'
 import { defineConfig } from 'vitest/config'
-import { EDITOR_TOKEN } from './test/worker/editor-token.ts'
 
 export default defineConfig(async () => {
   const migrations = await readD1Migrations(path.join(import.meta.dirname, 'migrations'))
@@ -20,7 +19,7 @@ export default defineConfig(async () => {
               wrangler: { configPath: './wrangler.jsonc' },
               remoteBindings: false,
               miniflare: {
-                bindings: { EDITOR_TOKEN, TEST_MIGRATIONS: migrations, BETTER_AUTH_SECRET: 'a-secret-only-the-worker-tests-use', AUTH_HOSTS: 'sporelight.test', EMAIL_FROM: 'sign-in@sporelight.test' },
+                bindings: { TEST_MIGRATIONS: migrations, BETTER_AUTH_SECRET: 'a-secret-only-the-worker-tests-use', AUTH_HOSTS: 'sporelight.test', EMAIL_FROM: 'sign-in@sporelight.test' },
               },
             }),
           ],

@@ -378,7 +378,7 @@ export async function readArticle(
 }
 
 // One proposal for the article, with one item per act. The model's reason for
-// each act goes in that item's note, which only editors read.
+// each act goes in that item's note, which only signed-in people read.
 export function draftFromReading(article: ArticleRef, acts: ModelAct[], dropped: Dropped[], query: string | null, mentions: Mention[] = []): ProposalDraft {
   const lines = [
     `Read by ${MODEL}. Each quote below was found word for word in the text fetched from the article.`,
