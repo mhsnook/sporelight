@@ -140,9 +140,12 @@ export async function hasActiveEditor(env: Env): Promise<boolean> {
 // to ask. The check and the grant are one statement, so two people asking at
 // once cannot both become the first editor. Better Auth's own route for setting
 // a role needs an editor to call it, which a new deployment has not got.
+// When FIRST_EDITOR_EMAIL is set, only that address can be made the first editor.
 export async function grantFirstEditor(env: Env, userId: string): Promise<boolean> {
-  const granted = await env.DB.prepare(`UPDATE auth_users SET role = 'editor' WHERE id = ? AND NOT EXISTS (SELECT 1 FROM active_editors)`)
-    .bind(userId)
+  const granted = await env.DB.prepare(
+    `UPDATE auth_users SET role = 'editor' WHERE id = ?1 AND (?2 = '' OR lower(email) = lower(?2)) AND NOT EXISTS (SELECT 1 FROM active_editors)`,
+  )
+    .bind(userId, (env.FIRST_EDITOR_EMAIL ?? '').trim())
     .run()
   return granted.meta.changes === 1
 }

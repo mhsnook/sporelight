@@ -8,3 +8,5 @@ BETTER_AUTH_SECRET=change-me-to-a-long-random-string
 AUTH_HOSTS=localhost:*
 # The address sign-in codes are sent from. Locally the email binding does not deliver mail, so any address will do.
 EMAIL_FROM=sign-in@example.org
+# Optional. When set, only this address can become a new deployment's first editor at /setup. In production `wrangler secret put FIRST_EDITOR_EMAIL`.
+FIRST_EDITOR_EMAIL=

@@ -41,7 +41,11 @@ async function handleSetup(req: Request, env: Env): Promise<Response> {
   const person = await signedInPerson(req, env)
   if (!person) return new Response('unauthorized', { status: 401 })
   if (person.kind !== 'person') return Response.json({ error: 'An agent cannot be an editor.' }, { status: 403 })
-  if (!(await grantFirstEditor(env, person.id))) return Response.json({ error: 'This site already has an editor.' }, { status: 409 })
+  if (!(await grantFirstEditor(env, person.id))) {
+    return (await hasActiveEditor(env))
+      ? Response.json({ error: 'This site already has an editor.' }, { status: 409 })
+      : Response.json({ error: 'This site is being set up for a different email address.' }, { status: 403 })
+  }
   await (await tracker(env)).syncAccount(person.id, 'editor', false)
   return Response.json({ ok: true })
 }

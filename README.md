@@ -33,7 +33,7 @@ The first data set is the United States Congress and Medicare for All. Nothing i
 - **Signing in.** A reader signs in with a code sent to their email address. Signed out, a reader can read everything and contribute nothing: in place of the forms to add to the record and to comment, they are asked to sign in. A signed-in person chooses the name shown for them, and can change it on `/profile`. Their email address is kept with their sign-in account and is never sent to a browser or shown on a page. What they send in records who sent it, and their comments are tied to them.
 - **Members and editors.** Everyone signed in is a member or an editor. Members propose statements, comment, try the article reader and ask for an archived copy of a source. Editors also review and publish, add and edit questions and people, start the news search, remove comments, and use `/admin`. Each review records its author, and each reviewed proposal records who reviewed it (`reviewed_by`). Controls only editors can use are marked with the word Editors or a diamond on light blue, and a page only editors can open has a blue band under the header.
 - **Admin.** `/admin` lists everyone who has signed in, by display name, with their role, when they joined and when they were last seen. An editor makes a person an editor or a member, or deactivates them: a deactivated person is signed out and cannot sign in until reactivated. Their comments and reviews stay as they are. The last editor who can act cannot be made a member or deactivated. Roles and deactivation are Better Auth's admin plugin, and a copy of each person's role is kept on `people` so pages can show it.
-- **A new deployment.** On a deployment with no editor, `/setup` asks for an email address, a code and a username, and makes that person the first editor. It works only while there is no editor who can act.
+- **A new deployment.** On a deployment with no editor, `/setup` asks for an email address, a code and a username, and makes that person the first editor. It works only while there is no editor who can act. When the secret `FIRST_EDITOR_EMAIL` is set, only that address can become the first editor.
 
 ## Agents
 
@@ -164,6 +164,7 @@ wrangler d1 migrations apply DB --remote
 pnpm seed:build && wrangler d1 execute DB --remote --file seed/out/seed.sql
 wrangler secret put BETTER_AUTH_SECRET  # a long random string; see Reader sign-in
 wrangler secret put ARCHIVE_ORG_KEY   # optional; see Archiving sources
+wrangler secret put FIRST_EDITOR_EMAIL  # optional; only this address can become the first editor at /setup
 ```
 
 Then connect the repo in the Cloudflare dashboard and push to `main`. Secrets persist across deploys. Once it is deployed, open `/setup` to make the first editor.
