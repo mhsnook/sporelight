@@ -84,7 +84,7 @@ export const data = (over: Partial<TrackerData>): TrackerData => ({
   reports: [],
   reviews: [],
   sameActs: [],
-  people: [{ id: EDITORS_ID, role: 'editor' }],
+  people: [{ id: EDITORS_ID, role: 'editor', kind: 'person' }],
   ...over,
 })
 
