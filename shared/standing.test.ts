@@ -131,7 +131,7 @@ describe('isAcross', () => {
   })
 })
 
-const review = (tier: ReviewOf['tier'], position: Direction, weight: Weight = 'clear'): ReviewOf => ({ tier, position, weight })
+const review = (tier: ReviewOf['tier'], position: Direction | null, weight: Weight | null = position && 'clear'): ReviewOf => ({ tier, position, weight })
 
 describe('summarize', () => {
   it('is null with no reviews', () => {
@@ -140,12 +140,12 @@ describe('summarize', () => {
 
   it('takes an editor review over any number of people who disagree', () => {
     const reviews = [review('person', 'support'), review('person', 'support'), review('editor', 'oppose', 'passing')]
-    expect(summarize(reviews)).toEqual({ position: 'oppose', weight: 'passing' })
+    expect(summarize(reviews)).toEqual({ position: 'oppose', weight: 'passing', tier: 'editor' })
   })
 
   it('takes people over an agent, and an agent when it is all there is', () => {
-    expect(summarize([review('agent', 'oppose'), review('person', 'support')])).toEqual({ position: 'support', weight: 'clear' })
-    expect(summarize([review('agent', 'oppose', 'concrete')])).toEqual({ position: 'oppose', weight: 'concrete' })
+    expect(summarize([review('agent', 'oppose'), review('person', 'support')])).toEqual({ position: 'support', weight: 'clear', tier: 'person' })
+    expect(summarize([review('agent', 'oppose', 'concrete')])).toEqual({ position: 'oppose', weight: 'concrete', tier: 'agent' })
   })
 
   it('averages a yes and a no to mixed', () => {
@@ -160,6 +160,14 @@ describe('summarize', () => {
     expect(summarize([review('person', 'support'), review('person', 'lean_support')])?.position).toBe('lean_support')
     expect(summarize([review('person', 'lean_support'), review('person', 'mixed')])?.position).toBe('mixed')
     expect(summarize([review('person', 'support'), review('person', 'support'), review('person', 'lean_support')])?.position).toBe('support')
+  })
+
+  it("says nothing when every review in the tier that counts says the act says nothing, whatever a lower tier says", () => {
+    expect(summarize([review('editor', null), review('person', 'support'), review('agent', 'support', 'concrete')])).toBeNull()
+  })
+
+  it('averages only the reviews that give a position when some in the tier say nothing', () => {
+    expect(summarize([review('person', null), review('person', 'oppose')])).toEqual({ position: 'oppose', weight: 'clear', tier: 'person' })
   })
 
   it('rounds the weight down', () => {

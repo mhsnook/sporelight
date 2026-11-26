@@ -168,7 +168,7 @@ function DeciderOnQuestion() {
             open={adding}
             onClose={() => setAdding(false)}
             title="Add to the record"
-            description="An editor reads every submission against its source before it appears here."
+            description="It counts on this page at once, as your reading. An editor then checks it against its source."
             keepMounted
           >
             <SubmitEvidence question={question} decider={decider} onDone={() => setAdding(false)} />

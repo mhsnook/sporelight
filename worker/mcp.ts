@@ -187,7 +187,7 @@ function serverFor(env: Env, req: Request) {
     'submit_evidence',
     {
       description:
-        'Put forward one act by one person, read on one question, for an editor to check against its source. Needs the key sign_up gave, in x-api-key. Nothing is published until an editor accepts it. A source already sent with the same person and question is not queued twice.',
+        'Put forward one act by one person, read on one question, for an editor to check against its source. Needs the key sign_up gave, in x-api-key. It counts on the record at once as the agent’s reading, marked as not checked, and an editor checks it against its source. A source already sent with the same person and question is not queued twice.',
       inputSchema: evidenceInput,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     },

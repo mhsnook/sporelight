@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { ACT_KINDS, isUnreadLead, DIRECTIONS, POSITIONS, WEIGHTS, type Direction, type Position, type Proposal, type PublishedOnFrom, type Question, type Source } from '../../../shared/schema.ts'
 import { useTracker } from '../../lib/tracker.tsx'
+import { cameInOf } from '../../lib/claims.ts'
 import { commit } from '../../lib/review.ts'
 import { questionInserts, relatedQuestionRows } from '../../lib/question-form.ts'
 import { dateOffer, decisionStandings, missingFrom, outlook, relatedChoices, reportingAct, withWeight, type EntryDraft, type Outlook, type RelatedChoice } from '../../lib/review-form.ts'
-import { DIRECTION_LABEL, KIND_CHOICE, KIND_LABEL, KIND_NOUN, STANDING_BG, WEIGHT_HINT, WEIGHT_LABEL, formatDate, hostOf, sourceLabel, standingLabel, type Standing } from '../../lib/position.ts'
+import { DIRECTION_LABEL, KIND_CHOICE, KIND_LABEL, KIND_NOUN, STANDING_BG, WEIGHT_HINT, WEIGHT_LABEL, actDate, formatDate, hostOf, sourceLabel, standingLabel, type Standing } from '../../lib/position.ts'
 import { Token } from '../bits.tsx'
 import { Marked, RecordItem, splitPassage } from '../RecordItem.tsx'
 import { Reveal } from './Reveal.tsx'
@@ -86,6 +87,7 @@ function DirectionButtons({
 function thenNote(entry: EntryDraft, view: Outlook, question: Question, whenFirst: string): string {
   if (!view.then) return entry.decider_id ? 'both answers first' : 'the person first'
   if (view.now.set) return 'set by editors, so it stays'
+  if (!entry.occurred_on) return 'not counted until it has a date'
   if (view.now.standing === 'unknown') return whenFirst
   return view.then.standing === view.now.standing ? 'unchanged' : `was ${standingLabel(view.now.standing, question)}`
 }
@@ -144,7 +146,7 @@ export function ReviewEntry({
   }, [open.passage])
 
   const choices = useMemo(() => relatedChoices(tracker, entry), [tracker, entry.question_id, entry.decider_id])
-  const actsOnFile = useMemo(() => [...(tracker.actsByDecider.get(entry.decider_id ?? '') ?? [])].sort((a, b) => b.occurred_on.localeCompare(a.occurred_on)), [tracker, entry.decider_id])
+  const actsOnFile = useMemo(() => tracker.actsByDecider.get(entry.decider_id ?? '') ?? [], [tracker, entry.decider_id])
 
   const question = tracker.questionById.get(entry.question_id)
   if (!question) return <p className="py-4 text-muted">This entry points at a question that no longer exists.</p>
@@ -159,8 +161,11 @@ export function ReviewEntry({
   const then = view.then?.standing ?? null
   const across = view.across
   const noun = KIND_NOUN[entry.kind]
-  const record = decider ? tracker.recordFor(question, decider.id) : []
-  const onFile = tracker.actById.has(entry.act_id)
+  // What else is on their record: the act that came in with this entry is what is under review.
+  const cameIn = cameInOf(entry.items)
+  const record = decider ? tracker.recordFor(question, decider.id).filter((e) => e.act.id !== cameIn) : []
+  // Another act on the record, chosen as the one this entry reports. The act that came in with the proposal is not one.
+  const onFile = entry.act_id !== entry.newActId && tracker.actById.has(entry.act_id)
   const offer = dateOffer(source)
   const root = tracker.rootOf(question)
   const offered = new Set(choices.map((c) => c.question.id))
@@ -383,10 +388,10 @@ export function ReviewEntry({
                       onChange={(e) => onChange(reportingAct(entry, tracker.actById.get(e.target.value) ?? null))}
                       className="field"
                     >
-                      {!tracker.actById.has(entry.newActId) && <option value={entry.newActId}>A new {noun}, not on the record yet</option>}
-                      {actsOnFile.map((a) => (
+                      <option value={entry.newActId}>{cameIn ? `This ${noun}, as it came in` : `A new ${noun}, not on the record yet`}</option>
+                      {actsOnFile.filter((a) => a.id !== entry.newActId).map((a) => (
                         <option key={a.id} value={a.id}>
-                          On the record: {formatDate(a.occurred_on)} · {KIND_LABEL[a.kind]} · {a.body.slice(0, 60)}
+                          On the record: {actDate(a.occurred_on)} · {KIND_LABEL[a.kind]} · {a.body.slice(0, 60)}
                         </option>
                       ))}
                     </select>

@@ -148,14 +148,14 @@ describe('what a socket is sent', () => {
     reader.close()
   })
 
-  it('sends a signed-out reader who asks for proposals the passage of an item and none of the text around it', async () => {
+  it('sends a signed-out reader the passage of what came in, on its report, and none of the text around it', async () => {
     const reader = await partySocket()
     await until(() => reader.channels().has('bodies'))
     reader.send({ subscribe: 'proposals' })
     reader.send({ subscribe: 'proposal_items' })
     await until(() => rowsOn(reader.frames, 'proposal_items').length > 0 && rowsOn(reader.frames, 'proposals').length > 0)
     await askForSignedInOnly(reader)
-    expect(rowsOn(reader.frames, 'proposal_items').map((i) => i.passage)).toContain('Bob Beta said: I will vote against it, on-file.')
+    expect(rowsOn(reader.frames, 'reports').map((r) => r.passage)).toContain('Bob Beta said: I will vote against it, on-file.')
     const sent = JSON.stringify(reader.frames)
     for (const text of PRIVATE) expect(sent).not.toContain(text)
     reader.close()
@@ -246,7 +246,9 @@ describe('what a socket is sent', () => {
     expect((await partyWrite([{ channel: 'bodies', ops: [{ type: 'insert', value: marker }] }], undefined, editorOne.cookie)).status).toBe(200)
     await until(() => rowsOn(reader.frames.slice(seen.reader), 'bodies').some((b) => b.id === 'after-read'))
 
-    expect(rowsOn(reader.frames.slice(seen.reader), 'proposal_items').map((i) => i.passage)).toEqual(['Bob Beta said: I will vote against it, live.'])
+    // The reader is sent the item, and the report with its passage, and nothing else of what was read.
+    expect(rowsOn(reader.frames.slice(seen.reader), 'proposal_items')).toHaveLength(1)
+    expect(rowsOn(reader.frames.slice(seen.reader), 'reports').map((r) => r.passage)).toEqual(['Bob Beta said: I will vote against it, live.'])
     const sent = JSON.stringify(reader.frames)
     for (const text of PRIVATE) expect(sent).not.toContain(text)
     for (const channel of SIGNED_IN_ONLY) expect(rowsOn(reader.frames, channel)).toEqual([])

@@ -3,6 +3,10 @@ import { getServerByName } from 'partyserver'
 import { vi } from 'vitest'
 import worker from '../../worker/index.ts'
 import type { Tracker } from '../../worker/tracker.ts'
+import { EDITORS_ID, type Proposal, type ProposalItem } from '../../shared/schema.ts'
+import { buildTracker } from '../../src/lib/build-tracker.ts'
+import { claimOf, type Claim } from '../../src/lib/claims.ts'
+import { loadRecord } from '../../worker/record.ts'
 
 // One table of each kind a proposal or a news search reads. Each test file gets
 // its own database, so a file seeds once and its tests share the rows.
@@ -183,4 +187,32 @@ export async function until(check: () => boolean | Promise<boolean>, ms = 2000) 
     if (Date.now() > end) throw new Error('timed out waiting')
     await new Promise((r) => setTimeout(r, 10))
   }
+}
+
+// Every proposal item as the queue shows it, through claimOf over the record as
+// it is now, with its proposal's fields beside it, oldest proposal first.
+export type ClaimRow = ProposalItem &
+  Omit<Claim, 'item'> &
+  Pick<Proposal, 'origin' | 'submitted_by' | 'reviewed_at' | 'unread'> & { url: string; proposal_status: Proposal['status']; proposed_at: string }
+export async function claims(): Promise<ClaimRow[]> {
+  const tracker = buildTracker(await loadRecord(env.DB), new Date().toISOString().slice(0, 10))
+  const items = await rows<ProposalItem & Proposal & { item_id: string; url: string; proposal_status: Proposal['status']; proposed_at: string }>(
+    `SELECT i.*, i.id AS item_id, p.source_id, p.origin, p.submitted_by, p.reviewed_at, p.unread, p.status AS proposal_status, p.created_at AS proposed_at, s.url
+     FROM proposal_items i JOIN proposals p ON p.id = i.proposal_id JOIN sources s ON s.id = p.source_id ORDER BY p.created_at, i.sort`,
+  )
+  return items.map(({ item_id, source_id, origin, submitted_by, reviewed_at, unread, proposal_status, proposed_at, url, proposal_id, sort, decider_id, question_id, act_id, excerpt }) => {
+    const item: ProposalItem = { id: item_id, proposal_id, sort, decider_id, question_id, act_id, excerpt }
+    const { item: _, ...claim } = claimOf(tracker, { source_id, submitted_by, status: proposal_status }, item)
+    return { ...item, ...claim, origin, submitted_by, reviewed_at, unread, url, proposal_status, proposed_at }
+  })
+}
+
+// The editors' review of an item's act on its question, as publishing or dismissing it writes.
+export async function editorsSay(itemId: string, position: 'support' | null) {
+  const [i] = await rows<{ act_id: string; question_id: string }>(`SELECT act_id, question_id FROM proposal_items WHERE id = ?`, itemId)
+  await env.DB.prepare(
+    `INSERT INTO reviews (id, reviewer_id, act_id, question_id, position, weight, created_at, updated_at) VALUES (?, '${EDITORS_ID}', ?, ?, ?, ?, '2026-11-26T00:00:00Z', '2026-11-26T00:00:00Z')`,
+  )
+    .bind(crypto.randomUUID(), i.act_id, i.question_id, position, position && 'clear')
+    .run()
 }

@@ -102,20 +102,26 @@ export const isAcross = (position: Position, reading: Position) => sideOf(positi
 export const REVIEWER_TIERS = ['editor', ...PERSON_KINDS] as const
 export type ReviewerTier = (typeof REVIEWER_TIERS)[number]
 
-// One review of an act on a question, as the summary sees it.
-export type ReviewOf = { tier: ReviewerTier; position: Direction; weight: Weight }
+// One review of an act on a question, as the summary sees it. No position
+// means the reviewer says the act says nothing on the question.
+export type ReviewOf = { tier: ReviewerTier; position: Direction | null; weight: Weight | null }
 
-// The reviews of the first tier that has any: editors', then people's, then
-// agents'. They are averaged, the position on a scale from no (-2) to yes
-// (+2) with halves going toward mixed, and the weight rounded down. A mixed
-// and a no average to "Probably no", which no single review can say.
-export function summarize(reviews: ReviewOf[]): { position: Position; weight: Weight } | null {
+// What the reviews of the first tier that has any come to: editors', then
+// people's, then agents'. If every review in that tier says the act says
+// nothing on the question, it says nothing, whatever a lower tier says.
+// Otherwise the positions given are averaged on a scale from no (-2) to yes
+// (+2), with halves going toward mixed, and the weights are averaged and
+// rounded down. A mixed and a no average to "Probably no", which no single
+// review can say.
+export function summarize(reviews: ReviewOf[]): { position: Position; weight: Weight; tier: ReviewerTier } | null {
   for (const tier of REVIEWER_TIERS) {
     const own = reviews.filter((r) => r.tier === tier)
     if (!own.length) continue
-    const score = own.reduce((sum, r) => sum + 2 - POSITIONS.indexOf(r.position), 0) / own.length
-    const rank = own.reduce((sum, r) => sum + WEIGHTS.indexOf(r.weight), 0) / own.length
-    return { position: POSITIONS[2 - Math.sign(score) * Math.ceil(Math.abs(score) - 0.5)], weight: WEIGHTS[Math.floor(rank)] }
+    const given = own.flatMap((r) => (r.position && r.weight ? [{ position: r.position, weight: r.weight }] : []))
+    if (!given.length) return null
+    const score = given.reduce((sum, r) => sum + 2 - POSITIONS.indexOf(r.position), 0) / given.length
+    const rank = given.reduce((sum, r) => sum + WEIGHTS.indexOf(r.weight), 0) / given.length
+    return { position: POSITIONS[2 - Math.sign(score) * Math.ceil(Math.abs(score) - 0.5)], weight: WEIGHTS[Math.floor(rank)], tier }
   }
   return null
 }

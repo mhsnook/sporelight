@@ -13,6 +13,9 @@ export const EDITOR_EMAIL = 'flow-editor@example.org'
 export const EDITOR_STATE = fileURLToPath(new URL('../../playwright/.auth/editor.json', import.meta.url))
 const editorCookies = () => (JSON.parse(readFileSync(EDITOR_STATE, 'utf8')) as { cookies: Cookie[] }).cookies
 
+// The flows' editor's person id, which their reviews are written under.
+export const editorId = () => query<{ id: string }>(`SELECT id FROM auth_users WHERE email = '${EDITOR_EMAIL}'`)[0].id
+
 // A page signed in as the flows' editor, in a context of its own.
 export async function editorPage(browser: Browser): Promise<Page> {
   const context = await browser.newContext({ storageState: EDITOR_STATE })

@@ -163,7 +163,7 @@ function HowItWorks() {
   return (
     <section id="how" className="scroll-mt-6 pt-14 sm:pt-[88px]">
       <h2 className="h-section">How it works</h2>
-      <p className="mt-2 max-w-[640px] leading-[1.55] text-muted sm:mt-2.5 sm:text-lg">Nothing is published until an editor has read the source and chosen what it shows.</p>
+      <p className="mt-2 max-w-[640px] leading-[1.55] text-muted sm:mt-2.5 sm:text-lg">What the news reader and signed-in readers find counts at once, marked as not checked. An editor reads the source and has the last word on what it shows.</p>
 
       <div className="mt-6 grid gap-x-10 gap-y-8 sm:mt-8 lg:grid-cols-3">
         <div className="flex flex-col gap-3.5 sm:gap-[18px]">

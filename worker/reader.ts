@@ -111,6 +111,8 @@ export const modelOutputSchema = z.object({
         .string()
         .nullable()
         .transform((d) => (d && isoDate.safeParse(d).success ? d : null)),
+      // How the date was worked out, or what in the article left it unknown. Left out, the act is kept.
+      date_basis: z.string().default(''),
       position: z.enum(DIRECTIONS),
       weight: z.enum(OWN_WEIGHTS),
       reason: z.string(),
@@ -142,7 +144,8 @@ An act is one thing one person did or said. Each act has a kind:
 For each act give:
 - person_id and question_id, taken only from the lists you are given; a person can only be read on the questions listed for them
 - quote: words copied exactly from the article, character for character, with no ellipsis and no words added. For a statement, the person's own words. For a commitment or a use of office, the article's sentence that reports it
-- occurred_on: the date the act happened as YYYY-MM-DD, or null if the article does not make it clear. This is not the article's date unless the article says the act happened that day
+- occurred_on: the date the act happened, as YYYY-MM-DD. The record is ordered by this date and positions are worked out from it, so find it. Use a date the article states. Work out a relative one ("on Tuesday", "yesterday", "last week's vote") from the article's publish date given below, and give a day with no year the year that makes it fall on or before the publish date. Use the publish date itself only when the article reports the act as that day's news ("said in a statement today", "said Tuesday" when Tuesday is the publish date). Give null only when nothing in the article fixes the day, such as an act described as happening at some point in the past. Never give a date after today
+- date_basis: how you got the date, in a few words ("stated: on March 3", "worked out: Tuesday before the publish date", "the publish date: reported as today's news"), or, with a null date, what in the article left the day unknown
 - position: which way the act points on that question. support; lean_support if it probably supports it but the words leave that uncertain or unclear; mixed; oppose. Support for only part of a proposal is not lean_support: read it on the narrower question if one is listed. On a question that asks whether someone did a specific thing, support means they did it
 - weight: how much the act counts on that question. passing for a remark in passing, or an act about something next to the question; clear for words that say where the person stands on this question in plain terms; concrete for a vote, a signature, a pledge or another use of office on this question itself
 - reason: one or two sentences for the editor saying why this act counts
@@ -356,6 +359,7 @@ export async function readArticle(
       quote: found.words.slice(0, 2000),
       // A date ahead of today is the date of something promised, not of the act.
       occurred_on: act.occurred_on && act.occurred_on <= today ? act.occurred_on : null,
+      date_basis: act.occurred_on && act.occurred_on > today ? `Dropped ${act.occurred_on}, which is after today. ${act.date_basis.trim()}`.slice(0, 500) : act.date_basis.trim().slice(0, 500),
       reason: act.reason.trim().slice(0, 1000),
       passage,
       context: { before, after },
@@ -398,7 +402,7 @@ export function draftFromReading(article: ArticleRef, acts: ModelAct[], dropped:
       passage: a.passage,
       reading: a.position,
       weight: a.weight,
-      note: `Model's reason: ${a.reason}`,
+      note: `Model's reason: ${a.reason}\nDate: ${a.date_basis || 'the model did not say how it found the date.'}`,
       context: a.context,
     })),
     mentions: mentions.map((m) => ({ decider_id: m.person_id, words: m.words })),

@@ -65,25 +65,24 @@ describe('leadFromHit', () => {
 
 describe('alreadyProposed', () => {
   const item = { question_id: 'm4a', decider_id: 'jayapal', quote: 'I will vote for it.' }
-  const earlier = (status: 'pending' | 'accepted' | 'rejected', quote = 'A search excerpt about the bill.') => [{ ...item, status, quote }]
+  const earlier = (status: 'standing' | 'turned down', quote = 'A search excerpt about the bill.') => [{ ...item, turnedDown: status === 'turned down', quote }]
 
-  it('turns away anything for the same person and question while an item is waiting or published', () => {
-    expect(alreadyProposed(earlier('pending'), item, 'reader')).toBe(true)
-    expect(alreadyProposed(earlier('accepted'), item, 'reader')).toBe(true)
-    expect(alreadyProposed(earlier('pending'), { ...item, decider_id: 'adams' }, 'reader')).toBe(false)
-    expect(alreadyProposed(earlier('pending'), { ...item, question_id: 'other' }, 'reader')).toBe(false)
+  it('turns away anything for the same person and question while an item has not been turned down', () => {
+    expect(alreadyProposed(earlier('standing'), item, 'reader')).toBe(true)
+    expect(alreadyProposed(earlier('standing'), { ...item, decider_id: 'adams' }, 'reader')).toBe(false)
+    expect(alreadyProposed(earlier('standing'), { ...item, question_id: 'other' }, 'reader')).toBe(false)
   })
 
-  it('lets a person bring a different quote after a rejection, and not the same one', () => {
-    expect(alreadyProposed(earlier('rejected'), item, 'reader')).toBe(false)
-    expect(alreadyProposed(earlier('rejected', item.quote), item, 'reader')).toBe(true)
+  it('lets a person bring a different quote after the editors turned one down, and not the same one', () => {
+    expect(alreadyProposed(earlier('turned down'), item, 'reader')).toBe(false)
+    expect(alreadyProposed(earlier('turned down', item.quote), item, 'reader')).toBe(true)
   })
 
-  it('keeps a rejected search hit rejected, however the next search excerpts it', () => {
-    expect(alreadyProposed(earlier('rejected'), item, 'news_search')).toBe(true)
+  it('keeps a search hit the editors turned down turned down, however the next search excerpts it', () => {
+    expect(alreadyProposed(earlier('turned down'), item, 'news_search')).toBe(true)
   })
 
-  it('keeps a rejected item rejected when a model reads the same article again', () => {
-    expect(alreadyProposed(earlier('rejected'), item, 'model')).toBe(true)
+  it('keeps an item the editors turned down turned down when a model reads the same article again', () => {
+    expect(alreadyProposed(earlier('turned down'), item, 'model')).toBe(true)
   })
 })

@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
-import { TODAY, partyWrite } from './fixtures.ts'
+import { NEWS_READER_ID } from '../../shared/schema.ts'
+import { query } from './db.ts'
+import { TODAY, editorId, partyWrite } from './fixtures.ts'
 
 test.beforeEach(async ({ page }) => {
   await page.clock.setFixedTime(TODAY)
@@ -135,35 +137,55 @@ test('what is waiting shows in the feed as a short unchecked line that opens to 
   const lead = `An excerpt that names Sato and claims nothing. (${stamp})`
   const names = ['claim', 'rej', 'lead']
 
-  const item = (id: string, proposal: string, quote: string, reading: string | null, status: string) => ({
+  // What comes in for each claim: its act, its report in the source and the sender's review, and an item linking it to the proposal.
+  const claims = [
+    { name: 'claim', quote: claimed, reading: 'support', editors: undefined },
+    { name: 'rej', quote: rejected, reading: 'oppose', editors: null },
+  ]
+  const act = (c: (typeof claims)[number]) => ({ type: 'insert', value: { id: `act-${c.name}-${stamp}`, decider_id: 'demo-bartholomew-sato', kind: 'says', occurred_on: null, body: c.quote, primary_source_id: null, withdrawn_on: null, created_at: now } })
+  const reviewRow = (id: string, reviewer: string, actId: string, position: string | null) => ({
     type: 'insert',
-    value: { id, proposal_id: proposal, sort: 0, decider_id: 'demo-bartholomew-sato', question_id: 'free-ferry', act_id: `act-${id}`, kind: 'says', occurred_on: null, quote, reading, bearing: 'direct', position: null, summary: null, status },
+    value: { id, reviewer_id: reviewer, act_id: actId, question_id: 'free-ferry', position, weight: position && 'clear', based_on: null, created_at: now, updated_at: now },
+  })
+  const item = (id: string, proposal: string, actId: string | null, excerpt: string | null = null) => ({
+    type: 'insert',
+    value: { id, proposal_id: proposal, sort: 0, decider_id: 'demo-bartholomew-sato', question_id: 'free-ferry', act_id: actId, excerpt },
   })
   const source = (id: string) => ({ type: 'insert', value: { id, url: `https://example.com/${id}`, title: id, publisher: null, published_on: null, published_on_from: null, kind: null, archive_url: null, stored_copy: null, created_at: now } })
-  const proposal = (id: string, sourceId: string, origin: string) => ({ type: 'insert', value: { id, source_id: sourceId, origin, submitted_by: null, status: 'pending', created_at: now, reviewed_at: null } })
+  const proposal = (id: string, sourceId: string, origin: string) => ({ type: 'insert', value: { id, source_id: sourceId, origin, submitted_by: NEWS_READER_ID, status: 'pending', created_at: now, reviewed_at: null } })
   const write = await partyWrite(request, [
     { channel: 'sources', ops: names.map((n) => source(`${n}-${stamp}`)) },
+    { channel: 'acts', ops: claims.map(act) },
+    { channel: 'reports', ops: claims.map((c) => ({ type: 'insert', value: { id: `rep-${c.name}-${stamp}`, source_id: `${c.name}-${stamp}`, act_id: `act-${c.name}-${stamp}`, excerpt: null, passage: null, created_at: now } })) },
+    { channel: 'reviews', ops: [reviewRow(`rv-editors-rej-${stamp}`, editorId(), `act-rej-${stamp}`, null)] },
     { channel: 'proposals', ops: [proposal(`p-claim-${stamp}`, `claim-${stamp}`, 'reader'), proposal(`p-rej-${stamp}`, `rej-${stamp}`, 'reader'), proposal(`p-lead-${stamp}`, `lead-${stamp}`, 'news_search')] },
     {
       channel: 'proposal_items',
-      ops: [
-        item(`i-claim-${stamp}`, `p-claim-${stamp}`, claimed, 'support', 'pending'),
-        item(`i-rej-${stamp}`, `p-rej-${stamp}`, rejected, 'oppose', 'rejected'),
-        item(`i-lead-${stamp}`, `p-lead-${stamp}`, lead, null, 'pending'),
-      ],
+      ops: [item(`i-claim-${stamp}`, `p-claim-${stamp}`, `act-claim-${stamp}`), item(`i-rej-${stamp}`, `p-rej-${stamp}`, `act-rej-${stamp}`), item(`i-lead-${stamp}`, `p-lead-${stamp}`, null, lead)],
     },
     { channel: 'proposal_notes', ops: [{ type: 'insert', value: { id: `note-${stamp}`, proposal_id: `p-claim-${stamp}`, proposal_item_id: null, kind: 'submitter', body: 'Only editors read this note.', created_at: now } }] },
   ])
   expect(write.ok()).toBe(true)
+  // Only a review's author writes it through the room, so the news reader's are put in directly.
+  query(
+    `INSERT INTO reviews (id, reviewer_id, act_id, question_id, position, weight, based_on, created_at, updated_at) VALUES ${claims
+      .map((c) => `('rv-${c.name}-${stamp}', '${NEWS_READER_ID}', 'act-${c.name}-${stamp}', 'free-ferry', '${c.reading}', 'clear', NULL, '${now}', '${now}')`)
+      .join(', ')}`,
+  )
   // The editor flows expect the queue to hold only what they put there.
-  const remove = (channel: string, ids: string[]) => ({ channel, ops: ids.map((id) => ({ type: 'delete', value: { id } })) })
-  cleanup = () =>
-    partyWrite(request, [
+  const remove = (channel: string, ids: string[], key = 'id') => ({ channel, ops: ids.map((id) => ({ type: 'delete', value: { [key]: id } })) })
+  cleanup = () => {
+    query(`DELETE FROM reviews WHERE id IN (${claims.map((c) => `'rv-${c.name}-${stamp}'`).join(', ')})`)
+    return partyWrite(request, [
       remove('proposal_notes', [`note-${stamp}`]),
       remove('proposal_items', names.map((n) => `i-${n}-${stamp}`)),
+      remove('reviews', [`rv-editors-rej-${stamp}`]),
+      remove('reports', claims.map((c) => `rep-${c.name}-${stamp}`)),
+      remove('acts', claims.map((c) => `act-${c.name}-${stamp}`)),
       remove('proposals', names.map((n) => `p-${n}-${stamp}`)),
       remove('sources', names.map((n) => `${n}-${stamp}`)),
     ])
+  }
 
   const frames = recordFrames(page)
   await page.goto('/news?recordOnly=true')
@@ -203,7 +225,7 @@ test('what is waiting shows in the feed as a short unchecked line that opens to 
   await expect(page.getByText(lead)).toHaveCount(0)
   await expect(page.getByText('Only editors read this note.')).toHaveCount(0)
   expect(frames.subscribedTo('proposal_items')).toBe(true)
-  expect(frames.rowsOn('proposal_items').map((i) => i.quote)).toContain(claimed)
+  expect(frames.rowsOn('proposal_items').map((i) => i.act_id)).toContain(`act-claim-${stamp}`)
   expect(frames.rowsOn('proposal_notes')).toEqual([])
 
   const feed = await (await request.get('/feed.xml')).text()

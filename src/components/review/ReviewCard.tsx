@@ -117,7 +117,7 @@ export function ReviewCard({
   const acrossName = across && (tracker.deciderById.get(across.draft.decider_id ?? '')?.name ?? 'this person')
   const isReported = useMemo(() => tracker.reports.some((r) => r.source_id === source.id), [tracker, source.id])
   const isLead = isUnreadLead(proposal)
-  const excerpt = isLead ? drafts[0]?.items[0]?.quote : undefined
+  const excerpt = isLead ? (drafts[0]?.items[0]?.excerpt ?? undefined) : undefined
   const proposalNotes = notes.filter((n) => n.kind === 'submitter' && !n.proposal_item_id)
   const itemNotes = (d: EntryDraft) => notes.filter((n) => n.kind === 'submitter' && n.proposal_item_id && d.items.some((i) => i.id === n.proposal_item_id)).map((n) => n.body)
 

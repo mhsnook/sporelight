@@ -3,7 +3,7 @@ import { isWebAddress, type Act, type Question, type Source, type Weight } from 
 import { ArchiveControls } from './ArchiveControls.tsx'
 import { useSession } from '../lib/auth.ts'
 import type { RecordEntry } from '../lib/tracker.tsx'
-import { KIND_LABEL, POSITION_LABEL, STANDING_BG, formatDate, publishedLine, sourceLabel } from '../lib/position.ts'
+import { KIND_LABEL, POSITION_LABEL, STANDING_BG, actDate, formatDate, publishedLine, sourceLabel } from '../lib/position.ts'
 
 export function RecordItem({ entry, question, children }: { entry: RecordEntry; question?: Question; children?: ReactNode }) {
   const { act, reading, via, reports, lapse } = entry
@@ -11,13 +11,18 @@ export function RecordItem({ entry, question, children }: { entry: RecordEntry; 
   return (
     <li className="rounded-xl border-2 border-ink bg-surface p-4">
       <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
-        <time dateTime={act.occurred_on} className="font-semibold text-ink">
-          {formatDate(act.occurred_on)}
-        </time>
+        {act.occurred_on ? (
+          <time dateTime={act.occurred_on} className="font-semibold text-ink">
+            {formatDate(act.occurred_on)}
+          </time>
+        ) : (
+          <span className="font-semibold text-ink">{actDate(null)} · not counted until dated</span>
+        )}
         <span>·</span>
         <span>{KIND_LABEL[act.kind]}</span>
         {via && via.id !== question?.id && <span className="rounded bg-paper px-1.5 py-0.5">{via.short_title}</span>}
         <WeightTag weight={reading.weight} />
+        {!entry.checked && <span className="rounded border border-dashed border-line px-1.5 py-0.5">Not checked by an editor</span>}
         {lapse === 'withdrawn' && act.withdrawn_on && <span className="rounded bg-paper px-1.5 py-0.5">Withdrawn {formatDate(act.withdrawn_on)}</span>}
         {lapse === 'closed' && via && <span className="rounded bg-paper px-1.5 py-0.5">{via.short_title} has closed</span>}
         <span className="ml-auto flex items-center gap-1.5">
