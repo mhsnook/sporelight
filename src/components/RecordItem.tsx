@@ -1,11 +1,13 @@
 import type { ReactNode } from 'react'
 import { isWebAddress, type Act, type Question, type Source, type Weight } from '../../shared/schema.ts'
 import { ArchiveControls } from './ArchiveControls.tsx'
+import { useSession } from '../lib/auth.ts'
 import type { RecordEntry } from '../lib/tracker.tsx'
 import { KIND_LABEL, POSITION_LABEL, STANDING_BG, formatDate, publishedLine, sourceLabel } from '../lib/position.ts'
 
-export function RecordItem({ entry, question, edit = false, children }: { entry: RecordEntry; question?: Question; edit?: boolean; children?: ReactNode }) {
+export function RecordItem({ entry, question, children }: { entry: RecordEntry; question?: Question; children?: ReactNode }) {
   const { act, reading, via, reports, lapse } = entry
+  const signedIn = useSession().id !== undefined
   return (
     <li className="rounded-xl border-2 border-ink bg-surface p-4">
       <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
@@ -36,7 +38,7 @@ export function RecordItem({ entry, question, edit = false, children }: { entry:
             )}
             {source.published_on && <span className="text-xs text-muted"> · {publishedLine(source)}</span>}
             <ArchivedCopy source={source} />
-            {edit && <ArchiveControls source={source} />}
+            {signedIn && <ArchiveControls source={source} />}
           </li>
         ))}
       </ul>

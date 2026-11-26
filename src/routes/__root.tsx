@@ -2,7 +2,7 @@ import { Link, Outlet, createRootRoute, retainSearchParams } from '@tanstack/rea
 import { useState } from 'react'
 import { TrackerProvider, today } from '../lib/tracker.tsx'
 import { formatDate } from '../lib/position.ts'
-import { isEditor } from '../lib/editor.ts'
+import { useIsEditor } from '../lib/auth.ts'
 import { Logo } from '../components/bits.tsx'
 import { SignIn, SignInDialog } from '../components/SignIn.tsx'
 
@@ -19,6 +19,7 @@ export const Route = createRootRoute({
 })
 
 function NavLinks({ className, onNavigate }: { className: string; onNavigate?: () => void }) {
+  const editor = useIsEditor()
   return (
     <>
       <Link to="/questions" className={className} onClick={onNavigate}>
@@ -33,9 +34,11 @@ function NavLinks({ className, onNavigate }: { className: string; onNavigate?: (
       <Link to="/" hash="own" className={className} activeProps={{}} onClick={onNavigate}>
         Run your own
       </Link>
-      <Link to="/news/review" className={className} onClick={onNavigate}>
-        {isEditor() ? 'Review queue' : 'Editors'}
-      </Link>
+      {editor && (
+        <Link to="/news/review" className={className} onClick={onNavigate}>
+          Review queue
+        </Link>
+      )}
     </>
   )
 }

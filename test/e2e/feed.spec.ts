@@ -1,5 +1,4 @@
 import { expect, test, type Page } from '@playwright/test'
-import { EDITORS_ID } from '../../shared/schema.ts'
 import { TODAY, partyWrite } from './fixtures.ts'
 
 test.beforeEach(async ({ page }) => {
@@ -78,7 +77,7 @@ test('an article with several people in it is one story, with the people as repl
       channel: 'reviews',
       ops: people.map((_, i) => ({
         type: 'insert',
-        value: { id: ids[i].reading, reviewer_id: EDITORS_ID, act_id: ids[i].act, question_id: 'free-ferry', position: positions[i], weight: 'clear', based_on: null, created_at: at, updated_at: at },
+        value: { id: ids[i].reading, act_id: ids[i].act, question_id: 'free-ferry', position: positions[i], weight: 'clear', based_on: null, created_at: at, updated_at: at },
       })),
     },
   ])

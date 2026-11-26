@@ -1,6 +1,5 @@
 import {
   EARLIEST_PUBLISHED,
-  EDITORS_ID,
   isPublishDay,
   pairId,
   type Act,
@@ -110,6 +109,7 @@ export function planReview(
   proposal: Proposal,
   source: Source,
   verdict: Verdict,
+  reviewerId: string,
   now: string,
   newId: () => string = () => crypto.randomUUID(),
 ): Write[] {
@@ -117,17 +117,17 @@ export function planReview(
   const questionById = new Map(published.questions.map((q) => [q.id, q]))
   const actIds = new Set(published.acts.map((a) => a.id))
   const reported = new Set(published.reports.map((r) => `${r.source_id} ${r.act_id}`))
-  const editorsReview = new Map(published.reviews.filter((r) => r.reviewer_id === EDITORS_ID).map((r) => [`${r.act_id} ${r.question_id}`, r]))
+  const ownReview = new Map(published.reviews.filter((r) => r.reviewer_id === reviewerId).map((r) => [`${r.act_id} ${r.question_id}`, r]))
   const setPositionIds = new Set(published.setPositions.map((s) => s.id))
   let nextSort = Math.max(-1, ...verdict.entries.flatMap((e) => e.items.map((i) => i.sort))) + 1
 
-  // Publishing is the editors' review of the act on each question it is read on.
+  // Publishing is the reviewer's own review of the act on each question it is read on.
   const review = (actId: string, questionId: string, position: Direction, weight: Weight) => {
     const key = `${actId} ${questionId}`
-    const existing = editorsReview.get(key)
+    const existing = ownReview.get(key)
     if (existing?.position === position && existing.weight === weight) return
-    const row: Review = existing ? { ...existing, position, weight, updated_at: now } : { id: newId(), reviewer_id: EDITORS_ID, act_id: actId, question_id: questionId, position, weight, based_on: null, created_at: now, updated_at: now }
-    editorsReview.set(key, row)
+    const row: Review = existing ? { ...existing, position, weight, updated_at: now } : { id: newId(), reviewer_id: reviewerId, act_id: actId, question_id: questionId, position, weight, based_on: null, created_at: now, updated_at: now }
+    ownReview.set(key, row)
     writes.push(existing ? { on: 'reviews', type: 'update', id: row.id, changes: { position, weight, updated_at: now } } : { on: 'reviews', type: 'insert', row })
   }
 
@@ -211,7 +211,7 @@ export function planReview(
     writes.push({ on: 'sources', type: 'update', id: source.id, changes: { published_on: verdict.published_on, published_on_from: 'editor' } })
   }
   if (verdict.review_note) note(verdict.review_note, null)
-  writes.push({ on: 'proposals', type: 'update', id: proposal.id, changes: { status: 'reviewed', reviewed_at: now } })
+  writes.push({ on: 'proposals', type: 'update', id: proposal.id, changes: { status: 'reviewed', reviewed_at: now, reviewed_by: reviewerId } })
 
   return writes.sort((a, b) => APPROVAL_ORDER.indexOf(a.on) - APPROVAL_ORDER.indexOf(b.on))
 }

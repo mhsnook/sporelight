@@ -513,7 +513,7 @@ describe('readingsFrom', () => {
   const bill = question('bill', { parent_id: 'policy', kind: 'formal_act', implies_on_parent: 'support' })
   const letter = question('letter', { parent_id: 'policy', kind: 'formal_act', implies_on_parent: 'oppose' })
   const questions = new Map([policy, bill, letter].map((q) => [q.id, q]))
-  const shown = (reviews: Parameters<typeof readingsFrom>[0]) => readingsFrom(reviews, questions).map((r) => [r.act_id, r.question_id, r.position, r.weight, r.via_question_id])
+  const shown = (reviews: Parameters<typeof readingsFrom>[0]) => readingsFrom(reviews, questions, new Set([EDITORS_ID])).map((r) => [r.act_id, r.question_id, r.position, r.weight, r.via_question_id])
 
   it("takes the editors' review over a reader's", () => {
     expect(shown([review('a', 'policy', 'support', 'clear', 'a-reader'), review('a', 'policy', 'oppose', 'passing')])).toEqual([['a', 'policy', 'oppose', 'passing', null]])
@@ -549,7 +549,7 @@ describe('readingsFrom', () => {
     const onBill = review('a', 'bill', 'support', 'concrete')
     const onLetter = review('a', 'letter', 'support', 'concrete')
     for (const reviews of [[onBill, onLetter], [onLetter, onBill]]) {
-      expect(readingsFrom(reviews, questions).find((r) => r.question_id === 'policy')).toMatchObject({ position: 'mixed', via_question_id: 'bill' })
+      expect(readingsFrom(reviews, questions, new Set([EDITORS_ID])).find((r) => r.question_id === 'policy')).toMatchObject({ position: 'mixed', via_question_id: 'bill' })
     }
   })
 

@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as EditorRouteImport } from './routes/_editor'
 import { Route as NewsRouteImport } from './routes/news'
 import { Route as QuestionsRouteImport } from './routes/questions'
+import { Route as SetupRouteImport } from './routes/setup'
 import { Route as EditorNewsReviewRouteImport } from './routes/_editor.news.review'
 import { Route as EditorNewsRunsRouteImport } from './routes/_editor.news.runs'
 import { Route as EditorPeopleIndexRouteImport } from './routes/_editor.people.index'
@@ -42,6 +43,11 @@ const NewsRoute = NewsRouteImport.update({
 const QuestionsRoute = QuestionsRouteImport.update({
   id: '/questions',
   path: '/questions',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SetupRoute = SetupRouteImport.update({
+  id: '/setup',
+  path: '/setup',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EditorNewsReviewRoute = EditorNewsReviewRouteImport.update({
@@ -104,6 +110,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/news': typeof NewsRoute
   '/questions': typeof QuestionsRoute
+  '/setup': typeof SetupRoute
   '/news/review': typeof EditorNewsReviewRoute
   '/news/runs': typeof EditorNewsRunsRoute
   '/people/$slug': typeof EditorPeopleSlugRoute
@@ -120,6 +127,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/news': typeof NewsRoute
   '/questions': typeof QuestionsRoute
+  '/setup': typeof SetupRoute
   '/news/review': typeof EditorNewsReviewRoute
   '/news/runs': typeof EditorNewsRunsRoute
   '/people/$slug': typeof EditorPeopleSlugRoute
@@ -138,6 +146,7 @@ export interface FileRoutesById {
   '/_editor': typeof EditorRouteWithChildren
   '/news': typeof NewsRoute
   '/questions': typeof QuestionsRoute
+  '/setup': typeof SetupRoute
   '/_editor/news/review': typeof EditorNewsReviewRoute
   '/_editor/news/runs': typeof EditorNewsRunsRoute
   '/_editor/people/$slug': typeof EditorPeopleSlugRoute
@@ -156,6 +165,7 @@ export interface FileRouteTypes {
     | '/'
     | '/news'
     | '/questions'
+    | '/setup'
     | '/news/review'
     | '/news/runs'
     | '/people/$slug'
@@ -172,6 +182,7 @@ export interface FileRouteTypes {
     | '/'
     | '/news'
     | '/questions'
+    | '/setup'
     | '/news/review'
     | '/news/runs'
     | '/people/$slug'
@@ -189,6 +200,7 @@ export interface FileRouteTypes {
     | '/_editor'
     | '/news'
     | '/questions'
+    | '/setup'
     | '/_editor/news/review'
     | '/_editor/news/runs'
     | '/_editor/people/$slug'
@@ -207,6 +219,7 @@ export interface RootRouteChildren {
   EditorRoute: typeof EditorRouteWithChildren
   NewsRoute: typeof NewsRoute
   QuestionsRoute: typeof QuestionsRoute
+  SetupRoute: typeof SetupRoute
   QSlugDeciderRoute: typeof QSlugDeciderRoute
   QSlugIndexRoute: typeof QSlugIndexRoute
 }
@@ -239,6 +252,13 @@ declare module '@tanstack/react-router' {
       path: '/questions'
       fullPath: '/questions'
       preLoaderRoute: typeof QuestionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/setup': {
+      id: '/setup'
+      path: '/setup'
+      fullPath: '/setup'
+      preLoaderRoute: typeof SetupRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_editor/news/review': {
@@ -353,6 +373,7 @@ const rootRouteChildren: RootRouteChildren = {
   EditorRoute: EditorRouteWithChildren,
   NewsRoute: NewsRoute,
   QuestionsRoute: QuestionsRoute,
+  SetupRoute: SetupRoute,
   QSlugDeciderRoute: QSlugDeciderRoute,
   QSlugIndexRoute: QSlugIndexRoute,
 }

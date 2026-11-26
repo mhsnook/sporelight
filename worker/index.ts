@@ -1,11 +1,11 @@
 import { getServerByName, routePartykitRequest } from 'partyserver'
 import { ARCHIVE_CRON, archiveNow, archiveSources, type Archiver } from './archive.ts'
-import { commentInputSchema, displayNameSchema, proposalInputSchema, type Person } from '../shared/schema.ts'
+import { commentInputSchema, displayNameSchema, proposalInputSchema, sourceUrl, type Person } from '../shared/schema.ts'
 import { RUN_ID } from '../shared/news-run.ts'
 import { fetchPublishedOn } from './article.ts'
 import { auth, KeyRefused, signedInPerson } from './auth.ts'
 import { handleMcp } from './mcp.ts'
-import { isEditorRequest } from './editor.ts'
+import { claimRun, dropRun, finishRun } from './tool-runs.ts'
 import { atomResponse } from './feed.ts'
 import { dryRunArticle, listRuns, NEWS_CRON, runNewsSearch, runWithSteps, type Submitter } from './news.ts'
 import type { Tracker } from './tracker.ts'
@@ -35,6 +35,82 @@ async function startNewsSearch(req: Request, env: Env, ctx: ExecutionContext): P
   const run = runNewsSearch(env, roomForLongRun(env), 'editor', new Date(), runId)
   ctx.waitUntil(run.catch(() => {}))
   return Response.json(await run)
+}
+
+// A deployment with no editor who can act takes its first from the first person
+// to sign in and ask. The check and the grant are one statement, so two people
+// asking at once cannot both become the first editor. Better Auth's own route
+// for setting a role needs an editor to call it, which a new deployment has not got.
+async function hasActiveEditor(env: Env): Promise<boolean> {
+  return (await env.DB.prepare(`SELECT 1 FROM auth_users WHERE role = 'editor' AND coalesce(banned, 0) = 0`).first()) !== null
+}
+
+async function handleSetup(req: Request, env: Env): Promise<Response> {
+  const person = await signedInPerson(req, env)
+  if (!person) return new Response('unauthorized', { status: 401 })
+  if (person.kind !== 'person') return Response.json({ error: 'An agent cannot be an editor.' }, { status: 403 })
+  const granted = await env.DB.prepare(
+    `UPDATE auth_users SET role = 'editor' WHERE id = ? AND NOT EXISTS (SELECT 1 FROM auth_users WHERE role = 'editor' AND coalesce(banned, 0) = 0)`,
+  )
+    .bind(person.id)
+    .run()
+  if (granted.meta.changes !== 1) return Response.json({ error: 'This site already has an editor.' }, { status: 409 })
+  await (await tracker(env)).syncAccount(person.id, 'editor', false)
+  return Response.json({ ok: true })
+}
+
+// The two tools anyone signed in may start, which call the archive or the model.
+// Editors are not held to the per-person limit or to an archive back-off.
+async function toolUser(req: Request, env: Env): Promise<Person | Response> {
+  const person = await signedInPerson(req, env)
+  if (!person) return new Response('unauthorized', { status: 401 })
+  if (person.role !== 'editor' && !(await env.TOOL_LIMITER.limit({ key: person.id })).success) {
+    return Response.json({ error: 'That is a lot of requests in a short time. Give it a minute.' }, { status: 429 })
+  }
+  return person
+}
+
+const BUSY = 'This is already being done for someone. Try again in a minute.'
+
+async function handleReadArticle(req: Request, env: Env): Promise<Response> {
+  const person = await toolUser(req, env)
+  if (person instanceof Response) return person
+  const body = (await req.json().catch(() => null)) as { url?: unknown; question_id?: unknown } | null
+  const target = typeof body?.url === 'string' && /^https?:\/\//.test(body.url) ? sourceUrl(body.url) : null
+  if (!target || typeof body?.question_id !== 'string') return Response.json({ error: 'Expected a url and a question_id.' }, { status: 400 })
+  const key = `${body.question_id} ${target}`
+  const claim = await claimRun(env.DB, 'read_article', key)
+  if (!claim.claimed) return claim.running ? Response.json({ error: BUSY }, { status: 409 }) : Response.json({ ...(claim.result as object), reused_from: claim.finished_at })
+  try {
+    const result = await dryRunArticle(env, target, body.question_id)
+    await finishRun(env.DB, 'read_article', key, 'error' in result ? null : result)
+    return Response.json(result, { status: 'error' in result ? 404 : 200 })
+  } catch (e) {
+    await dropRun(env.DB, 'read_article', key)
+    throw e
+  }
+}
+
+async function handleArchive(req: Request, env: Env): Promise<Response> {
+  const person = await toolUser(req, env)
+  if (person instanceof Response) return person
+  const body = (await req.json().catch(() => null)) as { source_id?: unknown } | null
+  if (typeof body?.source_id !== 'string') return Response.json({ error: 'Expected a source_id.' }, { status: 400 })
+  if (person.role !== 'editor') {
+    const waiting = await env.DB.prepare(`SELECT outcome, next_try_at, detail FROM archive_attempts WHERE source_id = ? AND (outcome = 'gave_up' OR next_try_at > ?)`)
+      .bind(body.source_id, new Date().toISOString())
+      .first<{ outcome: string; next_try_at: string | null; detail: string | null }>()
+    const stored = await env.DB.prepare(`SELECT archive_url FROM sources WHERE id = ?`).bind(body.source_id).first<{ archive_url: string | null }>()
+    if (waiting && !stored?.archive_url) return Response.json({ outcome: waiting.outcome, detail: waiting.detail ?? 'The archive was asked recently. The scheduled pass will try again.', next_try_at: waiting.next_try_at })
+  }
+  const claim = await claimRun(env.DB, 'archive', body.source_id)
+  if (!claim.claimed) return Response.json({ error: BUSY }, { status: 409 })
+  try {
+    const result = await archiveNow(env, roomForLongRun(env), body.source_id)
+    return 'error' in result ? Response.json({ error: result.error }, { status: result.status }) : Response.json(result)
+  } finally {
+    await dropRun(env.DB, 'archive', body.source_id)
+  }
 }
 
 const tooMany = () => Response.json({ error: 'That is a lot of posts in a short time. Give it a minute.' }, { status: 429 })
@@ -109,38 +185,23 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
   if (url.pathname === '/api/proposals' && req.method === 'POST') return handleProposal(req, env, ctx)
   if (url.pathname === '/api/comments' && req.method === 'POST') return handleComment(req, env)
   if (url.pathname === '/mcp') return handleMcp(req, env)
-  if (url.pathname === '/api/editor/session') {
-    return (await isEditorRequest(req, env)) ? Response.json({ ok: true }) : new Response('unauthorized', { status: 401 })
+  if (url.pathname === '/api/setup' && req.method === 'GET') return Response.json({ needed: !(await hasActiveEditor(env)) })
+  if (url.pathname === '/api/setup' && req.method === 'POST') return handleSetup(req, env)
+  if (url.pathname.startsWith('/api/editor/')) {
+    const person = await signedInPerson(req, env)
+    if (!person) return new Response('unauthorized', { status: 401 })
+    if (person.role !== 'editor') return Response.json({ error: 'Only editors can do this.' }, { status: 403 })
+    if (url.pathname === '/api/editor/news-search' && req.method === 'POST') return startNewsSearch(req, env, ctx)
+    if (url.pathname === '/api/editor/news-runs' && req.method === 'GET') return Response.json({ runs: await listRuns(env.DB) })
+    const runPath = url.pathname.match(/^\/api\/editor\/news-runs\/([^/]+)$/)
+    if (runPath && req.method === 'GET') {
+      const found = await runWithSteps(env.DB, runPath[1])
+      return found ? Response.json(found) : Response.json({ error: 'No run has that id yet.' }, { status: 404 })
+    }
+    return new Response('not found', { status: 404 })
   }
-  if (url.pathname === '/api/editor/news-search' && req.method === 'POST') {
-    if (!(await isEditorRequest(req, env))) return new Response('unauthorized', { status: 401 })
-    return startNewsSearch(req, env, ctx)
-  }
-  if (url.pathname === '/api/editor/news-runs' && req.method === 'GET') {
-    if (!(await isEditorRequest(req, env))) return new Response('unauthorized', { status: 401 })
-    return Response.json({ runs: await listRuns(env.DB) })
-  }
-  const runPath = url.pathname.match(/^\/api\/editor\/news-runs\/([^/]+)$/)
-  if (runPath && req.method === 'GET') {
-    if (!(await isEditorRequest(req, env))) return new Response('unauthorized', { status: 401 })
-    const found = await runWithSteps(env.DB, runPath[1])
-    return found ? Response.json(found) : Response.json({ error: 'No run has that id yet.' }, { status: 404 })
-  }
-  if (url.pathname === '/api/editor/read-article' && req.method === 'POST') {
-    if (!(await isEditorRequest(req, env))) return new Response('unauthorized', { status: 401 })
-    const body = (await req.json().catch(() => null)) as { url?: unknown; question_id?: unknown } | null
-    const target = typeof body?.url === 'string' && /^https?:\/\//.test(body.url) ? body.url : null
-    if (!target || typeof body?.question_id !== 'string') return Response.json({ error: 'Expected a url and a question_id.' }, { status: 400 })
-    const result = await dryRunArticle(env, target, body.question_id)
-    return Response.json(result, { status: 'error' in result ? 404 : 200 })
-  }
-  if (url.pathname === '/api/editor/archive' && req.method === 'POST') {
-    if (!(await isEditorRequest(req, env))) return new Response('unauthorized', { status: 401 })
-    const body = (await req.json().catch(() => null)) as { source_id?: unknown } | null
-    if (typeof body?.source_id !== 'string') return Response.json({ error: 'Expected a source_id.' }, { status: 400 })
-    const result = await archiveNow(env, roomForLongRun(env), body.source_id)
-    return 'error' in result ? Response.json({ error: result.error }, { status: result.status }) : Response.json(result)
-  }
+  if (url.pathname === '/api/read-article' && req.method === 'POST') return handleReadArticle(req, env)
+  if (url.pathname === '/api/archive' && req.method === 'POST') return handleArchive(req, env)
   return (await routePartykitRequest(req, env)) ?? new Response('not found', { status: 404 })
 }
 

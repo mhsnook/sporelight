@@ -11,14 +11,15 @@ import { Discussion } from '../components/Discussion.tsx'
 import { Modal } from '../components/Modal.tsx'
 import { AskStatus, CloseQuestion, ClosedNote } from '../components/Asks.tsx'
 import { MergeAct, WithdrawAct } from '../components/MergeAct.tsx'
-import { isEditor } from '../lib/editor.ts'
 import { claimLabel, formatDate, standingLabel } from '../lib/position.ts'
+import { useIsEditor } from '../lib/auth.ts'
 
 export const Route = createFileRoute('/q/$slug/$decider')({ component: DeciderOnQuestion })
 
 function DeciderOnQuestion() {
   const { slug, decider: deciderSlug } = Route.useParams()
   const { tracker, isReady } = useTracker()
+  const editor = useIsEditor()
   const [adding, setAdding] = useState(false)
   const question = tracker.questionBySlug.get(slug)
   const decider = tracker.deciderBySlug.get(deciderSlug)
@@ -156,9 +157,9 @@ function DeciderOnQuestion() {
           ) : (
             <ol className="space-y-3">
               {me.record.map((entry) => (
-                <RecordItem key={entry.reading.id} entry={entry} question={question} edit={isEditor()}>
-                  {isEditor() && <WithdrawAct act={entry.act} />}
-                  {isEditor() && <MergeAct act={entry.act} />}
+                <RecordItem key={entry.reading.id} entry={entry} question={question}>
+                  {editor && <WithdrawAct act={entry.act} />}
+                  {editor && <MergeAct act={entry.act} />}
                 </RecordItem>
               ))}
             </ol>
@@ -209,7 +210,7 @@ function DeciderOnQuestion() {
               Official site ↗
             </a>
           )}
-          {isEditor() && (
+          {editor && (
             <div className="space-y-1 text-sm">
               <Link to="/people/$slug" params={{ slug: decider.slug }} className="block link">
                 Edit {decider.name}

@@ -1,10 +1,13 @@
 import { betterAuth } from 'better-auth'
 import { apiKey } from '@better-auth/api-key'
+import { APIError, createAuthMiddleware, getSessionFromCtx } from 'better-auth/api'
+import { admin } from 'better-auth/plugins/admin'
+import { defaultAc } from 'better-auth/plugins/admin/access'
 import { anonymous } from 'better-auth/plugins/anonymous'
 import { emailOTP } from 'better-auth/plugins/email-otp'
 import { waitUntil } from 'cloudflare:workers'
 import { getServerByName } from 'partyserver'
-import { SIGN_IN_CODE_MINUTES, type Person } from '../shared/schema.ts'
+import { SIGN_IN_CODE_MINUTES, type AccountRole, type Person } from '../shared/schema.ts'
 import type { Tracker } from './tracker.ts'
 
 // Better Auth's own tables. They hold each person's email address and their
@@ -17,6 +20,17 @@ const MODELS = {
   rateLimit: 'auth_rate_limits',
   apikey: 'auth_api_keys',
 } as const
+
+// What each role may do through Better Auth's admin routes. An editor manages
+// people but cannot impersonate one, since nobody writes as someone else.
+const ROLE_RIGHTS = {
+  member: defaultAc.newRole({ user: [], session: [] }),
+  editor: defaultAc.newRole({ user: ['list', 'get', 'set-role', 'ban'], session: ['list', 'revoke'] }),
+} satisfies Record<AccountRole, unknown>
+
+export const roleOf = (user: { role?: string | null }): AccountRole => (user.role === 'editor' ? 'editor' : 'member')
+
+export const LAST_EDITOR = 'This is the only editor who can act. Make someone else an editor first.'
 
 // The prefix every agent's key starts with, so a leaked one is easy to recognise.
 export const AGENT_KEY_PREFIX = 'sporelight_'
@@ -35,6 +49,7 @@ export function authOptions(env: Env) {
     rateLimit: { enabled: true, storage: 'database', modelName: MODELS.rateLimit },
     advanced: { ipAddress: { ipAddressHeaders: ['cf-connecting-ip'] } },
     plugins: [
+      admin({ roles: ROLE_RIGHTS, defaultRole: 'member', adminRoles: ['editor'] }),
       emailOTP({
         expiresIn: SIGN_IN_CODE_MINUTES * 60,
         // Not awaited, so how long the send takes says nothing about whether the address has an account.
@@ -58,11 +73,28 @@ export function authOptions(env: Env) {
         rateLimit: { enabled: true, timeWindow: 60_000, maxRequests: 120 },
       }),
     ],
+    // Refused here for a clear message; the keep_one_editor trigger refuses it
+    // as well, for two such requests at once.
+    hooks: {
+      before: createAuthMiddleware(async (ctx) => {
+        const body = ctx.body as { userId?: unknown; role?: unknown } | undefined
+        const demoting = (ctx.path === '/admin/set-role' && body?.role !== 'editor') || ctx.path === '/admin/ban-user' || ctx.path === '/admin/remove-user'
+        if (!demoting || typeof body?.userId !== 'string') return
+        // Someone who may not make the change is left to Better Auth to refuse.
+        const caller = await getSessionFromCtx<{ role?: string | null }>(ctx)
+        if (caller && roleOf(caller.user) === 'editor' && (await isLastEditor(env, body.userId))) throw new APIError('BAD_REQUEST', { message: LAST_EDITOR })
+      }),
+    },
     databaseHooks: {
       user: {
         create: {
           after: async (user: { id: string; createdAt: Date; isAnonymous?: boolean | null }) => {
             await (await room(env)).addPerson(user.id, user.createdAt.toISOString(), kindOf(user))
+          },
+        },
+        update: {
+          after: async (user: { id: string; role?: string | null; banned?: boolean | null }) => {
+            await (await room(env)).syncAccount(user.id, roleOf(user), user.banned === true)
           },
         },
       },
@@ -91,6 +123,16 @@ async function sendCode(env: Env, email: string, code: string) {
   } catch (e) {
     console.error('sign-in code not sent', e)
   }
+}
+
+async function isLastEditor(env: Env, userId: string): Promise<boolean> {
+  const row = await env.DB.prepare(
+    `SELECT 1 FROM auth_users u WHERE u.id = ? AND u.role = 'editor' AND coalesce(u.banned, 0) = 0
+       AND NOT EXISTS (SELECT 1 FROM auth_users o WHERE o.role = 'editor' AND coalesce(o.banned, 0) = 0 AND o.id <> u.id)`,
+  )
+    .bind(userId)
+    .first()
+  return row !== null
 }
 
 const room = (env: Env) => getServerByName<Env, Tracker>(env.Tracker, 'main')
@@ -129,7 +171,11 @@ export async function signedInPerson(req: Request, env: Env): Promise<Person | n
   }
   if (!session) return null
   const { user } = session
-  const person = () => env.DB.prepare(`SELECT id, kind, display_name, created_at FROM people WHERE id = ?`).bind(user.id).first<Person>()
+  // The role is read from the session, which is Better Auth's own, not from the public copy.
+  const person = async () => {
+    const row = await env.DB.prepare(`SELECT id, kind, display_name, role, deactivated_at, created_at FROM people WHERE id = ?`).bind(user.id).first<Person>()
+    return row && { ...row, role: roleOf(user) }
+  }
   const found = await person()
   if (found) return found
   // The row is added when someone first signs in. If that failed, a valid session adds it here.

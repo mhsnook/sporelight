@@ -1,5 +1,4 @@
 # Copy to .dev.vars for local development. In production set these with `wrangler secret put`.
-EDITOR_TOKEN=change-me
 # An archive.org S3 key, as accesskey:secret, from https://archive.org/account/s3.php.
 # Left empty, the archiving pass only looks for captures that already exist.
 ARCHIVE_ORG_KEY=

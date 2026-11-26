@@ -1,13 +1,14 @@
 import { D1Adapter } from 'party-db/server'
-import { publicCollections } from '../shared/schema.ts'
+import { peopleCollection, publicCollections } from '../shared/schema.ts'
 import { buildTracker, type Tracker, type TrackerData } from '../src/lib/build-tracker.ts'
 
-const ALL_TABLES = new Set(publicCollections.map((c) => c.name))
+const RECORD_COLLECTIONS = [...publicCollections, peopleCollection]
+const ALL_TABLES = new Set(RECORD_COLLECTIONS.map((c) => c.name))
 
 // The published tables, read the way a browser receives them, for buildTracker.
 // A table left out of `tables` comes back empty.
 export async function loadRecord(db: D1Database, tables: ReadonlySet<string> = ALL_TABLES): Promise<TrackerData> {
-  const adapter = new D1Adapter(db, publicCollections.filter((c) => tables.has(c.name)))
+  const adapter = new D1Adapter(db, RECORD_COLLECTIONS.filter((c) => tables.has(c.name)))
   await adapter.init()
   const rows = new Map((await adapter.snapshot()).map((batch) => [batch.channel, batch.ops.map((op) => op.value)]))
   const of = <T,>(channel: string) => (rows.get(channel) ?? []) as T[]
@@ -29,6 +30,7 @@ export async function loadRecord(db: D1Database, tables: ReadonlySet<string> = A
     reports: of('reports'),
     reviews: of('reviews'),
     sameActs: of('same_acts'),
+    people: of('people'),
   }
 }
 

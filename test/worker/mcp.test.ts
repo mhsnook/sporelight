@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { EDITORS_ID } from '../../shared/schema.ts'
 import { AGENT_KEY_PREFIX } from '../../worker/auth.ts'
 import { FIND_LIMIT } from '../../worker/mcp.ts'
-import { EDITOR_TOKEN, nextIp, partyWrite, post, rows, seed } from './helpers.ts'
+import { editor, nextIp, partyWrite, post, rows, seed } from './helpers.ts'
 
 // An MCP client talking to the Worker's /mcp, from its own address, with a key if it has one.
 async function connect(from = nextIp(), key?: string) {
@@ -88,7 +88,7 @@ describe('/mcp: reading the record', () => {
 
   it('returns at most FIND_LIMIT deciders, and says how many more matched', async () => {
     const extra = Array.from({ length: FIND_LIMIT + 5 }, (_, i) => ({ id: `many-${i}`, slug: `many-${i}`, name: `Manyname ${i}`, sort_name: `Manyname, ${i}`, external_id: null, url: null }))
-    expect((await partyWrite([{ channel: 'deciders', ops: extra.map((value) => ({ type: 'insert', value })) }], EDITOR_TOKEN)).status).toBe(200)
+    expect((await partyWrite([{ channel: 'deciders', ops: extra.map((value) => ({ type: 'insert', value })) }], undefined, (await editor(`mcp-${crypto.randomUUID()}@reader.test`)).cookie)).status).toBe(200)
     const found = (await call('find_deciders', { name: 'manyname' })).structuredContent as { deciders: unknown[]; more: number }
     expect(found.deciders).toHaveLength(FIND_LIMIT)
     expect(found.more).toBe(5)
@@ -238,7 +238,7 @@ describe('/mcp: the record it reads from', () => {
     await env.DB.prepare(`UPDATE deciders SET name = 'Fay Unlogged' WHERE id = 'fay'`).run()
     expect(await names()).toEqual(['Fay Zeta'])
     // An editor's write goes through the log, so the next call reads the record again.
-    expect((await partyWrite([{ channel: 'deciders', ops: [{ type: 'update', value: { id: 'fay', name: 'Fay Logged' } }] }], EDITOR_TOKEN)).status).toBe(200)
+    expect((await partyWrite([{ channel: 'deciders', ops: [{ type: 'update', value: { id: 'fay', name: 'Fay Logged' } }] }], undefined, (await editor(`mcp-${crypto.randomUUID()}@reader.test`)).cookie)).status).toBe(200)
     expect(await names()).toEqual(['Fay Logged'])
   })
 })

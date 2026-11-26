@@ -1,7 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { NewsRun, NewsStep, ReadOutcome } from '../../shared/news-run.ts'
-import { editorFetch } from '../lib/editor.ts'
 import { runStatus, traceOf, traceTotals, type TraceRow } from '../lib/news-trace.ts'
 import { ProgressBar } from './bits.tsx'
 
@@ -23,7 +22,7 @@ export function useEditorJson<T>(path: string | null, pollMs: number, stillChang
     let latest: T | undefined
     const load = async () => {
       try {
-        const res = await editorFetch(path)
+        const res = await fetch(path)
         if (res.ok) latest = (await res.json()) as T
         else if (res.status !== 404) throw new Error(`${path} answered ${res.status}.`)
         if (stopped) return
@@ -61,7 +60,7 @@ export function NewsSearch({ children }: { children: ReactNode }) {
     const id = crypto.randomUUID()
     setStartFailure(null)
     setRunId(id)
-    const res = await editorFetch('/api/editor/news-search', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ run_id: id }) }).catch(
+    const res = await fetch('/api/editor/news-search', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ run_id: id }) }).catch(
       (err: unknown) => err,
     )
     // The run records its own outcome. Only a request that never reached it needs saying here.

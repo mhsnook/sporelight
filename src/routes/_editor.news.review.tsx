@@ -2,8 +2,8 @@ import { Link, createFileRoute } from '@tanstack/react-router'
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useLiveQuery } from '@tanstack/react-db'
 import { isUnreadLead, type Proposal, type ProposalContext, type ProposalItem, type ProposalMention, type ProposalNote, type Question, type Source } from '../../shared/schema.ts'
+import { useSession } from '../lib/auth.ts'
 import { db } from '../lib/db.ts'
-import { editorFetch, signOut } from '../lib/editor.ts'
 import { commit } from '../lib/review.ts'
 import { planReview, type Write } from '../lib/review-plan.ts'
 import { groupBy } from '../lib/build-tracker.ts'
@@ -166,9 +166,6 @@ function Queue() {
           <Link to="/people" className="btn btn-sm shadow-none">
             People
           </Link>
-          <button type="button" className="btn btn-sm shadow-none" onClick={signOut}>
-            Sign out
-          </button>
         </NewsSearch>
       </div>
 
@@ -357,6 +354,8 @@ function Desk({
   onFinish: (done: Finish) => void
   children: ReactNode
 }) {
+  // The editor layout renders this only for a signed-in editor.
+  const reviewerId = useSession().id!
   const { tracker } = useTracker()
   const readOnly = proposal.status !== 'pending'
   const [drafts, setDrafts] = useState(
@@ -398,7 +397,7 @@ function Desk({
     }
     try {
       const verdict = { ...verdictOf(drafts, reviewNote, decide, dismissAll), published_on: publishedOn }
-      const writes = planReview(tracker, proposal, source, verdict, new Date().toISOString())
+      const writes = planReview(tracker, proposal, source, verdict, reviewerId, new Date().toISOString())
       const published = new Set(verdict.entries.filter((e) => e.publish).map((e) => e.decider_id)).size
       const title = `“${sourceLabel(source)}”`
       setError(null)
@@ -457,7 +456,7 @@ function ReadArticleTrial() {
     setView(null)
     setRunning(true)
     try {
-      const res = await editorFetch('/api/editor/read-article', {
+      const res = await fetch('/api/read-article', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ url: f.get('trial_url'), question_id: questionId }),

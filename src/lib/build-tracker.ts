@@ -1,5 +1,5 @@
-import type { Act, Body, Decider, Office, OfficeHolder, Position, Question, QuestionBody, QuestionDecider, QuestionOffice, QuestionRelation, Reading, Report, Review, Role, SameAct, Seat, SetPosition, Source } from '../../shared/schema.ts'
-import { EDITORS_ID, carriesUp, inEffect, isOpenOn, pairId, stillAhead, type Certainty } from '../../shared/schema.ts'
+import type { Act, Body, Decider, Office, OfficeHolder, Person, Position, Question, QuestionBody, QuestionDecider, QuestionOffice, QuestionRelation, Reading, Report, Review, Role, SameAct, Seat, SetPosition, Source } from '../../shared/schema.ts'
+import { carriesUp, inEffect, isOpenOn, pairId, stillAhead, type Certainty } from '../../shared/schema.ts'
 import { REVIEWER_TIERS, calculatePosition, footingOf, isAcross, summarize, type Footing, type ReviewerTier } from '../../shared/standing.ts'
 import type { Standing } from './position.ts'
 
@@ -85,6 +85,8 @@ export type TrackerData = {
   reports: Report[]
   reviews: Review[]
   sameActs: SameAct[]
+  // Who is an editor, for whose reviews count first.
+  people: Pick<Person, 'id' | 'role'>[]
 }
 
 // The record as readers see it: an act an editor found to be the same as
@@ -136,11 +138,11 @@ export function asShown(c: Pick<TrackerData, 'acts' | 'reports' | 'reviews' | 's
 // on a sub-question that implies something on its parent also counts there, by
 // the same reviewer, unless they reviewed the act on the parent directly; too
 // loose a review does not carry upward.
-export function readingsFrom(reviews: Review[], questionById: ReadonlyMap<string, Question>): Reading[] {
+export function readingsFrom(reviews: Review[], questionById: ReadonlyMap<string, Question>, editorIds: ReadonlySet<string>): Reading[] {
   const readDirectly = new Set(reviews.map((r) => `${r.reviewer_id} ${r.act_id} ${r.question_id}`))
   const counted = reviews.flatMap((r) => {
-    // Every review but the editors' is counted as a person's until reviews carry their author's kind.
-    const tier: ReviewerTier = r.reviewer_id === EDITORS_ID ? 'editor' : 'person'
+    // Every review but an editor's is counted as a person's until reviews carry their author's kind.
+    const tier: ReviewerTier = editorIds.has(r.reviewer_id) ? 'editor' : 'person'
     const own = { act_id: r.act_id, question_id: r.question_id, via: null as Question | null, tier, position: r.position, weight: r.weight }
     const q = questionById.get(r.question_id)
     const implies = q?.parent_id && q.implies_on_parent && r.position === 'support' && carriesUp(r.weight) && !readDirectly.has(`${r.reviewer_id} ${r.act_id} ${q.parent_id}`)
@@ -171,7 +173,7 @@ export function buildTracker(c: TrackerData, asOf: string) {
   const shown = asShown(c)
   // Every act on file, so a proposal or a plan can find one shown as another; a shown act as it is shown.
   const actById = indexBy([...c.acts, ...shown.acts], (a) => a.id)
-  const readings = readingsFrom(shown.reviews, questionById)
+  const readings = readingsFrom(shown.reviews, questionById, new Set(c.people.filter((p) => p.role === 'editor').map((p) => p.id)))
   const seatsByBody = groupBy(c.seats, (s) => s.body_id)
   const SURENESS: Record<Certainty, number> = { certain: 0, likely: 1, possible: 2 }
   // Surest first, so anything that takes the first holder takes the surest.

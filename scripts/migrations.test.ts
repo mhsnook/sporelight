@@ -731,3 +731,48 @@ describe('0021_reviews', () => {
     expect(() => db.exec(`INSERT INTO reviews (id, reviewer_id, act_id, question_id, position, weight, created_at, updated_at) VALUES ('stranger', 'nobody', 'signed', 'policy', 'oppose', 'clear', 't', 't')`)).toThrow()
   })
 })
+
+describe('0022_editor_roles', () => {
+  const db = database('0022')
+  db.exec(`
+    INSERT INTO auth_users (id, name, email, emailVerified, createdAt, updatedAt) VALUES ('ann-account', '', 'ann@example.org', 1, 't', 't');
+    INSERT INTO people (id, kind, display_name, created_at) VALUES ('ann-account', 'person', 'Ann', 't');
+    INSERT INTO auth_sessions (id, expiresAt, token, createdAt, updatedAt, userId) VALUES ('s', 't', 'tok', 't', 't', 'ann-account');
+    INSERT INTO role_assignments (id, person_id, role, granted_at) VALUES ('r', 'ann-account', 'editor', 't');
+    INSERT INTO sources (id, url, title, created_at) VALUES ('src', 'https://news.example/a', 'A', 't');
+    INSERT INTO proposals (id, source_id, origin, status, created_at, reviewed_at) VALUES
+      ('done', 'src', 'reader', 'reviewed', 't', 't'),
+      ('waiting', 'src', 'reader', 'pending', 't', NULL);
+  `)
+  db.exec(migration('0022_editor_roles.sql'))
+
+  it('makes everyone who has signed in a member, keeping their session', () => {
+    expect(all(db, `SELECT u.role, u.banned, p.role AS shown, p.deactivated_at FROM auth_users u JOIN people p ON p.id = u.id WHERE u.id = 'ann-account'`)).toEqual([{ role: 'member', banned: 0, shown: 'member', deactivated_at: null }])
+    expect(count(db, 'auth_sessions')).toBe(1)
+    expect(all(db, `SELECT name FROM sqlite_master WHERE name = 'role_assignments'`)).toEqual([])
+  })
+
+  it('keeps the identity the editor token wrote as an editor that is banned, so no editor can act yet', () => {
+    expect(all(db, `SELECT role, banned FROM auth_users WHERE id = '${EDITORS_ID}'`)).toEqual([{ role: 'editor', banned: 1 }])
+    expect(all(db, `SELECT role, deactivated_at IS NOT NULL AS deactivated FROM people WHERE id = '${EDITORS_ID}'`)).toEqual([{ role: 'editor', deactivated: 1 }])
+    expect(all(db, `SELECT id FROM auth_users WHERE role = 'editor' AND coalesce(banned, 0) = 0`)).toEqual([])
+  })
+
+  it('records the editors as the reviewer of every proposal already reviewed', () => {
+    expect(all(db, `SELECT id, reviewed_by FROM proposals ORDER BY id`)).toEqual([
+      { id: 'done', reviewed_by: EDITORS_ID },
+      { id: 'waiting', reviewed_by: null },
+    ])
+    expect(all(db, `PRAGMA foreign_key_check`)).toEqual([])
+  })
+
+  it('refuses a change that leaves no editor who can act, and allows one that leaves another', () => {
+    db.exec(`UPDATE auth_users SET role = 'editor' WHERE id = 'ann-account'`)
+    expect(() => db.exec(`UPDATE auth_users SET role = 'member' WHERE id = 'ann-account'`)).toThrow(/last editor/)
+    expect(() => db.exec(`UPDATE auth_users SET banned = 1 WHERE id = 'ann-account'`)).toThrow(/last editor/)
+    expect(() => db.exec(`DELETE FROM auth_users WHERE id = 'ann-account'`)).toThrow(/last editor/)
+    db.exec(`INSERT INTO auth_users (id, name, email, emailVerified, createdAt, updatedAt, role) VALUES ('bea', '', 'bea@example.org', 1, 't', 't', 'editor')`)
+    db.exec(`UPDATE auth_users SET role = 'member' WHERE id = 'ann-account'`)
+    expect(all(db, `SELECT id FROM auth_users WHERE role = 'editor' AND coalesce(banned, 0) = 0`)).toEqual([{ id: 'bea' }])
+  })
+})

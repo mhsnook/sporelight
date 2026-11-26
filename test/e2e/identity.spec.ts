@@ -1,14 +1,9 @@
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { query } from './db.ts'
-import { editorToken, signInWithCode } from './fixtures.ts'
+import { editorPage, signInWithCode } from './fixtures.ts'
 
 const person = '/q/free-ferry/bartholomew-sato'
 
-async function asEditor(browser: Browser): Promise<Page> {
-  const context = await browser.newContext()
-  await context.addInitScript((token) => localStorage.setItem('sporelight.editor-token', token), editorToken())
-  return context.newPage()
-}
 
 test('a signed-out reader is asked to sign in instead of commenting, signs in with an emailed code, and comments under a name of their own', async ({ page, browser }) => {
   const stamp = Date.now()
@@ -52,7 +47,7 @@ test('a signed-out reader is asked to sign in instead of commenting, signs in wi
   await expect(reader.getByRole('listitem').filter({ hasText: body })).toContainText(`${name} Renamed`)
 
   // An editor can remove it.
-  const editor = await asEditor(browser)
+  const editor = await editorPage(browser)
   await editor.goto(person)
   await editor.getByRole('listitem').filter({ hasText: body }).getByRole('button', { name: 'Remove' }).click()
   await expect(reader.getByText(body)).toHaveCount(0)

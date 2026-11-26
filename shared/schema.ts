@@ -274,8 +274,8 @@ export const reportSchema = z.object({
 })
 export type Report = z.infer<typeof reportSchema>
 
-// Everything written with the editor token is written as this person, until
-// editors are signed-in people.
+// The identity everything written with the retired editor token was written as.
+// It is an editor who cannot sign in.
 export const EDITORS_ID = 'editors'
 
 // One identity's judgement of what an act shows on a question. Only its author changes it.
@@ -330,6 +330,7 @@ export const proposalSchema = z.object({
   unread: z.enum(UNREAD_REASONS).nullable(),
   created_at: z.string(),
   reviewed_at: z.string().nullable(),
+  reviewed_by: z.string().nullable(),
 })
 export type Proposal = z.infer<typeof proposalSchema>
 
@@ -412,7 +413,7 @@ export const proposalInputSchema = z.object({
 export type ProposalInput = z.infer<typeof proposalInputSchema>
 
 // What the Worker turns into a proposal. Each item is a separate act. An item's
-// note is kept in proposal_notes, where only editors read it.
+// note is kept in proposal_notes, which only signed-in people read.
 export type ProposalDraft = {
   source: { url: string; title: string | null; published?: FoundPublishedOn | null }
   note: string | null
@@ -452,10 +453,15 @@ export function sourceUrl(url: string): string {
 // address is kept with that account and never here, since this table is public.
 // An agent signs itself up through the MCP endpoint; a person signs in with an emailed code.
 export const PERSON_KINDS = ['person', 'agent'] as const
+// Better Auth's admin plugin holds the role; this is the public copy of it.
+export const ACCOUNT_ROLES = ['member', 'editor'] as const
+export type AccountRole = (typeof ACCOUNT_ROLES)[number]
 export const personSchema = z.object({
   id: z.string(),
   kind: z.enum(PERSON_KINDS),
   display_name: z.string().nullable(),
+  role: z.enum(ACCOUNT_ROLES),
+  deactivated_at: z.string().nullable(),
   created_at: z.string(),
 })
 export type Person = z.infer<typeof personSchema>
@@ -484,10 +490,12 @@ export const commentInputSchema = z.object({
 })
 export type CommentInput = z.infer<typeof commentInputSchema>
 
-// The only identity this room's `auth` hook ever verifies is an editor, so
-// 'authed' here means "editor". Readers who sign in are verified by the Worker
-// on the requests they post; don't hand them a uid in this room.
-const editorWrites = { read: 'public', insert: 'authed', update: 'authed', delete: 'authed' } as const
+// Every signed-in person has a uid in the room, so 'authed' means anyone signed
+// in. What only editors may do names the role.
+const editors = { roles: ['editor'] } as const
+const editorWrites = { read: 'public', insert: editors, update: editors, delete: editors } as const
+// For what only signed-in people read about a proposal: they review, so they see what an editor sees.
+const reviewerReads = { read: 'authed', insert: editors, update: editors, delete: editors } as const
 
 export const publicCollections = [
   definePartyCollection({ name: 'bodies', key: 'id', schema: bodySchema, access: editorWrites }),
@@ -505,7 +513,8 @@ export const publicCollections = [
   definePartyCollection({ name: 'sources', key: 'id', schema: sourceSchema, access: editorWrites }),
   definePartyCollection({ name: 'acts', key: 'id', schema: actSchema, access: editorWrites }),
   definePartyCollection({ name: 'reports', key: 'id', schema: reportSchema, access: editorWrites }),
-  definePartyCollection({ name: 'reviews', key: 'id', schema: reviewSchema, access: editorWrites }),
+  // Only a review's author writes it. An editor who disagrees makes their own.
+  definePartyCollection({ name: 'reviews', key: 'id', schema: reviewSchema, ownerColumn: 'reviewer_id', access: { read: 'public', insert: 'owner', update: 'owner', delete: 'owner' } }),
   definePartyCollection({ name: 'same_acts', key: 'act_id', schema: sameActSchema, access: editorWrites }),
 ] as const
 
@@ -529,7 +538,7 @@ export const proposalNotesCollection = definePartyCollection({
   name: 'proposal_notes',
   key: 'id',
   schema: proposalNoteSchema,
-  access: 'authed',
+  access: reviewerReads,
 })
 
 // Sliced by thread, so a reader loads and hears only the threads they have open.
@@ -540,15 +549,15 @@ export const commentsCollection = definePartyCollection({
   key: 'id',
   schema: commentSchema,
   sliceBy: 'thread_id',
-  access: { read: 'public', delete: 'authed' },
+  access: { read: 'public', delete: editors },
 })
 
 // Only the Worker writes people: a row when someone first signs in, and their
 // display name. Nobody, editors included, writes one through the room.
 export const peopleCollection = definePartyCollection({ name: 'people', key: 'id', schema: personSchema, access: { read: 'public' } })
 
-export const proposalContextsCollection = definePartyCollection({ name: 'proposal_contexts', key: 'id', schema: proposalContextSchema, access: 'authed' })
-export const proposalMentionsCollection = definePartyCollection({ name: 'proposal_mentions', key: 'id', schema: proposalMentionSchema, access: 'authed' })
+export const proposalContextsCollection = definePartyCollection({ name: 'proposal_contexts', key: 'id', schema: proposalContextSchema, access: reviewerReads })
+export const proposalMentionsCollection = definePartyCollection({ name: 'proposal_mentions', key: 'id', schema: proposalMentionSchema, access: reviewerReads })
 
 export const allCollections = [
   ...publicCollections,

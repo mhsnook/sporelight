@@ -1,11 +1,20 @@
 import { useMemo } from 'react'
 import { useLiveQuery } from '@tanstack/react-db'
 import { createAuthClient } from 'better-auth/react'
-import { emailOTPClient } from 'better-auth/client/plugins'
-import type { Person } from '../../shared/schema.ts'
-import { db } from './db.ts'
+import { adminClient, emailOTPClient } from 'better-auth/client/plugins'
+import type { AccountRole, Person } from '../../shared/schema.ts'
+import { db, onReset, resetSync } from './db.ts'
 
-export const authClient = createAuthClient({ basePath: '/api/auth', plugins: [emailOTPClient()] })
+export const authClient = createAuthClient({ basePath: '/api/auth', plugins: [emailOTPClient(), adminClient()] })
+
+// The room resets this browser's sync when the person's role changes or they
+// are deactivated, and then the session has to be read again too.
+onReset(() => authClient.$store.notify('$sessionSignal'))
+
+export async function signOut() {
+  await authClient.signOut()
+  resetSync()
+}
 
 // Everyone who has signed in, by id.
 export function usePeople() {
@@ -17,16 +26,19 @@ export function usePeople() {
 // Whether someone is signed in in this browser, without loading anyone's row.
 export function useSession() {
   const session = authClient.useSession()
-  return { id: session.data?.user.id, isPending: session.isPending }
+  const role: AccountRole | undefined = session.data ? (session.data.user.role === 'editor' ? 'editor' : 'member') : undefined
+  return { id: session.data?.user.id, role, isPending: session.isPending }
 }
+
+export const useIsEditor = () => useSession().role === 'editor'
 
 // The person signed in in this browser. Their row arrives through the sync
 // room a moment after they first sign in, so `person` can lag `signedIn`.
 // Until `peopleReady`, a missing `person` says nothing about whether they have a row.
 export function useSignedIn() {
-  const { id, isPending } = useSession()
+  const { id, role, isPending } = useSession()
   const people = usePeople()
-  return { signedIn: id !== undefined, person: id ? people.byId.get(id) : undefined, isPending, peopleReady: people.isReady }
+  return { signedIn: id !== undefined, role, person: id ? people.byId.get(id) : undefined, isPending, peopleReady: people.isReady }
 }
 
 // A post only a signed-in person may make. A 401 means the session ended

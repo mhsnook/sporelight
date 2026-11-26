@@ -3,8 +3,7 @@ import { useLocation } from '@tanstack/react-router'
 import { eq, useLiveQuery } from '@tanstack/react-db'
 import { pairId, type Decider, type Question } from '../../shared/schema.ts'
 import { db } from '../lib/db.ts'
-import { postAsReader, setDisplayName, useSignedIn } from '../lib/auth.ts'
-import { isEditor } from '../lib/editor.ts'
+import { postAsReader, setDisplayName, useIsEditor, useSignedIn } from '../lib/auth.ts'
 import { Modal } from './Modal.tsx'
 import { SignedInOnly } from './SignIn.tsx'
 
@@ -30,6 +29,7 @@ export function Discussion({ question, decider }: { question: Question; decider:
     [threadId],
   )
   const { person, peopleReady } = useSignedIn()
+  const editor = useIsEditor()
   const name = person?.display_name ?? ''
   const [renaming, setRenaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -76,7 +76,7 @@ export function Discussion({ question, decider }: { question: Question; decider:
             <p className="mb-1 flex flex-wrap items-baseline gap-2 text-xs text-muted">
               <span className="text-sm font-semibold text-ink">{c.display_name}</span>
               <time dateTime={c.created_at}>{timeFmt.format(new Date(c.created_at))}</time>
-              {isEditor() && (
+              {editor && (
                 <button type="button" className="ml-auto underline underline-offset-2 hover:text-oppose" onClick={() => db.comments.delete(c.id)}>
                   Remove
                 </button>

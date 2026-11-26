@@ -1,9 +1,8 @@
 import { env, exports } from 'cloudflare:workers'
+import { getServerByName } from 'partyserver'
 import { vi } from 'vitest'
 import worker from '../../worker/index.ts'
-import { EDITOR_TOKEN } from './editor-token.ts'
-
-export { EDITOR_TOKEN }
+import type { Tracker } from '../../worker/tracker.ts'
 
 // One table of each kind a proposal or a news search reads. Each test file gets
 // its own database, so a file seeds once and its tests share the rows.
@@ -110,6 +109,14 @@ export async function reader(email: string, displayName = 'A Reader') {
   return { cookie, personId: row.id, send: postAs(cookie) }
 }
 
+// A signed-in person made an editor, as an editor's change on /admin would make them.
+export async function editor(email: string, displayName = 'An Editor') {
+  const person = await reader(email, displayName)
+  await env.DB.prepare(`UPDATE auth_users SET role = 'editor' WHERE id = ?`).bind(person.personId).run()
+  await (await getServerByName<Env, Tracker>(env.Tracker, 'main')).syncAccount(person.personId, 'editor', false)
+  return person
+}
+
 // `post` with a signed-in person's cookie.
 export const postAs =
   (cookie: string) =>
@@ -134,8 +141,9 @@ export const rows = async <T = Record<string, unknown>>(sql: string, ...binds: u
 
 const PARTY = 'http://sporelight.test/parties/tracker/main?proto=party-db'
 
-// What the browser's party-db client sends on a write. A signed-in reader's
-// browser also sends their `cookie`.
+// What the browser's party-db client sends on a write, with a signed-in
+// person's `cookie`. `token` is sent as a bearer, which the room does not take
+// for a session.
 export function partyWrite(batches: unknown, token?: string, cookie?: string) {
   return exports.default.fetch(PARTY, {
     method: 'POST',
@@ -152,14 +160,19 @@ export async function partySocket(token?: string, cookie?: string) {
   const ws = res.webSocket
   if (!ws) throw new Error(`no socket: ${res.status} ${await res.text()}`)
   const frames: Frame[] = []
+  let closedWith: number | null = null
   ws.addEventListener('message', (e) => {
     frames.push(JSON.parse(e.data as string))
+  })
+  ws.addEventListener('close', (e) => {
+    closedWith = e.code
   })
   ws.accept()
   return {
     frames,
     send: (frame: unknown) => ws.send(JSON.stringify(frame)),
     channels: () => new Set(frames.map((f) => f.channel)),
+    closedWith: () => closedWith,
     close: () => ws.close(),
   }
 }

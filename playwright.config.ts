@@ -7,6 +7,7 @@ const PORT = 5179
 // in test/e2e/fixture.json, before Playwright starts.
 export default defineConfig({
   testDir: 'test/e2e',
+  globalSetup: './test/e2e/global-setup.ts',
   fullyParallel: false,
   workers: 1,
   forbidOnly: !!process.env.CI,

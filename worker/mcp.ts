@@ -27,7 +27,7 @@ const evidenceInput = z.object({
   source_url: shape.source_url.describe('Where an editor can read it: the article, record or post.'),
   source_title: shape.source_title.unwrap().optional().describe('The outlet and headline.'),
   occurred_on: shape.occurred_on.unwrap().optional().describe('The day it happened, as YYYY-MM-DD, if the source says.'),
-  submitter_note: shape.submitter_note.unwrap().optional().describe('Anything the editor should know. Only editors read it.'),
+  submitter_note: shape.submitter_note.unwrap().optional().describe('Anything a reviewer should know. Only signed-in people read it, not the public.'),
 })
 
 export const FIND_LIMIT = 25

@@ -37,7 +37,7 @@ const publish = (items: ProposalItem[], over: Partial<Publish> = {}): EntryVerdi
 })
 const dismiss = (items: ProposalItem[], note: string | null = null): EntryVerdict => ({ decider_id: items[0].decider_id, items, note, publish: false })
 const verdict = (entries: EntryVerdict[], review_note: string | null = null): Verdict => ({ review_note, entries })
-const plan = (v: Verdict, onFile: Published = published()) => planReview(onFile, pending, article, v, NOW, ids())
+const plan = (v: Verdict, onFile: Published = published()) => planReview(onFile, pending, article, v, EDITORS_ID, NOW, ids())
 
 const rowsOf = <T>(writes: Write[], on: Write['on']) => writes.filter((w) => w.on === on && w.type === 'insert').map((w) => (w as unknown as { row: T }).row)
 const updatesOf = (writes: Write[], on: Write['on']) => writes.filter((w) => w.on === on && w.type === 'update').map((w) => w as { id: string; changes: Record<string, unknown> })
@@ -45,7 +45,7 @@ const notesOf = (writes: Write[]) => rowsOf<{ proposal_item_id: string | null; b
 const writesOn = (writes: Write[], table: Write['on']) => writes.filter((w) => w.on === table)
 
 describe('planReview', () => {
-  it('publishes several entries from one article in a single plan', () => {
+  it('publishes several entries from one article in a single plan, recording who reviewed it', () => {
     const ann = item('i1', 'p1', 'ann', 'policy')
     const bob = item('i2', 'p1', 'bob', 'policy', { sort: 1, reading: 'oppose' })
     const cy = item('i3', 'p1', 'cy', 'policy', { sort: 2 })
@@ -68,7 +68,7 @@ describe('planReview', () => {
       ['i2', 'accepted'],
       ['i3', 'rejected'],
     ])
-    expect(updatesOf(writes, 'proposals')).toEqual([{ on: 'proposals', type: 'update', id: 'p1', changes: { status: 'reviewed', reviewed_at: NOW } }])
+    expect(updatesOf(writes, 'proposals')).toEqual([{ on: 'proposals', type: 'update', id: 'p1', changes: { status: 'reviewed', reviewed_at: NOW, reviewed_by: EDITORS_ID } }])
     expect(notesOf(writes)).toEqual([
       ['i3', 'Not in the article.'],
       [null, 'Read in full.'],
@@ -288,7 +288,7 @@ describe('planReview and the source’s publish date', () => {
 
   it('writes an editor’s word that the date is not known, so no automated date replaces it', () => {
     const dated = source('article', { published_on: '2018-07-19', published_on_from: 'page' })
-    const writes = planReview(published(), pending, dated, { ...verdict([dismiss([ann()])]), published_on: null }, NOW, ids())
+    const writes = planReview(published(), pending, dated, { ...verdict([dismiss([ann()])]), published_on: null }, EDITORS_ID, NOW, ids())
     expect(updatesOf(writes, 'sources')).toEqual([{ on: 'sources', type: 'update', id: 'article', changes: { published_on: null, published_on_from: 'editor' } }])
   })
 
@@ -300,10 +300,10 @@ describe('planReview and the source’s publish date', () => {
 
   it('confirms a page date the editor kept as their own, and writes nothing for a date they did not touch', () => {
     const dated = source('article', { published_on: '2018-07-19', published_on_from: 'page' })
-    expect(updatesOf(planReview(published(), pending, dated, { ...verdict([publish([ann()])]), published_on: '2018-07-19' }, NOW, ids()), 'sources')).toHaveLength(1)
-    expect(writesOn(planReview(published(), pending, dated, verdict([publish([ann()])]), NOW, ids()), 'sources')).toEqual([])
+    expect(updatesOf(planReview(published(), pending, dated, { ...verdict([publish([ann()])]), published_on: '2018-07-19' }, EDITORS_ID, NOW, ids()), 'sources')).toHaveLength(1)
+    expect(writesOn(planReview(published(), pending, dated, verdict([publish([ann()])]), EDITORS_ID, NOW, ids()), 'sources')).toEqual([])
     const theirs = source('article', { published_on: '2018-07-19', published_on_from: 'editor' })
-    expect(writesOn(planReview(published(), pending, theirs, { ...verdict([publish([ann()])]), published_on: '2018-07-19' }, NOW, ids()), 'sources')).toEqual([])
+    expect(writesOn(planReview(published(), pending, theirs, { ...verdict([publish([ann()])]), published_on: '2018-07-19' }, EDITORS_ID, NOW, ids()), 'sources')).toEqual([])
   })
 })
 
