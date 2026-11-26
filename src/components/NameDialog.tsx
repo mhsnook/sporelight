@@ -6,14 +6,14 @@ import { Modal } from './Modal.tsx'
 // One dialog for the whole page that asks a signed-in person for the name others
 // see. It opens by itself after a first sign-in, and a form that needs a name
 // opens it with what to do once the name is saved.
-type Asked = { then?: () => void }
+type Asked = { then?: () => void; declined?: () => void }
 let asked: Asked | null = null
 const listeners = new Set<() => void>()
 function setAsked(next: Asked | null) {
   asked = next
   for (const listener of listeners) listener()
 }
-export const askForName = (then?: () => void) => setAsked({ then })
+export const askForName = (then?: () => void, declined?: () => void) => setAsked({ then, declined })
 const subscribe = (listener: () => void) => (listeners.add(listener), () => void listeners.delete(listener))
 
 // "Not now" lasts for the browser session, per person.
@@ -44,9 +44,13 @@ export function NameDialog() {
     if (unnamed && !settingUp && !saidNotNow(person.id) && asked === null) askForName()
   }, [unnamed, settingUp, person?.id])
 
+  // Also called when the dialog closes after a save, by which time nothing is asked.
   function notNow() {
+    if (asked === null) return
+    const { declined } = asked
     if (person) rememberNotNow(person.id)
     setAsked(null)
+    declined?.()
   }
 
   return (
@@ -74,8 +78,10 @@ function NameForm({ onSaved, onNotNow }: { onSaved: () => void; onNotNow: () => 
   const [saving, setSaving] = useState(false)
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    const chosen = String(new FormData(e.currentTarget).get('display_name')).trim()
+    if (!chosen) return setError('Choose the name others see you as.')
     setSaving(true)
-    const failed = await setDisplayName(String(new FormData(e.currentTarget).get('display_name')))
+    const failed = await setDisplayName(chosen)
     setSaving(false)
     if (failed) return setError(failed)
     onSaved()

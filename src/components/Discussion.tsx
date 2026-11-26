@@ -62,7 +62,7 @@ export function Discussion({ question, decider }: { question: Question; decider:
     const f = new FormData(e.currentTarget)
     if (!String(f.get('body')).trim()) return setError('Write a comment first.')
     // A comment shows its person's name, so someone without one picks it first, and the comment is sent once it is saved.
-    if (!name) return askForName(() => void send(f))
+    if (!name) return askForName(() => void send(f), () => setError('Choose a name to post your comment.'))
     void send(f)
   }
 
