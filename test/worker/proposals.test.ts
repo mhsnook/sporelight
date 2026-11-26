@@ -242,8 +242,9 @@ describe('Tracker.propose', () => {
   })
 
   it("writes a signed-in reader's submission as their own review", async () => {
-    const [row] = await rows<{ act_id: string }>(`SELECT i.act_id FROM proposal_items i JOIN proposals p ON p.id = i.proposal_id JOIN sources s ON s.id = p.source_id WHERE p.submitted_by = ? LIMIT 1`, personId)
-    expect(await rows(`SELECT reviewer_id FROM reviews WHERE act_id = ?`, row.act_id)).toEqual([{ reviewer_id: personId }])
+    const answer = (await (await send('/api/proposals', proposal({ source_url: 'https://news.example/own-review' }))).json()) as { proposal_id: string }
+    const [row] = await rows<{ act_id: string }>(`SELECT act_id FROM proposal_items WHERE proposal_id = ?`, answer.proposal_id)
+    expect(await rows(`SELECT reviewer_id, position FROM reviews WHERE act_id = ?`, row.act_id)).toEqual([{ reviewer_id: personId, position: 'support' }])
   })
 
   it('keeps an act the model could not date, undated', async () => {

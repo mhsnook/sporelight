@@ -57,6 +57,7 @@ export type Published = {
   acts: Act[]
   reports: Report[]
   reviews: Review[]
+  sameActs: SameAct[]
   setPositions: SetPosition[]
 }
 
@@ -124,6 +125,7 @@ export function planReview(
   const reportIn = new Map(published.reports.map((r) => [`${r.source_id} ${r.act_id}`, r]))
   const editorsReview = new Map(published.reviews.filter((r) => r.reviewer_id === EDITORS_ID).map((r) => [`${r.act_id} ${r.question_id}`, r]))
   const setPositionIds = new Set(published.setPositions.map((s) => s.id))
+  const markedAs = new Map(published.sameActs.map((s) => [s.act_id, s.same_as_id]))
   let nextSort = Math.max(-1, ...verdict.entries.flatMap((e) => e.items.map((i) => i.sort))) + 1
 
   const review = (actId: string, questionId: string, position: Direction | null, weight: Weight | null) => {
@@ -154,7 +156,10 @@ export function planReview(
     if (cameIn && cameIn !== entry.act_id) {
       // The editor found the act that came in to be one already on the record.
       if (!onFile) throw new Error('The act chosen as the same one is not on file.')
-      writes.push({ on: 'same_acts', type: 'insert', row: { act_id: cameIn, same_as_id: entry.act_id, marked_by: EDITORS_ID, marked_at: now } })
+      // It may have been marked already, from the person's page, while the card waited.
+      const marked = markedAs.get(cameIn)
+      if (marked === undefined) writes.push({ on: 'same_acts', type: 'insert', row: { act_id: cameIn, same_as_id: entry.act_id, marked_by: EDITORS_ID, marked_at: now } })
+      else if (marked !== entry.act_id) writes.push({ on: 'same_acts', type: 'update', id: cameIn, changes: { same_as_id: entry.act_id, marked_by: EDITORS_ID, marked_at: now } })
     } else if (onFile && cameIn) {
       const facts = { kind: entry.kind, occurred_on: entry.occurred_on || null, body: entry.quote }
       if (onFile.kind !== facts.kind || onFile.occurred_on !== facts.occurred_on || onFile.body !== facts.body) writes.push({ on: 'acts', type: 'update', id: onFile.id, changes: facts })

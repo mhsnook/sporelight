@@ -18,14 +18,15 @@ export type Claim = {
   verdict: 'waiting' | 'published' | 'turned_down'
 }
 
-export function claimOf(tracker: Pick<Tracker, 'actById' | 'reportIn' | 'reviewBy'>, proposal: Pick<Proposal, 'source_id' | 'submitted_by' | 'status'>, item: ProposalItem): Claim {
+export function claimOf(tracker: Pick<Tracker, 'actById' | 'reportIn' | 'reviewBy' | 'shownAs'>, proposal: Pick<Proposal, 'source_id' | 'submitted_by' | 'status'>, item: ProposalItem): Claim {
   const act = item.act_id ? tracker.actById.get(item.act_id) : undefined
   if (!act) {
     return { item, isLead: true, kind: 'says', occurred_on: null, quote: item.excerpt ?? '', passage: null, reading: null, weight: null, verdict: proposal.status === 'reviewed' ? 'turned_down' : 'waiting' }
   }
   const report = tracker.reportIn(proposal.source_id, act.id)
   const sent = proposal.submitted_by ? tracker.reviewBy(proposal.submitted_by, act.id, item.question_id) : undefined
-  const editors = tracker.reviewBy(EDITORS_ID, act.id, item.question_id)
+  // Published as a report of an act already on the record, the editors' review is on that act.
+  const editors = tracker.reviewBy(EDITORS_ID, tracker.shownAs(act.id), item.question_id) ?? tracker.reviewBy(EDITORS_ID, act.id, item.question_id)
   return {
     item,
     isLead: false,

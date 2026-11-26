@@ -15,7 +15,7 @@ const markup = question('markup', { parent_id: 'policy' })
 const article = source('article', { title: 'As submitted' })
 const pending = proposal('p1', 'article')
 
-const published = (over: Partial<Published> = {}): Published => ({ questions: [policy, bill, markup], acts: [], reports: [], reviews: [], setPositions: [], ...over })
+const published = (over: Partial<Published> = {}): Published => ({ questions: [policy, bill, markup], acts: [], reports: [], reviews: [], sameActs: [], setPositions: [], ...over })
 
 type Publish = Extract<EntryVerdict, { publish: true }>
 
@@ -140,6 +140,15 @@ describe('planReview', () => {
     expect(writesOn(writes, 'acts')).toEqual([])
     expect(writesOn(writes, 'reports')).toEqual([])
     expect(rowsOf<Review>(writes, 'reviews').map((r) => [r.act_id, r.question_id])).toEqual([['feb-11', 'policy']])
+  })
+
+  it('writes no second mark when the act that came in was already marked as that act, and moves a mark that points elsewhere', () => {
+    const mark = (sameAs: string) => ({ act_id: 'act-of-i1', same_as_id: sameAs, marked_by: EDITORS_ID, marked_at: '2026-11-01T00:00:00.000Z' })
+    const base = cameIn([ann], { acts: [...cameIn([ann]).acts, act('feb-11', 'ann'), act('mar-02', 'ann')] })
+    expect(writesOn(plan(verdict([publish([ann], { act_id: 'feb-11' })]), { ...base, sameActs: [mark('feb-11')] }), 'same_acts')).toEqual([])
+    expect(writesOn(plan(verdict([publish([ann], { act_id: 'feb-11' })]), { ...base, sameActs: [mark('mar-02')] }), 'same_acts')).toEqual([
+      { on: 'same_acts', type: 'update', id: 'act-of-i1', changes: { same_as_id: 'feb-11', marked_by: EDITORS_ID, marked_at: NOW } },
+    ])
   })
 
   it('says nothing on a question left off, on the act that came in, when it is marked as an act already on the record', () => {
