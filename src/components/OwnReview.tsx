@@ -6,11 +6,12 @@ import { newReview, reviewToConfirm, type Answers } from '../lib/own-review.ts'
 import { DIRECTION_LABEL, WEIGHT_HINT, WEIGHT_LABEL } from '../lib/position.ts'
 import { useTracker } from '../lib/tracker.tsx'
 
+const sameAnswers = (r: Pick<Review, 'position' | 'weight'>, a: Answers) => r.position === a.position && r.weight === a.weight
 const answersOf = (r: Pick<Review, 'position' | 'weight'>) => (r.position && r.weight ? `${DIRECTION_LABEL[r.position]} · ${WEIGHT_LABEL[r.weight]}` : 'says nothing on this question')
 
 // Saving can move the act between the record and the list of acts said to say
 // nothing, which remounts this component, so a failed save's message is kept
-// here by act and question rather than in its state.
+// here by reviewer, act and question rather than in its state.
 const failures = new Map<string, string>()
 const listeners = new Set<() => void>()
 const setFailure = (key: string, message: string | null) => {
@@ -30,7 +31,7 @@ export function OwnReview({ act, question }: { act: Act; question: Question }) {
   const { tracker } = useTracker()
   const { id: reviewerId, role } = useSession()
   const [editing, setEditing] = useState(false)
-  const key = `${act.id} ${question.id}`
+  const key = `${reviewerId} ${act.id} ${question.id}`
   const error = useSyncExternalStore(subscribe, () => failures.get(key) ?? null)
   if (!reviewerId || role === 'editor') return null
   const reviews = tracker.reviewsOn(act.id, question.id)
@@ -59,7 +60,7 @@ export function OwnReview({ act, question }: { act: Act; question: Question }) {
   return (
     <div className="mt-3 border-t border-line pt-2 text-sm">
       {editing ? (
-        <AnswersForm question={question} start={mine ?? toConfirm} onSave={(answers) => save(answers)} onCancel={() => setEditing(false)} />
+        <AnswersForm question={question} start={mine ?? toConfirm} onSave={(answers) => save(answers, !mine && toConfirm && sameAnswers(toConfirm, answers) ? toConfirm : null)} onCancel={() => setEditing(false)} />
       ) : mine ? (
         <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted">
           <span>

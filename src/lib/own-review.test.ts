@@ -96,3 +96,21 @@ describe('a member saying an act says nothing on the question its reading was im
     expect(t.saidNothingOn(policy, 'ann').map((s) => [s.act.id, s.question.id])).toEqual([['x', 'policy']])
   })
 })
+
+describe('a member saying an act says nothing on the sub-question it was implied through', () => {
+  it('takes it off the parent too, since the agent’s review it was implied from no longer counts there', () => {
+    const policy = question('policy')
+    const bill = question('bill', { parent_id: 'policy', kind: 'formal_act', implies_on_parent: 'support' })
+    const people = [{ id: NEWS_READER_ID, kind: 'agent' as const, role: 'member' as const }, { id: 'cy', kind: 'person' as const, role: 'member' as const }]
+    const t = track({
+      deciders: [decider('ann')],
+      questions: [policy, bill],
+      acts: [act('x', 'ann')],
+      people,
+      reviews: [review('x', 'bill', 'support', 'concrete', NEWS_READER_ID), { ...review('x', 'bill', 'support', 'clear', 'cy'), position: null, weight: null }],
+    })
+    expect(t.recordFor(bill, 'ann')).toEqual([])
+    expect(t.recordFor(policy, 'ann')).toEqual([])
+    expect(t.saidNothingOn(policy, 'ann').map((s) => [s.act.id, s.question.id])).toEqual([['x', 'bill']])
+  })
+})

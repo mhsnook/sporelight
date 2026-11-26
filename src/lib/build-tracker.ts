@@ -153,15 +153,26 @@ export function reviewerTiers(people: TrackerData['people']): (reviewerId: strin
 
 // What the reviews come to for each act on each question. A review of support
 // on a sub-question that implies something on its parent also counts there, by
-// the same reviewer, unless they reviewed the act on the parent directly; too
-// loose a review does not carry upward.
+// the same reviewer, unless they reviewed the act on the parent directly. Too
+// loose a review does not carry upward, and neither does one outranked on the
+// sub-question, where it does not count either.
 export function readingsFrom(reviews: Review[], questionById: ReadonlyMap<string, Question>, tierOf: (reviewerId: string) => ReviewerTier): Reading[] {
   const readDirectly = new Set(reviews.map((r) => `${r.reviewer_id} ${r.act_id} ${r.question_id}`))
+  const rank = (reviewerId: string) => REVIEWER_TIERS.indexOf(tierOf(reviewerId))
+  const topRank = new Map<string, number>()
+  for (const r of reviews) topRank.set(`${r.act_id} ${r.question_id}`, Math.min(topRank.get(`${r.act_id} ${r.question_id}`) ?? Infinity, rank(r.reviewer_id)))
   const counted = reviews.flatMap((r) => {
     const tier = tierOf(r.reviewer_id)
     const own = { act_id: r.act_id, question_id: r.question_id, via: null as Question | null, tier, position: r.position, weight: r.weight }
     const q = questionById.get(r.question_id)
-    const implies = q?.parent_id && q.implies_on_parent && r.position === 'support' && r.weight && carriesUp(r.weight) && !readDirectly.has(`${r.reviewer_id} ${r.act_id} ${q.parent_id}`)
+    const implies =
+      q?.parent_id &&
+      q.implies_on_parent &&
+      r.position === 'support' &&
+      r.weight &&
+      carriesUp(r.weight) &&
+      rank(r.reviewer_id) === topRank.get(`${r.act_id} ${r.question_id}`) &&
+      !readDirectly.has(`${r.reviewer_id} ${r.act_id} ${q.parent_id}`)
     return implies ? [own, { ...own, question_id: q.parent_id!, via: q, position: q.implies_on_parent! }] : [own]
   })
   return [...groupBy(counted, (c) => `${c.act_id} ${c.question_id}`)].flatMap(([id, group]): Reading[] => {

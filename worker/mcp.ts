@@ -110,7 +110,7 @@ function serverFor(env: Env, req: Request) {
   server.registerTool(
     'get_positions',
     {
-      description: 'Where each person a question is put to stands today, worked out from their published record the way the question’s page shows it.',
+      description: 'Where each person a question is put to stands today, worked out from their record the way the question’s page shows it.',
       inputSchema: z.object({
         question: z.string().describe('A question id or slug from list_questions.'),
         body: z.string().optional().describe('Only the people in this body, by its slug from list_questions.'),
