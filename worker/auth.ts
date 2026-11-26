@@ -6,7 +6,7 @@ import { anonymous } from 'better-auth/plugins/anonymous'
 import { emailOTP } from 'better-auth/plugins/email-otp'
 import { waitUntil } from 'cloudflare:workers'
 import { getServerByName } from 'partyserver'
-import { ROLE_RIGHTS } from '../shared/account-roles.ts'
+import { ROLE_RIGHTS, roleOf } from '../shared/account-roles.ts'
 import { SIGN_IN_CODE_MINUTES, type AccountRole, type Person } from '../shared/schema.ts'
 import type { Tracker } from './tracker.ts'
 
@@ -20,8 +20,6 @@ const MODELS = {
   rateLimit: 'auth_rate_limits',
   apikey: 'auth_api_keys',
 } as const
-
-export const roleOf = (user: { role?: string | null }): AccountRole => (user.role === 'editor' ? 'editor' : 'member')
 
 export const LAST_EDITOR = 'This is the only editor who can act. Make someone else an editor first.'
 
@@ -77,10 +75,10 @@ export function authOptions(env: Env) {
           if (body.role === 'editor' && typeof body.userId === 'string' && (await isAgent(env, body.userId))) throw new APIError('BAD_REQUEST', { message: 'An agent cannot be an editor.' })
         }
         const demoting = (ctx.path === '/admin/set-role' && body?.role !== 'editor') || ctx.path === '/admin/ban-user' || ctx.path === '/admin/remove-user'
-        if (!demoting || typeof body?.userId !== 'string') return
+        if (!demoting || typeof body?.userId !== 'string' || !(await isLastEditor(env, body.userId))) return
         // Someone who may not make the change is left to Better Auth to refuse.
         const caller = await getSessionFromCtx<{ role?: string | null }>(ctx)
-        if (caller && roleOf(caller.user) === 'editor' && (await isLastEditor(env, body.userId))) throw new APIError('BAD_REQUEST', { message: LAST_EDITOR })
+        if (caller && roleOf(caller.user) === 'editor') throw new APIError('BAD_REQUEST', { message: LAST_EDITOR })
       }),
     },
     databaseHooks: {
@@ -128,13 +126,25 @@ async function isAgent(env: Env, userId: string): Promise<boolean> {
 }
 
 async function isLastEditor(env: Env, userId: string): Promise<boolean> {
-  const row = await env.DB.prepare(
-    `SELECT 1 FROM auth_users u WHERE u.id = ? AND u.role = 'editor' AND coalesce(u.banned, 0) = 0
-       AND NOT EXISTS (SELECT 1 FROM auth_users o WHERE o.role = 'editor' AND coalesce(o.banned, 0) = 0 AND o.id <> u.id)`,
-  )
+  const row = await env.DB.prepare(`SELECT 1 FROM active_editors WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM active_editors WHERE id <> ?1)`)
     .bind(userId)
     .first()
   return row !== null
+}
+
+export async function hasActiveEditor(env: Env): Promise<boolean> {
+  return (await env.DB.prepare(`SELECT 1 FROM active_editors`).first()) !== null
+}
+
+// A deployment with no editor who can act takes its first from the first person
+// to ask. The check and the grant are one statement, so two people asking at
+// once cannot both become the first editor. Better Auth's own route for setting
+// a role needs an editor to call it, which a new deployment has not got.
+export async function grantFirstEditor(env: Env, userId: string): Promise<boolean> {
+  const granted = await env.DB.prepare(`UPDATE auth_users SET role = 'editor' WHERE id = ? AND NOT EXISTS (SELECT 1 FROM active_editors)`)
+    .bind(userId)
+    .run()
+  return granted.meta.changes === 1
 }
 
 const room = (env: Env) => getServerByName<Env, Tracker>(env.Tracker, 'main')
@@ -154,9 +164,9 @@ export class KeyRefused extends Error {
 
 type BetterAuthError = { statusCode?: number; body?: { message?: string; details?: { tryAgainIn?: number } } }
 
-// Who sent this request, if they are signed in. Throws KeyRefused for a key
+// Better Auth's session for this request, if any. Throws KeyRefused for a key
 // Better Auth will not accept, so a bad key is never taken for nobody.
-export async function signedInPerson(req: Request, env: Env): Promise<Person | null> {
+async function sessionOf(req: Request, env: Env) {
   let session
   try {
     session = await auth(env).api.getSession({ headers: req.headers, request: req, asResponse: false })
@@ -171,6 +181,18 @@ export async function signedInPerson(req: Request, env: Env): Promise<Person | n
     if (statusCode === 401 || statusCode === 403) throw new KeyRefused(401, `The key in x-api-key was refused: ${body?.message ?? 'it is not valid'}`)
     throw e
   }
+  return session
+}
+
+// Who sent this request and their role, read from the session alone.
+export async function signedInAccount(req: Request, env: Env): Promise<{ id: string; role: AccountRole } | null> {
+  const session = await sessionOf(req, env)
+  return session && { id: session.user.id, role: roleOf(session.user) }
+}
+
+// Who sent this request, if they are signed in, as the public sees them.
+export async function signedInPerson(req: Request, env: Env): Promise<Person | null> {
+  const session = await sessionOf(req, env)
   if (!session) return null
   const { user } = session
   // The role is read from the session, which is Better Auth's own, not from the public copy.

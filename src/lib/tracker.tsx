@@ -1,7 +1,7 @@
 import { createContext, useContext, useMemo, type ReactNode } from 'react'
 import { useSearch } from '@tanstack/react-router'
 import type { Body, Question } from '../../shared/schema.ts'
-import { useLiveQuery } from '@tanstack/react-db'
+import { eq, useLiveQuery } from '@tanstack/react-db'
 import { db } from './db.ts'
 import { buildTracker, type Tracker } from './build-tracker.ts'
 
@@ -32,7 +32,15 @@ export function TrackerProvider({ asOf, children }: { asOf?: string; children: R
   const reports = useLiveQuery((q) => q.from({ row: db.reports }))
   const reviews = useLiveQuery((q) => q.from({ row: db.reviews }))
   const sameActs = useLiveQuery((q) => q.from({ row: db.same_acts }))
-  const people = useLiveQuery((q) => q.from({ row: db.people }))
+  const editors = useLiveQuery((q) =>
+    q
+      .from({ row: db.people })
+      .where(({ row }) => eq(row.role, 'editor'))
+      .select(({ row }) => ({ id: row.id, role: row.role })),
+  )
+  // Keyed on who the editors are, so a sign-up or a new display name does not rebuild the tracker.
+  const editorKey = editors.data.map((p) => p.id).sort().join(' ')
+  const editorRows = useMemo(() => editors.data, [editorKey])
 
   const day = asOf ?? today()
   const tracker = useMemo(
@@ -55,11 +63,11 @@ export function TrackerProvider({ asOf, children }: { asOf?: string; children: R
         reports: reports.data,
         reviews: reviews.data,
         sameActs: sameActs.data,
-        people: people.data,
+        people: editorRows,
       }, day),
-    [bodies.data, deciders.data, seats.data, roles.data, questions.data, questionBodies.data, questionDeciders.data, offices.data, officeHolders.data, questionOffices.data, questionRelations.data, setPositions.data, sources.data, acts.data, reports.data, reviews.data, sameActs.data, people.data, day],
+    [bodies.data, deciders.data, seats.data, roles.data, questions.data, questionBodies.data, questionDeciders.data, offices.data, officeHolders.data, questionOffices.data, questionRelations.data, setPositions.data, sources.data, acts.data, reports.data, reviews.data, sameActs.data, editorRows, day],
   )
-  const isReady = [bodies, deciders, seats, roles, questions, questionBodies, questionDeciders, offices, officeHolders, questionOffices, questionRelations, setPositions, sources, acts, reports, reviews, sameActs, people].every((q) => q.isReady)
+  const isReady = [bodies, deciders, seats, roles, questions, questionBodies, questionDeciders, offices, officeHolders, questionOffices, questionRelations, setPositions, sources, acts, reports, reviews, sameActs, editors].every((q) => q.isReady)
 
   return <TrackerContext value={{ tracker, isReady }}>{children}</TrackerContext>
 }

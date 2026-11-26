@@ -32,7 +32,7 @@ export const partyWrite = (request: APIRequestContext, data: unknown) =>
 
 // Locally the email binding delivers nothing, so the code is read from where
 // Better Auth keeps it: `<code>:<attempts>`, under the address it was sent to.
-const codeFor = (email: string) => query<{ value: string }>(`SELECT value FROM auth_verifications WHERE identifier = 'sign-in-otp-${email}'`)[0].value.split(':')[0]
+export const codeFor = (email: string) => query<{ value: string }>(`SELECT value FROM auth_verifications WHERE identifier = 'sign-in-otp-${email}'`)[0].value.split(':')[0]
 
 // Signs in through the sign-in dialog, once something on the page has opened it.
 export async function signInWithCode(page: Page, email: string) {

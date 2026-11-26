@@ -1,7 +1,7 @@
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { CodeSignIn } from '../components/SignIn.tsx'
-import { setDisplayName, useSignedIn } from '../lib/auth.ts'
+import { postAsReader, setDisplayName, useSignedIn } from '../lib/auth.ts'
 
 // A new deployment has no editor. The first person to sign in here becomes one.
 export const Route = createFileRoute('/setup')({ component: Setup })
@@ -31,7 +31,7 @@ function Setup() {
   // Once signed in, ask to be made the first editor.
   useEffect(() => {
     if (!signedIn || !needed || granted) return
-    void fetch('/api/setup', { method: 'POST' }).then(async (res) => {
+    void postAsReader('/api/setup', {}).then(async (res) => {
       if (res.ok) return setGranted(true)
       setError(((await res.json().catch(() => ({}))) as { error?: string }).error ?? 'Something went wrong.')
       setNeeded(false)
@@ -56,7 +56,6 @@ function Setup() {
       ) : !signedIn ? (
         <>
           <CodeSignIn
-            onSignedIn={() => {}}
             signInLabel="Continue"
             heading={(step) =>
               step === 'email' ? <Step n={1} title="Set up this site">This site is being set up. Enter your email and you will be its first editor.</Step> : <Step n={2} title="Enter the code" />

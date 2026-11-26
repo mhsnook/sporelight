@@ -1,9 +1,8 @@
 import { useId, useRef, useState } from 'react'
 import { isWebAddress, type ArchiveNow, type Source } from '../../shared/schema.ts'
 import { db } from '../lib/db.ts'
-import { useIsEditor } from '../lib/auth.ts'
-
-const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err))
+import { errorText } from '../lib/errors.ts'
+import { postAsReader, useIsEditor } from '../lib/auth.ts'
 
 // Anyone signed in can ask for a Wayback Machine capture of a source now. An
 // editor can also give the address of a copy kept anywhere else.
@@ -23,7 +22,7 @@ export function ArchiveControls({ source }: { source: Pick<Source, 'id' | 'url' 
     setBusy(true)
     show(null)
     try {
-      const res = await fetch('/api/archive', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ source_id: source.id }) })
+      const res = await postAsReader('/api/archive', { source_id: source.id })
       const answer = (await res.json().catch(() => ({ error: `The Worker answered ${res.status}.`, status: res.status }))) as ArchiveNow
       if ('error' in answer) show(null, `Not archived: ${answer.error}`)
       else show(answer.outcome === 'archived' ? 'Archived.' : (answer.detail ?? answer.outcome))

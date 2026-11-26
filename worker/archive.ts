@@ -282,14 +282,25 @@ const NOT_ARCHIVED: Record<'requested' | 'no_key', string> = {
   no_key: 'No capture was found, and the Worker has no archive.org key to ask for one.',
 }
 
-// An editor's request to archive one source now. It ignores any back-off, and
-// waits a little for the capture before leaving it to the scheduled pass.
-export async function archiveNow(env: Env, tracker: Archiver, sourceId: string, now: Date = new Date(), wait: (ms: number) => Promise<void> = pause): Promise<ArchiveNow> {
-  const row = await env.DB.prepare(`SELECT ${CANDIDATE_COLUMNS}, s.archive_url FROM sources s LEFT JOIN archive_attempts a ON a.source_id = s.id WHERE s.id = ?`)
+// A request to archive one source now, which waits a little for the capture
+// before leaving it to the scheduled pass. An editor's ignores any back-off; a
+// member's is answered from the last attempt while the pass is backing off.
+export async function archiveNow(
+  env: Env,
+  tracker: Archiver,
+  sourceId: string,
+  now: Date = new Date(),
+  wait: (ms: number) => Promise<void> = pause,
+  { respectBackOff = false }: { respectBackOff?: boolean } = {},
+): Promise<ArchiveNow> {
+  const row = await env.DB.prepare(`SELECT ${CANDIDATE_COLUMNS}, a.next_try_at, a.detail, s.archive_url FROM sources s LEFT JOIN archive_attempts a ON a.source_id = s.id WHERE s.id = ?`)
     .bind(sourceId)
-    .first<Omit<Candidate, 'url'> & { url: string | null; archive_url: string | null }>()
+    .first<Omit<Candidate, 'url'> & { url: string | null; archive_url: string | null; next_try_at: string | null; detail: string | null }>()
   if (!row) return { error: 'Unknown source.', status: 404 }
   if (row.archive_url) return { outcome: 'archived', archive_url: row.archive_url }
+  if (respectBackOff && row.outcome && row.outcome !== 'archived' && (row.outcome === 'gave_up' || (row.next_try_at !== null && row.next_try_at > now.toISOString()))) {
+    return { outcome: row.outcome, detail: row.detail ?? 'The archive was asked recently. The scheduled pass will try again.' }
+  }
   if (!row.url) return { outcome: 'no_url', detail: 'This source has no public address to archive.' }
   const source: Candidate = { ...row, url: row.url, outcome: null }
   const key = keyOf(env)

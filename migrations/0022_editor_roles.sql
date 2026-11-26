@@ -35,20 +35,23 @@ ALTER TABLE questions ADD COLUMN archived_at TEXT;
 ALTER TABLE proposals ADD COLUMN reviewed_by TEXT REFERENCES people(id);
 UPDATE proposals SET reviewed_by = 'editors' WHERE status = 'reviewed';
 
+-- The editors who can act. The Worker and the triggers below both read it.
+CREATE VIEW active_editors AS SELECT id FROM auth_users WHERE role = 'editor' AND coalesce(banned, 0) = 0;
+
 -- A deployment always keeps one editor who can act. Better Auth's own checks
 -- run one request at a time, so two editors demoting each other at once would
 -- both pass them; this check runs inside the write.
 CREATE TRIGGER keep_one_editor BEFORE UPDATE OF role, banned ON auth_users
-WHEN OLD.role = 'editor' AND coalesce(OLD.banned, 0) = 0
+WHEN OLD.id IN (SELECT id FROM active_editors)
   AND (NEW.role IS NOT 'editor' OR coalesce(NEW.banned, 0) = 1)
-  AND NOT EXISTS (SELECT 1 FROM auth_users WHERE role = 'editor' AND coalesce(banned, 0) = 0 AND id <> OLD.id)
+  AND NOT EXISTS (SELECT 1 FROM active_editors WHERE id <> OLD.id)
 BEGIN
   SELECT RAISE(ABORT, 'last editor');
 END;
 
 CREATE TRIGGER keep_one_editor_on_delete BEFORE DELETE ON auth_users
-WHEN OLD.role = 'editor' AND coalesce(OLD.banned, 0) = 0
-  AND NOT EXISTS (SELECT 1 FROM auth_users WHERE role = 'editor' AND coalesce(banned, 0) = 0 AND id <> OLD.id)
+WHEN OLD.id IN (SELECT id FROM active_editors)
+  AND NOT EXISTS (SELECT 1 FROM active_editors WHERE id <> OLD.id)
 BEGIN
   SELECT RAISE(ABORT, 'last editor');
 END;

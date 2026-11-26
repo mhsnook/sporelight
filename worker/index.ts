@@ -1,9 +1,9 @@
 import { getServerByName, routePartykitRequest } from 'partyserver'
 import { ARCHIVE_CRON, archiveNow, archiveSources, type Archiver } from './archive.ts'
-import { commentInputSchema, displayNameSchema, proposalInputSchema, sourceUrl, type Person } from '../shared/schema.ts'
+import { commentInputSchema, displayNameSchema, proposalInputSchema, sourceUrl, type AccountRole, type Person } from '../shared/schema.ts'
 import { RUN_ID } from '../shared/news-run.ts'
 import { fetchPublishedOn } from './article.ts'
-import { auth, KeyRefused, signedInPerson } from './auth.ts'
+import { auth, grantFirstEditor, hasActiveEditor, KeyRefused, signedInAccount, signedInPerson } from './auth.ts'
 import { handleMcp } from './mcp.ts'
 import { claimRun, dropRun, finishRun } from './tool-runs.ts'
 import { atomResponse } from './feed.ts'
@@ -37,32 +37,19 @@ async function startNewsSearch(req: Request, env: Env, ctx: ExecutionContext): P
   return Response.json(await run)
 }
 
-// A deployment with no editor who can act takes its first from the first person
-// to sign in and ask. The check and the grant are one statement, so two people
-// asking at once cannot both become the first editor. Better Auth's own route
-// for setting a role needs an editor to call it, which a new deployment has not got.
-async function hasActiveEditor(env: Env): Promise<boolean> {
-  return (await env.DB.prepare(`SELECT 1 FROM auth_users WHERE role = 'editor' AND coalesce(banned, 0) = 0`).first()) !== null
-}
-
 async function handleSetup(req: Request, env: Env): Promise<Response> {
   const person = await signedInPerson(req, env)
   if (!person) return new Response('unauthorized', { status: 401 })
   if (person.kind !== 'person') return Response.json({ error: 'An agent cannot be an editor.' }, { status: 403 })
-  const granted = await env.DB.prepare(
-    `UPDATE auth_users SET role = 'editor' WHERE id = ? AND NOT EXISTS (SELECT 1 FROM auth_users WHERE role = 'editor' AND coalesce(banned, 0) = 0)`,
-  )
-    .bind(person.id)
-    .run()
-  if (granted.meta.changes !== 1) return Response.json({ error: 'This site already has an editor.' }, { status: 409 })
+  if (!(await grantFirstEditor(env, person.id))) return Response.json({ error: 'This site already has an editor.' }, { status: 409 })
   await (await tracker(env)).syncAccount(person.id, 'editor', false)
   return Response.json({ ok: true })
 }
 
 // The two tools anyone signed in may start, which call the archive or the model.
 // Editors are not held to the per-person limit or to an archive back-off.
-async function toolUser(req: Request, env: Env): Promise<Person | Response> {
-  const person = await signedInPerson(req, env)
+async function toolUser(req: Request, env: Env): Promise<{ id: string; role: AccountRole } | Response> {
+  const person = await signedInAccount(req, env)
   if (!person) return new Response('unauthorized', { status: 401 })
   if (person.role !== 'editor' && !(await env.TOOL_LIMITER.limit({ key: person.id })).success) {
     return Response.json({ error: 'That is a lot of requests in a short time. Give it a minute.' }, { status: 429 })
@@ -96,17 +83,10 @@ async function handleArchive(req: Request, env: Env): Promise<Response> {
   if (person instanceof Response) return person
   const body = (await req.json().catch(() => null)) as { source_id?: unknown } | null
   if (typeof body?.source_id !== 'string') return Response.json({ error: 'Expected a source_id.' }, { status: 400 })
-  if (person.role !== 'editor') {
-    const waiting = await env.DB.prepare(`SELECT outcome, next_try_at, detail FROM archive_attempts WHERE source_id = ? AND (outcome = 'gave_up' OR next_try_at > ?)`)
-      .bind(body.source_id, new Date().toISOString())
-      .first<{ outcome: string; next_try_at: string | null; detail: string | null }>()
-    const stored = await env.DB.prepare(`SELECT archive_url FROM sources WHERE id = ?`).bind(body.source_id).first<{ archive_url: string | null }>()
-    if (waiting && !stored?.archive_url) return Response.json({ outcome: waiting.outcome, detail: waiting.detail ?? 'The archive was asked recently. The scheduled pass will try again.', next_try_at: waiting.next_try_at })
-  }
   const claim = await claimRun(env.DB, 'archive', body.source_id)
   if (!claim.claimed) return Response.json({ error: BUSY }, { status: 409 })
   try {
-    const result = await archiveNow(env, roomForLongRun(env), body.source_id)
+    const result = await archiveNow(env, roomForLongRun(env), body.source_id, new Date(), undefined, { respectBackOff: person.role !== 'editor' })
     return 'error' in result ? Response.json({ error: result.error }, { status: result.status }) : Response.json(result)
   } finally {
     await dropRun(env.DB, 'archive', body.source_id)
@@ -188,7 +168,7 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
   if (url.pathname === '/api/setup' && req.method === 'GET') return Response.json({ needed: !(await hasActiveEditor(env)) })
   if (url.pathname === '/api/setup' && req.method === 'POST') return handleSetup(req, env)
   if (url.pathname.startsWith('/api/editor/')) {
-    const person = await signedInPerson(req, env)
+    const person = await signedInAccount(req, env)
     if (!person) return new Response('unauthorized', { status: 401 })
     if (person.role !== 'editor') return Response.json({ error: 'Only editors can do this.' }, { status: 403 })
     if (url.pathname === '/api/editor/news-search' && req.method === 'POST') return startNewsSearch(req, env, ctx)

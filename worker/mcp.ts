@@ -70,7 +70,7 @@ function serverFor(env: Env, req: Request) {
       const t = await tracker()
       const brief = (q: Question) => ({ id: q.id, slug: q.slug, title: q.title, short_title: q.short_title, kind: q.kind, description: q.description })
       const questions = t.questions
-        .filter((q) => !q.parent_id && t.isOpen(q))
+        .filter((q) => !q.parent_id && q.archived_at === null && t.isOpen(q))
         .map((q) => ({
           ...brief(q),
           bodies: t.bodiesOf(q).map((b) => ({ slug: b.slug, name: b.name })),

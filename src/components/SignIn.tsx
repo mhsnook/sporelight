@@ -2,7 +2,6 @@ import { useState, useSyncExternalStore, type FormEvent, type ReactNode } from '
 import { Link } from '@tanstack/react-router'
 import { SIGN_IN_CODE_MINUTES } from '../../shared/schema.ts'
 import { authClient, signOut, useSession, useSignedIn } from '../lib/auth.ts'
-import { resetSync } from '../lib/db.ts'
 import { Modal } from './Modal.tsx'
 
 type Step = { at: 'email' } | { at: 'code'; email: string }
@@ -77,7 +76,7 @@ export function CodeSignIn({
   heading,
   signInLabel = 'Sign in',
 }: {
-  onSignedIn: () => void
+  onSignedIn?: () => void
   onCancel?: () => void
   heading?: (step: Step['at']) => ReactNode
   signInLabel?: string
@@ -105,8 +104,7 @@ export function CodeSignIn({
     const { error } = await authClient.signIn.emailOtp({ email, otp })
     setBusy(false)
     if (error) return setError(error.code === 'TOO_MANY_ATTEMPTS' ? 'Too many wrong tries. Ask for a new code.' : 'That code did not work. Check it, or ask for a new one.')
-    resetSync()
-    onSignedIn()
+    onSignedIn?.()
   }
 
   return step.at === 'email' ? (

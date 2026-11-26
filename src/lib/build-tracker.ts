@@ -208,7 +208,8 @@ export function buildTracker(c: TrackerData, asOf: string) {
   const bodyIdsOf = (question: Question): string[] => [question.body_id, ...(alsoPutTo.get(question.id) ?? []).map((l) => l.body_id).filter((id) => id !== question.body_id)]
   const bodiesOf = (question: Question): Body[] => bodyIdsOf(question).flatMap((id) => bodyById.get(id) ?? [])
   const appliesIn = (question: Question, bodyId: string) => bodyIdsOf(question).includes(bodyId)
-  const questionsIn = (bodyId: string): Question[] => c.questions.filter((q) => !q.parent_id && appliesIn(q, bodyId)).sort((a, b) => a.sort - b.sort)
+  // The questions listed under a body. An archived one is left out, and is still found by its address.
+  const questionsIn = (bodyId: string): Question[] => c.questions.filter((q) => !q.parent_id && q.archived_at === null && appliesIn(q, bodyId)).sort((a, b) => a.sort - b.sort)
 
   const isAsk = (question: Question) => namedIn.has(question.id) || officesOf.has(question.id)
   const isOpen = (question: Question) => isOpenOn(question, asOf)

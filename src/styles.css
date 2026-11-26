@@ -121,16 +121,6 @@ html:has(dialog[open]) {
     content: '';
     @apply size-2 shrink-0 rotate-45 bg-ink;
   }
-  /* A panel or fieldset. In a fieldset, the tag is the legend and sits on the border by itself. */
-  .editor-zone {
-    @apply relative rounded-2xl border-2 border-ink bg-editor px-4 pt-6 pb-4 sm:px-5;
-  }
-  .editor-zone > .editor-tag:first-child {
-    @apply absolute -top-3.5 left-4;
-  }
-  fieldset.editor-zone > legend.editor-tag {
-    @apply -ml-1 px-2.5;
-  }
   .editor-inline {
     @apply inline-flex flex-wrap items-center gap-x-3 rounded-full border-2 border-ink bg-editor pr-3 pl-1;
   }

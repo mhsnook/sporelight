@@ -1,6 +1,6 @@
 import { exports } from 'cloudflare:workers'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import { editor, reader, rows } from './helpers.ts'
+import { editor, noOutsidePages, reader, rows } from './helpers.ts'
 
 const call = (path: string, method: string, cookie?: string, body?: unknown) =>
   exports.default.fetch(`http://sporelight.test${path}`, {
@@ -66,8 +66,7 @@ describe('the runs of the news search', () => {
 
 describe('/api/read-article', () => {
   const dryRun = (body: unknown, cookie = member) => call('/api/read-article', 'POST', cookie, body)
-  // Every page the reader fetches answers 404, so a trial ends without a model call.
-  const pagesNotFound = () => vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('not found', { status: 404 }))
+
 
   it('is refused signed out', async () => {
     expect((await call('/api/read-article', 'POST', undefined, { url: 'https://news.example/a', question_id: 'hot' })).status).toBe(401)
@@ -87,7 +86,7 @@ describe('/api/read-article', () => {
   })
 
   it('answers 404 for a question that does not exist, without fetching, and keeps nothing to reuse', async () => {
-    const fetched = pagesNotFound()
+    const fetched = noOutsidePages()
     const res = await dryRun({ url: 'https://news.example/a', question_id: 'no-such-question' }, editorCookie)
     expect(res.status).toBe(404)
     expect(await res.json()).toEqual({ error: 'Unknown question.' })
@@ -101,7 +100,7 @@ describe('/api/read-article', () => {
   })
 
   it('reads a page once for a question and gives the same answer to the next person who asks', async () => {
-    const fetched = pagesNotFound()
+    const fetched = noOutsidePages()
     const first = await dryRun({ url: 'https://news.example/once#top', question_id: 'trial' }, member)
     expect(await first.json()).toMatchObject({ outcome: 'not_read' })
     const again = await dryRun({ url: 'https://news.example/once', question_id: 'trial' }, editorCookie)
@@ -110,7 +109,7 @@ describe('/api/read-article', () => {
   })
 
   it('limits how many a member asks for in a minute, and not an editor', async () => {
-    pagesNotFound()
+    noOutsidePages()
     const limited = (await reader('busy@reader.test')).cookie
     const statuses = []
     for (let i = 0; i < 7; i++) statuses.push((await dryRun({ url: `https://news.example/many-${i}`, question_id: 'trial' }, limited)).status)

@@ -23,7 +23,7 @@ function Questions() {
         )}
       </div>
       {bodies.map((body) => {
-        const questions = tracker.questionsIn(body.id).filter((q) => q.archived_at === null)
+        const questions = tracker.questionsIn(body.id)
         return (
           <section key={body.id}>
             <div className="mb-5 flex flex-wrap items-center gap-x-3 gap-y-1">

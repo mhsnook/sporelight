@@ -497,7 +497,7 @@ export type CommentInput = z.infer<typeof commentInputSchema>
 const editors = { roles: ['editor'] } as const
 const editorWrites = { read: 'public', insert: editors, update: editors, delete: editors } as const
 // For what only signed-in people read about a proposal: they review, so they see what an editor sees.
-const reviewerReads = { read: 'authed', insert: editors, update: editors, delete: editors } as const
+const reviewerReads = { ...editorWrites, read: 'authed' } as const
 
 export const publicCollections = [
   definePartyCollection({ name: 'bodies', key: 'id', schema: bodySchema, access: editorWrites }),

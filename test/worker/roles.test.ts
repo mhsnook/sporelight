@@ -2,7 +2,7 @@ import { env, exports } from 'cloudflare:workers'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { EDITORS_ID } from '../../shared/schema.ts'
 import { LAST_EDITOR } from '../../worker/auth.ts'
-import { mailbox, nextIp, partySocket, partyWrite, post, reader, rows, seed, until } from './helpers.ts'
+import { askForCode, codeIn, mailbox, nextIp, partySocket, partyWrite, post, reader, rows, seed, until } from './helpers.ts'
 
 const mail = mailbox()
 const admin = (path: string, body: unknown, cookie: string) => mail.call(`/api/auth/admin/${path}`, body, nextIp(), cookie)
@@ -129,17 +129,16 @@ describe('keeping one editor who can act', () => {
 describe('deactivating a person', () => {
   it('ends their sessions, refuses their sign-in and writes, and marks the public row', async () => {
     const someone = await reader('deactivated@reader.test', 'Gone Soon')
-    expect((await post('/api/comments', { question_id: 'hot', decider_id: 'ann', body: 'Before.' }, undefined, undefined, someone.cookie)).status).toBe(200)
+    expect((await someone.send('/api/comments', { question_id: 'hot', decider_id: 'ann', body: 'Before.' })).status).toBe(200)
     expect((await admin('ban-user', { userId: someone.personId }, first.cookie)).status).toBe(200)
 
     expect(await publicRow(someone.personId)).toEqual({ role: 'member', deactivated_at: expect.any(String) })
     expect(await rows(`SELECT id FROM auth_sessions WHERE "userId" = ?`, someone.personId)).toEqual([])
-    expect((await post('/api/comments', { question_id: 'hot', decider_id: 'ann', body: 'After.' }, undefined, undefined, someone.cookie)).status).toBe(401)
+    expect((await someone.send('/api/comments', { question_id: 'hot', decider_id: 'ann', body: 'After.' })).status).toBe(401)
     const before = mail.sent.length
-    const askedAgain = await mail.call('/api/auth/email-otp/send-verification-otp', { email: 'deactivated@reader.test', type: 'sign-in' }, nextIp())
-    expect(askedAgain.ok).toBe(true)
+    expect((await askForCode(mail, 'deactivated@reader.test')).ok).toBe(true)
     await until(() => mail.sent.length > before)
-    const code = /\b(\d{6})\b/.exec(mail.sent.at(-1)!.text)![1]
+    const code = codeIn(mail.sent.at(-1)!)
     const signIn = await mail.call('/api/auth/sign-in/email-otp', { email: 'deactivated@reader.test', otp: code }, nextIp())
     expect(signIn.ok).toBe(false)
     expect(await rows(`SELECT id FROM auth_sessions WHERE "userId" = ?`, someone.personId)).toEqual([])

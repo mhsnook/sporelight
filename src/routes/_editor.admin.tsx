@@ -3,12 +3,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { EDITORS_ID, type AccountRole, type Person, type Question } from '../../shared/schema.ts'
 import { authClient, usePeople, useSession } from '../lib/auth.ts'
 import { db } from '../lib/db.ts'
-import { useTracker } from '../lib/tracker.tsx'
+import { errorText } from '../lib/errors.ts'
+import { today, useTracker } from '../lib/tracker.tsx'
 import { formatDate } from '../lib/position.ts'
 
 export const Route = createFileRoute('/_editor/admin')({ component: Admin })
-
-const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
 function Admin() {
   return (
@@ -20,13 +19,16 @@ function Admin() {
   )
 }
 
-const row = 'grid items-center gap-x-4 gap-y-2 border-t-2 border-dashed border-line p-4 first:border-t-0 md:grid-cols-[minmax(0,1fr)_10rem_8rem_8rem_8.5rem]'
-const head = 'hidden gap-x-4 border-b-2 border-ink px-4 py-2 font-mono text-xs font-semibold uppercase md:grid md:grid-cols-[minmax(0,1fr)_10rem_8rem_8rem_8.5rem]'
+// A table's heading row and its rows share one column template, so they line up.
+const peopleCols = 'md:grid-cols-[minmax(0,1fr)_10rem_8rem_8rem_8.5rem]'
+const questionCols = 'md:grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)_6rem_7rem_10rem]'
+const rowBase = 'grid items-center gap-x-4 gap-y-2 border-t-2 border-dashed border-line p-4 first:border-t-0'
+const headBase = 'hidden gap-x-4 border-b-2 border-ink px-4 py-2 font-mono text-xs font-semibold uppercase md:grid'
 
 function seenText(at: string | undefined) {
   if (!at) return 'Not recorded'
   const day = new Date(at).toISOString().slice(0, 10)
-  return day === new Date().toISOString().slice(0, 10) ? 'Today' : formatDate(day)
+  return day === today() ? 'Today' : formatDate(day)
 }
 
 function People() {
@@ -58,7 +60,7 @@ function People() {
         <p className="text-sm text-muted">Listed by display name. Email addresses are not shown.</p>
       </div>
       <div className="card overflow-hidden">
-        <div className={head}>
+        <div className={`${headBase} ${peopleCols}`}>
           <span>Name</span>
           <span>Role</span>
           <span>Joined</span>
@@ -93,7 +95,7 @@ function PersonRow({ person, isMe, lastEditor, lastSeen }: { person: Person; isM
   const reactivate = () => act(() => authClient.admin.unbanUser({ userId: person.id }))
 
   return (
-    <li className={`${row} ${deactivated ? 'bg-paper text-muted' : ''}`}>
+    <li className={`${rowBase} ${peopleCols} ${deactivated ? 'bg-paper text-muted' : ''}`}>
       <div className="min-w-0">
         <p className={`font-bold ${person.display_name ? 'text-ink' : 'font-normal text-faint italic'}`}>
           {name} {isMe && <span className="font-normal text-muted">(you)</span>}
@@ -147,8 +149,6 @@ function PersonRow({ person, isMe, lastEditor, lastSeen }: { person: Person; isM
   )
 }
 
-const qRow = 'grid items-center gap-x-4 gap-y-2 border-t-2 border-dashed border-line p-4 first:border-t-0 md:grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)_6rem_7rem_10rem]'
-
 function Questions() {
   const { tracker } = useTracker()
   const all = useMemo(
@@ -189,7 +189,7 @@ function QuestionList({ questions }: { questions: Question[] }) {
   const { tracker } = useTracker()
   return (
     <div className="card overflow-hidden">
-      <div className="hidden gap-x-4 border-b-2 border-ink px-4 py-2 font-mono text-xs font-semibold uppercase md:grid md:grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)_6rem_7rem_10rem]">
+      <div className={`${headBase} ${questionCols}`}>
         <span>Title</span>
         <span>Body</span>
         <span>Status</span>
@@ -215,7 +215,7 @@ function QuestionRow({ question, body }: { question: Question; body: string }) {
     db.questions.update(question.id, (q) => void (q.archived_at = on ? new Date().toISOString() : null)).isPersisted.promise.catch((err: unknown) => setError(`Not saved: ${errorText(err)}`))
   }
   return (
-    <li className={qRow}>
+    <li className={`${rowBase} ${questionCols}`}>
       <Link to="/q/$slug" params={{ slug: question.slug }} className="link min-w-0 font-semibold">
         {question.title}
       </Link>

@@ -2,20 +2,30 @@ import { useMemo } from 'react'
 import { useLiveQuery } from '@tanstack/react-db'
 import { createAuthClient } from 'better-auth/react'
 import { adminClient, emailOTPClient } from 'better-auth/client/plugins'
-import { ROLE_RIGHTS } from '../../shared/account-roles.ts'
+import { ROLE_RIGHTS, roleOf } from '../../shared/account-roles.ts'
 import type { AccountRole, Person } from '../../shared/schema.ts'
 import { db, onReset, resetSync } from './db.ts'
 
 export const authClient = createAuthClient({ basePath: '/api/auth', plugins: [emailOTPClient(), adminClient({ roles: ROLE_RIGHTS })] })
 
 // The room resets this browser's sync when the person's role changes or they
-// are deactivated, and then the session has to be read again too.
-onReset(() => authClient.$store.notify('$sessionSignal'))
+// are deactivated, and then the session has to be read again too. A reset this
+// browser asked for follows a session change it has already read.
+onReset((reason) => {
+  if (reason === 'identity-changed') authClient.$store.notify('$sessionSignal')
+})
 
-export async function signOut() {
-  await authClient.signOut()
-  resetSync()
-}
+// When the person signed in here changes, by signing in, signing out or a
+// session ending, the room is asked again what this browser may read.
+let syncedAs: string | null | undefined
+authClient.$store.atoms.session.subscribe((session: { data: { user: { id: string } } | null; isPending: boolean }) => {
+  if (session.isPending) return
+  const id = session.data?.user.id ?? null
+  if (syncedAs !== undefined && id !== syncedAs) resetSync()
+  syncedAs = id
+})
+
+export const signOut = () => authClient.signOut()
 
 // Everyone who has signed in, by id.
 export function usePeople() {
@@ -27,7 +37,7 @@ export function usePeople() {
 // Whether someone is signed in in this browser, without loading anyone's row.
 export function useSession() {
   const session = authClient.useSession()
-  const role: AccountRole | undefined = session.data ? (session.data.user.role === 'editor' ? 'editor' : 'member') : undefined
+  const role: AccountRole | undefined = session.data ? roleOf(session.data.user) : undefined
   return { id: session.data?.user.id, role, isPending: session.isPending }
 }
 

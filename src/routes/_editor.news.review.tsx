@@ -2,7 +2,7 @@ import { Link, createFileRoute, useLocation } from '@tanstack/react-router'
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useLiveQuery } from '@tanstack/react-db'
 import { isUnreadLead, type Proposal, type ProposalContext, type ProposalItem, type ProposalMention, type ProposalNote, type Question, type Source } from '../../shared/schema.ts'
-import { useSession } from '../lib/auth.ts'
+import { postAsReader, useSession } from '../lib/auth.ts'
 import { db } from '../lib/db.ts'
 import { commit } from '../lib/review.ts'
 import { planReview, type Write } from '../lib/review-plan.ts'
@@ -458,11 +458,7 @@ function ReadArticleTrial() {
     setView(null)
     setRunning(true)
     try {
-      const res = await fetch('/api/read-article', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ url: f.get('trial_url'), question_id: questionId }),
-      })
+      const res = await postAsReader('/api/read-article', { url: f.get('trial_url'), question_id: questionId })
       const names = {
         person: (id: string) => tracker.deciderById.get(id)?.name ?? id,
         question: (id: string) => tracker.questionById.get(id)?.short_title ?? id,

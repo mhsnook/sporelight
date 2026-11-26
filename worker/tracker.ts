@@ -17,7 +17,8 @@ import {
   type ProposalNote,
   type Source,
 } from '../shared/schema.ts'
-import { auth, roleOf } from './auth.ts'
+import { roleOf } from '../shared/account-roles.ts'
+import { auth } from './auth.ts'
 import { alreadyProposed } from './leads.ts'
 
 const MAX_PENDING = 500
