@@ -81,9 +81,9 @@ export function leadFromHit(
 // Leads nobody typed in. One an editor turned down stays turned down.
 export const isAutomated = (origin: Proposal['origin']) => origin === 'news_search' || origin === 'model'
 
-// An item proposed earlier from the same source. `turnedDown` when the editors
+// An item proposed earlier from the same source. `turnedDown` (SQLite's 0 or 1) when the editors
 // said its act says nothing on the question; `quote` is its words, or a lead's excerpt.
-export type Proposed = Pick<ProposalItem, 'question_id' | 'decider_id'> & { turnedDown: boolean; quote: string }
+export type Proposed = Pick<ProposalItem, 'question_id' | 'decider_id'> & { turnedDown: boolean | number; quote: string }
 
 // Whether an item already proposed from the same source stands in the way of a
 // new one for the same person and question. A search hit or a model's reading

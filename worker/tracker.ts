@@ -87,8 +87,8 @@ export class Tracker extends PartyDbServer<Env> {
            FROM proposal_items i JOIN proposals p ON p.id = i.proposal_id LEFT JOIN acts a ON a.id = i.act_id WHERE p.source_id = ?1`,
         )
         .bind(known.id, EDITORS_ID)
-        .all<Omit<Proposed, 'turnedDown'> & { turnedDown: number }>()
-      items = items.filter((i) => !alreadyProposed(seen.results.map((e) => ({ ...e, turnedDown: e.turnedDown === 1 })), i, origin))
+        .all<Proposed>()
+      items = items.filter((i) => !alreadyProposed(seen.results, i, origin))
     }
     if (items.length === 0) return { ok: true, queued: 0, proposal_id: null, source_id: await this.catalogue(draft.source), undated }
 

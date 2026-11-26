@@ -12,7 +12,7 @@ const failed = (setError: (e: string) => void) => (err: unknown) => setError(err
 export function MergeAct({ act }: { act: Act }) {
   const { tracker } = useTracker()
   const [error, setError] = useState<string | null>(null)
-  const others = (tracker.actsByDecider.get(act.decider_id) ?? []).filter((a) => a.id !== act.id).sort((a, b) => (b.occurred_on ?? '').localeCompare(a.occurred_on ?? ''))
+  const others = (tracker.actsByDecider.get(act.decider_id) ?? []).filter((a) => a.id !== act.id)
   const alsoRecordedAs = (tracker.sameActsOf.get(act.id) ?? []).flatMap((s) => tracker.actById.get(s.act_id) ?? [])
 
   function markSame(sameAsId: string) {

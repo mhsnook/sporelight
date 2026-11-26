@@ -92,15 +92,14 @@ export const claimed = (
   proposalId: string,
   deciderId: string,
   questionId: string,
-  { act_id, sort, excerpt, status, ...over }: Partial<Pick<ProposalItem, 'act_id' | 'sort' | 'excerpt'>> & Partial<Omit<Claim, 'item' | 'isLead' | 'verdict'>> & { status?: 'pending' | 'accepted' | 'rejected' } = {},
+  { act_id, sort, excerpt, status, ...over }: Partial<Pick<ProposalItem, 'act_id' | 'sort' | 'excerpt'>> & Partial<Omit<Claim, 'item' | 'verdict'>> & { status?: 'pending' | 'accepted' | 'rejected' } = {},
 ): Claim => {
   const row = item(id, proposalId, deciderId, questionId, { ...(act_id !== undefined && { act_id }), ...(sort !== undefined && { sort }), ...(excerpt !== undefined && { excerpt }) })
   return {
     item: row,
-    isLead: row.act_id === null,
     kind: 'says',
     occurred_on: null,
-    quote: row.act_id === null ? (row.excerpt ?? '') : `words of ${id}`,
+    quote: row.act_id === null ? '' : `words of ${id}`,
     passage: null,
     reading: null,
     weight: null,

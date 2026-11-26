@@ -14,7 +14,7 @@ export function groupBy<T, K>(items: readonly T[], key: (item: T) => K): Map<K, 
   return out
 }
 
-const indexBy = <T, K>(items: readonly T[], key: (item: T) => K) => new Map(items.map((i) => [key(i), i] as const))
+export const indexBy = <T, K>(items: readonly T[], key: (item: T) => K) => new Map(items.map((i) => [key(i), i] as const))
 
 // One act as it bears on one question: what it signals there, and every source
 // that reports it.
@@ -131,15 +131,19 @@ export function asShown(c: Pick<TrackerData, 'acts' | 'reports' | 'reviews' | 's
   }
 
   // A reviewer's review of the shown act itself stands over their review of an act shown as it; otherwise the latest stands.
-  const reviews = new Map<string, Review & { own: boolean }>()
+  const reviews = new Map<string, Review>()
+  const isOwn = new Map<string, boolean>()
   for (const review of c.reviews) {
     const actId = shownAs(review.act_id)
     const own = actId === review.act_id
     const key = `${review.reviewer_id} ${actId} ${review.question_id}`
     const kept = reviews.get(key)
-    if (!kept || (own && !kept.own) || (own === kept.own && review.updated_at > kept.updated_at)) reviews.set(key, { ...review, act_id: actId, own })
+    if (!kept || (own && !isOwn.get(key)) || (own === isOwn.get(key) && review.updated_at > kept.updated_at)) {
+      reviews.set(key, own ? review : { ...review, act_id: actId })
+      isOwn.set(key, own)
+    }
   }
-  return { acts, reports: [...reports.values()], reviews: [...reviews.values()].map(({ own: _, ...r }) => r), shownAs, alsoRecordedAs }
+  return { acts, reports: [...reports.values()], reviews: [...reviews.values()], shownAs, alsoRecordedAs }
 }
 
 // What the reviews come to for each act on each question. A review of support
@@ -200,7 +204,9 @@ export function buildTracker(c: TrackerData, asOf: string) {
     (t) => t.office.id,
   )
   const officesOf = groupBy(c.questionOffices, (l) => l.question_id)
-  const actsByDecider = groupBy(shown.acts, (a) => a.decider_id)
+  // Newest first, and an act with no date yet after every dated one.
+  const newestFirst = (a: Act, b: Act) => (b.occurred_on ?? '').localeCompare(a.occurred_on ?? '') || a.id.localeCompare(b.id)
+  const actsByDecider = groupBy([...shown.acts].sort(newestFirst), (a) => a.decider_id)
   const reportsByAct = groupBy(shown.reports, (r) => r.act_id)
   const sameActsOf = groupBy(c.sameActs, (s) => s.same_as_id)
   // The rows as stored, for what a proposal put forward.
@@ -253,7 +259,8 @@ export function buildTracker(c: TrackerData, asOf: string) {
     const day = question && !isOpen(question) && question.closed_on ? question.closed_on : asOf
     const lapse =
       act.kind !== 'commits' ? null : act.withdrawn_on && act.withdrawn_on <= day ? ('withdrawn' as const) : via && !isOpenOn(via, day) ? ('closed' as const) : null
-    const onRecord = reading.weight === 'concrete' && (act.kind === 'does' || (act.kind === 'commits' && lapse === null))
+    // An act with no date yet binds them on nothing until it is dated.
+    const onRecord = act.occurred_on !== null && reading.weight === 'concrete' && (act.kind === 'does' || (act.kind === 'commits' && lapse === null))
     return { act, reading, via, reports: reportsOf(act), lapse, onRecord }
   }
 
@@ -267,8 +274,7 @@ export function buildTracker(c: TrackerData, asOf: string) {
     if (list) list.push(entry)
     else entriesByPair.set(key, [entry])
   }
-  // Newest first, and an act with no date yet after every dated one.
-  for (const list of entriesByPair.values()) list.sort((a, b) => (b.act.occurred_on ?? '').localeCompare(a.act.occurred_on ?? '') || a.act.id.localeCompare(b.act.id))
+  for (const list of entriesByPair.values()) list.sort((a, b) => newestFirst(a.act, b.act))
 
   // A decider's record on a question is the readings on that question alone. A
   // reading on a sub-question appears here only if it was also written here.

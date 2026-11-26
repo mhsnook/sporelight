@@ -16,7 +16,7 @@ describe('claimOf', () => {
   }
 
   it("gives the act's facts, its passage in the source and the sender's reading, waiting until the editors review it", () => {
-    expect(claimOf(track(rows), sent, cameIn)).toMatchObject({ isLead: false, kind: 'says', occurred_on: null, quote: 'I am for it.', passage: 'Ann said: I am for it.', reading: 'support', weight: 'clear', verdict: 'waiting' })
+    expect(claimOf(track(rows), sent, cameIn)).toMatchObject({ kind: 'says', occurred_on: null, quote: 'I am for it.', passage: 'Ann said: I am for it.', reading: 'support', weight: 'clear', verdict: 'waiting' })
   })
 
   it("reads the editors' review on the act it was found to be the same as, and one that says nothing on the act itself", () => {
@@ -26,9 +26,9 @@ describe('claimOf', () => {
     expect(claimOf(track({ ...rows, reviews: [...rows.reviews, nothing] }), { ...sent, status: 'reviewed' }, cameIn).verdict).toBe('turned_down')
   })
 
-  it('gives a lead no reading and its excerpt as words, turned down once its proposal is reviewed', () => {
+  it('gives a lead no words and no reading, since its excerpt is nobody’s, turned down once its proposal is reviewed', () => {
     const lead = item('lead', 'p1', 'ann', 'policy', { act_id: null, excerpt: 'Ann was named.' })
-    expect(claimOf(track(rows), sent, lead)).toMatchObject({ isLead: true, quote: 'Ann was named.', reading: null, verdict: 'waiting' })
+    expect(claimOf(track(rows), sent, lead)).toMatchObject({ quote: '', reading: null, verdict: 'waiting' })
     expect(claimOf(track(rows), { ...sent, status: 'reviewed' }, lead).verdict).toBe('turned_down')
   })
 })

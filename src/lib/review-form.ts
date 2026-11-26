@@ -1,5 +1,5 @@
 import type { Act, ActKind, Direction, Position, ProposalContext, ProposalItem, PublishedOnFrom, Question, Source, Weight } from '../../shared/schema.ts'
-import type { Claim } from './claims.ts'
+import { cameInOf, type Claim } from './claims.ts'
 import type { Listing, RelatedQuestion, Tracker } from './build-tracker.ts'
 import type { Standing } from './position.ts'
 import type { EntryVerdict, PositionDecision, Verdict } from './review-plan.ts'
@@ -10,9 +10,10 @@ export type EntryDraft = {
   key: string
   // null on an entry the editor added, until they choose who it is about.
   decider_id: string | null
-  // An act on file, or `newActId`.
+  // `newActId`, or another act on file chosen as the one this entry reports.
   act_id: string
-  // The id the act takes if it is not one already on file.
+  // The act the entry reports unless another is chosen: the act that came in
+  // with the proposal, or for a lead or an added entry, the id a new act takes.
   newActId: string
   // The proposal's rows for this act. Empty on an entry the editor added.
   items: ProposalItem[]
@@ -72,7 +73,7 @@ export function draftEntries(claims: Claim[], contexts: ProposalContext[] = []):
       question_id: item.question_id,
       kind: claim.kind,
       occurred_on: claim.occurred_on ?? '',
-      quote: claim.isLead ? '' : claim.quote,
+      quote: claim.quote,
       passage: claim.passage,
       wider: wider(claim.passage, contextOf.get(item.id)),
       reading: claim.reading,
@@ -156,11 +157,12 @@ export function outlook(tracker: Pick<Tracker, 'actById' | 'listingFor' | 'entry
   const reading = entry.mainSkipped && question.id === entry.question_id ? null : given
   const deciderId = entry.decider_id ?? ''
   // Where they stand without the act that came in, which is what is being reviewed.
-  const cameIn = entry.items.flatMap((i) => (i.act_id ? [i.act_id] : []))
-  const now = tracker.listingFor(question, deciderId, [], cameIn)
+  const cameIn = cameInOf(entry.items)
+  const without = cameIn ? [cameIn] : []
+  const now = tracker.listingFor(question, deciderId, [], without)
   if (!reading || !entry.weight || !entry.decider_id) return { now, then: null, across: undefined }
   const read = { id: '', act_id: entry.act_id, question_id: question.id, position: reading, weight: entry.weight, by: 'editor' as const, via_question_id: null }
-  const then = tracker.listingFor(question, deciderId, [tracker.entryOf(actOf(tracker, entry), read)], cameIn)
+  const then = tracker.listingFor(question, deciderId, [tracker.entryOf(actOf(tracker, entry), read)], without)
   return { now, then, across: tracker.acrossFor(question, deciderId, reading) }
 }
 

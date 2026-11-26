@@ -24,6 +24,8 @@ import {
   type Source,
   type Weight,
 } from '../../shared/schema.ts'
+import { indexBy } from './build-tracker.ts'
+import { cameInOf } from './claims.ts'
 
 type Rows = {
   deciders: Decider
@@ -121,8 +123,8 @@ export function planReview(
 ): Write[] {
   const writes: Write[] = []
   const questionById = new Map(published.questions.map((q) => [q.id, q]))
-  const actById = new Map(published.acts.map((a) => [a.id, a]))
-  const reportIn = new Map(published.reports.map((r) => [`${r.source_id} ${r.act_id}`, r]))
+  const actById = indexBy(published.acts, (a) => a.id)
+  const reportIn = indexBy(published.reports, (r) => `${r.source_id} ${r.act_id}`)
   const editorsReview = new Map(published.reviews.filter((r) => r.reviewer_id === EDITORS_ID).map((r) => [`${r.act_id} ${r.question_id}`, r]))
   const setPositionIds = new Set(published.setPositions.map((s) => s.id))
   const markedAs = new Map(published.sameActs.map((s) => [s.act_id, s.same_as_id]))
@@ -151,7 +153,7 @@ export function planReview(
     }
     if (entry.readings.length === 0) throw new Error('An entry needs a reading on at least one question to be published.')
 
-    const cameIn = entry.items.find((i) => i.act_id)?.act_id ?? null
+    const cameIn = cameInOf(entry.items)
     const onFile = actById.get(entry.act_id)
     if (cameIn && cameIn !== entry.act_id) {
       // The editor found the act that came in to be one already on the record.

@@ -1,13 +1,15 @@
 import { EDITORS_ID, type ActKind, type Direction, type Proposal, type ProposalItem, type Weight } from '../../shared/schema.ts'
 import type { Tracker } from './build-tracker.ts'
 
+// The act a proposal brought in for an entry. Every item of one entry names the same one; a lead names none.
+export const cameInOf = (items: Pick<ProposalItem, 'act_id'>[]): string | null => items.find((i) => i.act_id)?.act_id ?? null
+
 // What one proposal item puts forward, as it stands on file: the act's kind,
 // date and words, its passage in the proposal's source, and the sender's
-// review of it on the item's question. A lead has no act: its words are the
-// search excerpt, which is nobody's, and it gives no reading.
+// review of it on the item's question. A lead has no act, no words (its search
+// excerpt is nobody's, and stays on the item) and no reading.
 export type Claim = {
   item: ProposalItem
-  isLead: boolean
   kind: ActKind
   occurred_on: string | null
   quote: string
@@ -21,7 +23,7 @@ export type Claim = {
 export function claimOf(tracker: Pick<Tracker, 'actById' | 'reportIn' | 'reviewBy' | 'shownAs'>, proposal: Pick<Proposal, 'source_id' | 'submitted_by' | 'status'>, item: ProposalItem): Claim {
   const act = item.act_id ? tracker.actById.get(item.act_id) : undefined
   if (!act) {
-    return { item, isLead: true, kind: 'says', occurred_on: null, quote: item.excerpt ?? '', passage: null, reading: null, weight: null, verdict: proposal.status === 'reviewed' ? 'turned_down' : 'waiting' }
+    return { item, kind: 'says', occurred_on: null, quote: '', passage: null, reading: null, weight: null, verdict: proposal.status === 'reviewed' ? 'turned_down' : 'waiting' }
   }
   const report = tracker.reportIn(proposal.source_id, act.id)
   const sent = proposal.submitted_by ? tracker.reviewBy(proposal.submitted_by, act.id, item.question_id) : undefined
@@ -29,7 +31,6 @@ export function claimOf(tracker: Pick<Tracker, 'actById' | 'reportIn' | 'reviewB
   const editors = tracker.reviewBy(EDITORS_ID, tracker.shownAs(act.id), item.question_id) ?? tracker.reviewBy(EDITORS_ID, act.id, item.question_id)
   return {
     item,
-    isLead: false,
     kind: act.kind,
     occurred_on: act.occurred_on,
     quote: report?.excerpt ?? act.body,

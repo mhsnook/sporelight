@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { isWebAddress, type Act, type Question, type Source, type Weight } from '../../shared/schema.ts'
 import { ArchiveControls } from './ArchiveControls.tsx'
 import type { RecordEntry } from '../lib/tracker.tsx'
-import { KIND_LABEL, POSITION_LABEL, STANDING_BG, formatDate, publishedLine, sourceLabel } from '../lib/position.ts'
+import { KIND_LABEL, POSITION_LABEL, STANDING_BG, actDate, formatDate, publishedLine, sourceLabel } from '../lib/position.ts'
 
 export function RecordItem({ entry, question, edit = false, children }: { entry: RecordEntry; question?: Question; edit?: boolean; children?: ReactNode }) {
   const { act, reading, via, reports, lapse } = entry
@@ -14,7 +14,7 @@ export function RecordItem({ entry, question, edit = false, children }: { entry:
             {formatDate(act.occurred_on)}
           </time>
         ) : (
-          <span className="font-semibold text-ink">Date not found · not counted until dated</span>
+          <span className="font-semibold text-ink">{actDate(null)} · not counted until dated</span>
         )}
         <span>·</span>
         <span>{KIND_LABEL[act.kind]}</span>

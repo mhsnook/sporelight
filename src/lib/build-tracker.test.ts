@@ -646,6 +646,13 @@ describe('an act with no date yet', () => {
     reviews: [review('dated', 'policy', 'support'), review('undated', 'policy', 'oppose', 'concrete')],
   }
 
+  it('does not put someone on the record as having done the thing a question asks about until it is dated', () => {
+    const bill = question('bill', { kind: 'formal_act' })
+    const signed = { ...rows, questions: [policy, bill], acts: [act('signed', 'ann', { kind: 'commits', occurred_on: null })], reviews: [review('signed', 'bill', 'support', 'concrete')] }
+    expect(track(signed).standingFor(bill, 'ann')).toBe('unknown')
+    expect(track({ ...signed, acts: [act('signed', 'ann', { kind: 'commits', occurred_on: '2026-05-01' })] }).standingFor(bill, 'ann')).toBe('support')
+  })
+
   it('is on the record after every dated act, and counts toward nothing until it is dated', () => {
     const t = track(rows)
     expect(t.recordFor(policy, 'ann').map((e) => e.act.id)).toEqual(['dated', 'undated'])
