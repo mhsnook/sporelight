@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { EDITORS_ID, type Act, type ProposalItem, type Report, type Review, type SetPosition } from '../../shared/schema.ts'
+import { EDITORS_ID, NEWS_READER_ID, type Act, type Direction, type ProposalItem, type Report, type Review, type SetPosition } from '../../shared/schema.ts'
 import { planReview, type EntryVerdict, type PositionDecision, type Published, type Verdict, type Write } from './review-plan.ts'
-import { act, item, proposal, question, report, review, setPosition, source } from './fixtures.ts'
+import { act, incoming, item, onFile, proposal, question, report, review, setPosition, source } from './fixtures.ts'
 
 const NOW = '2026-11-17T12:00:00.000Z'
 const ids = () => {
@@ -15,26 +15,30 @@ const markup = question('markup', { parent_id: 'policy' })
 const article = source('article', { title: 'As submitted' })
 const pending = proposal('p1', 'article')
 
-const published = (over: Partial<Published> = {}): Published => ({ questions: [policy, bill, markup], acts: [], reports: [], reviews: [], setPositions: [], ...over })
+const published = (over: Partial<Published> = {}): Published => ({ questions: [policy, bill, markup], acts: [], reports: [], reviews: [], sameActs: [], setPositions: [], ...over })
 
 type Publish = Extract<EntryVerdict, { publish: true }>
 
-// One act published as its items describe it: read on each item's question, as support unless the item says otherwise.
-const publish = (items: ProposalItem[], over: Partial<Publish> = {}): EntryVerdict => ({
+// One act published on each of its items' questions, with the same reading on each.
+const publish = (items: ProposalItem[], over: Partial<Publish> = {}, reading: Direction = 'support'): EntryVerdict => ({
   decider_id: items[0].decider_id,
   items,
   note: null,
   publish: true,
-  act_id: items[0].act_id,
+  act_id: items[0].act_id ?? `act-of-${items[0].id}`,
   kind: 'says',
   occurred_on: '2026-11-10',
-  quote: items[0].quote,
+  quote: `words of ${items[0].id}`,
   passage: null,
   weight: 'clear',
-  readings: items.map((i) => ({ question_id: i.question_id, reading: i.reading ?? 'support', item: i })),
+  readings: items.map((i) => ({ question_id: i.question_id, reading, item: i })),
   decision: null,
   ...over,
 })
+
+// What a proposal brings in: for each item, its act, its report in the article and the sender's review.
+const cameIn = (items: ProposalItem[], over: Partial<Published> = {}): Published =>
+  published({ ...onFile(...items.map((i) => incoming(i, { ...pending, submitted_by: NEWS_READER_ID }, { occurred_on: '2026-11-10', reading: 'support' }))), ...over })
 const dismiss = (items: ProposalItem[], note: string | null = null): EntryVerdict => ({ decider_id: items[0].decider_id, items, note, publish: false })
 const verdict = (entries: EntryVerdict[], review_note: string | null = null): Verdict => ({ review_note, entries })
 const plan = (v: Verdict, onFile: Published = published()) => planReview(onFile, pending, article, v, NOW, ids())
@@ -45,236 +49,141 @@ const notesOf = (writes: Write[]) => rowsOf<{ proposal_item_id: string | null; b
 const writesOn = (writes: Write[], table: Write['on']) => writes.filter((w) => w.on === table)
 
 describe('planReview', () => {
-  it('publishes several entries from one article in a single plan', () => {
-    const ann = item('i1', 'p1', 'ann', 'policy')
-    const bob = item('i2', 'p1', 'bob', 'policy', { sort: 1, reading: 'oppose' })
-    const cy = item('i3', 'p1', 'cy', 'policy', { sort: 2 })
-    const writes = plan(verdict([publish([ann]), publish([bob]), dismiss([cy], 'Not in the article.')], 'Read in full.'))
+  const ann = item('i1', 'p1', 'ann', 'policy')
+  const bob = item('i2', 'p1', 'bob', 'policy', { sort: 1 })
 
-    expect(rowsOf<Act>(writes, 'acts').map((a) => [a.id, a.decider_id, a.kind, a.occurred_on, a.body, a.created_at])).toEqual([
-      ['act-of-i1', 'ann', 'says', '2026-11-10', 'words of i1', NOW],
-      ['act-of-i2', 'bob', 'says', '2026-11-10', 'words of i2', NOW],
+  it("publishes what came in as the editors' review of each act, and writes no act or report again", () => {
+    const writes = plan(verdict([publish([ann]), publish([bob], {}, 'oppose')], 'Read in full.'), cameIn([ann, bob]))
+    expect(writesOn(writes, 'acts')).toEqual([])
+    expect(writesOn(writes, 'reports')).toEqual([])
+    expect(rowsOf<Review>(writes, 'reviews').map((r) => [r.reviewer_id, r.act_id, r.question_id, r.position, r.weight, r.created_at])).toEqual([
+      [EDITORS_ID, 'act-of-i1', 'policy', 'support', 'clear', NOW],
+      [EDITORS_ID, 'act-of-i2', 'policy', 'oppose', 'clear', NOW],
     ])
-    expect(rowsOf<Report>(writes, 'reports').map((r) => [r.source_id, r.act_id, r.excerpt, r.created_at])).toEqual([
-      ['article', 'act-of-i1', null, NOW],
-      ['article', 'act-of-i2', null, NOW],
-    ])
-    expect(rowsOf<Review>(writes, 'reviews').map((r) => [r.act_id, r.question_id, r.position, r.weight])).toEqual([
-      ['act-of-i1', 'policy', 'support', 'clear'],
-      ['act-of-i2', 'policy', 'oppose', 'clear'],
-    ])
-    expect(updatesOf(writes, 'proposal_items').map((u) => [u.id, u.changes.status])).toEqual([
-      ['i1', 'accepted'],
-      ['i2', 'accepted'],
-      ['i3', 'rejected'],
-    ])
-    expect(updatesOf(writes, 'proposals')).toEqual([{ on: 'proposals', type: 'update', id: 'p1', changes: { status: 'reviewed', reviewed_at: NOW } }])
-    expect(notesOf(writes)).toEqual([
-      ['i3', 'Not in the article.'],
-      [null, 'Read in full.'],
+    expect(notesOf(writes)).toEqual([[null, 'Read in full.']])
+    expect(writes.at(-1)).toEqual({ on: 'proposals', type: 'update', id: 'p1', changes: { status: 'reviewed', reviewed_at: NOW } })
+  })
+
+  it("leaves the sender's review as it is", () => {
+    const writes = plan(verdict([publish([ann], {}, 'oppose')]), cameIn([ann]))
+    expect(writesOn(writes, 'reviews')).toEqual([{ on: 'reviews', type: 'insert', row: expect.objectContaining({ reviewer_id: EDITORS_ID, position: 'oppose' }) }])
+  })
+
+  it("corrects the act's kind, date and words, and the passage, where the editor changed them, and writes nothing where they did not", () => {
+    const onFile = cameIn([ann])
+    expect(writesOn(plan(verdict([publish([ann])]), onFile), 'acts')).toEqual([])
+    const corrected = plan(verdict([publish([ann], { kind: 'does', occurred_on: '2026-11-03', quote: 'Voted for it.', passage: 'In the vote, Ann voted for it.' })]), onFile)
+    expect(updatesOf(corrected, 'acts')).toEqual([{ on: 'acts', type: 'update', id: 'act-of-i1', changes: { kind: 'does', occurred_on: '2026-11-03', body: 'Voted for it.' } }])
+    expect(updatesOf(corrected, 'reports')).toEqual([{ on: 'reports', type: 'update', id: 'article>act-of-i1', changes: { passage: 'In the vote, Ann voted for it.' } }])
+  })
+
+  it('keeps an act undated when the editor leaves the date empty', () => {
+    const onFile = cameIn([ann], { acts: [act('act-of-i1', 'ann', { body: 'words of i1', occurred_on: null })] })
+    expect(writesOn(plan(verdict([publish([ann], { occurred_on: '' })]), onFile), 'acts')).toEqual([])
+  })
+
+  it("says the act says nothing on a question the editor took off it, in the editors' review", () => {
+    const onMarkup = item('i3', 'p1', 'ann', 'markup', { act_id: 'act-of-i1', sort: 1 })
+    const writes = plan(verdict([publish([ann, onMarkup], { readings: [{ question_id: 'policy', reading: 'support', item: ann }] })]), cameIn([ann, onMarkup]))
+    expect(rowsOf<Review>(writes, 'reviews').map((r) => [r.question_id, r.position, r.weight])).toEqual([
+      ['policy', 'support', 'clear'],
+      ['markup', null, null],
     ])
   })
 
-  it('writes no position for anyone and leaves the source as it is', () => {
-    const writes = plan(verdict([publish([item('i1', 'p1', 'ann', 'policy')])]))
-    expect(writesOn(writes, 'set_positions')).toEqual([])
-    expect(writesOn(writes, 'sources')).toEqual([])
+  it("dismisses an entry with the editors' review that its act says nothing on each of its questions, and puts its note on the first item", () => {
+    const writes = plan(verdict([dismiss([ann], 'Not in the article.')]), cameIn([ann]))
+    expect(rowsOf<Review>(writes, 'reviews').map((r) => [r.reviewer_id, r.act_id, r.question_id, r.position])).toEqual([[EDITORS_ID, 'act-of-i1', 'policy', null]])
+    expect(notesOf(writes)).toEqual([['i1', 'Not in the article.']])
+  })
+
+  it('writes nothing for a dismissed lead but the proposal, since a lead put no act forward', () => {
+    const lead = item('lead', 'p1', 'ann', 'policy', { act_id: null, excerpt: 'Ann was named.' })
+    expect(plan(verdict([dismiss([lead])])).map((w) => w.on)).toEqual(['proposals'])
+  })
+
+  it("links a reading added in the form to the proposal, with the editors' review", () => {
+    const writes = plan(verdict([publish([ann], { readings: [{ question_id: 'policy', reading: 'support', item: ann }, { question_id: 'markup', reading: 'mixed', item: null }] })]), cameIn([ann]))
+    expect(rowsOf<ProposalItem>(writes, 'proposal_items')).toEqual([{ id: expect.any(String), proposal_id: 'p1', sort: 1, decider_id: 'ann', question_id: 'markup', act_id: 'act-of-i1', excerpt: null }])
+    expect(rowsOf<Review>(writes, 'reviews').map((r) => [r.question_id, r.position])).toEqual([
+      ['policy', 'support'],
+      ['markup', 'mixed'],
+    ])
+  })
+
+  it('writes the act and report of a lead the editor publishes, and points its item at the act', () => {
+    const lead = item('lead', 'p1', 'ann', 'policy', { act_id: null, excerpt: 'Ann was named.' })
+    const writes = plan(verdict([publish([lead], { act_id: 'typed', quote: 'I am for it.', occurred_on: '' })]))
+    expect(rowsOf<Act>(writes, 'acts').map((a) => [a.id, a.body, a.occurred_on])).toEqual([['typed', 'I am for it.', null]])
+    expect(rowsOf<Report>(writes, 'reports').map((r) => [r.source_id, r.act_id, r.excerpt])).toEqual([['article', 'typed', null]])
+    expect(updatesOf(writes, 'proposal_items')).toEqual([{ on: 'proposal_items', type: 'update', id: 'lead', changes: { act_id: 'typed', excerpt: null } }])
+  })
+
+  it('publishes an entry the editor added, which has no item, and numbers its item after the proposal’s', () => {
+    const added: EntryVerdict = { ...(publish([ann]) as Publish), decider_id: 'cy', items: [], act_id: 'added', readings: [{ question_id: 'policy', reading: 'oppose', item: null }] }
+    const writes = plan(verdict([publish([ann]), added]), cameIn([ann]))
+    expect(rowsOf<Act>(writes, 'acts').map((a) => [a.id, a.decider_id])).toEqual([['added', 'cy']])
+    expect(rowsOf<ProposalItem>(writes, 'proposal_items').map((i) => [i.decider_id, i.act_id, i.sort])).toEqual([['cy', 'added', 1]])
+  })
+
+  it('marks the act that came in as the same as an act already on the record, and reviews that one', () => {
+    const onFile = cameIn([ann], { acts: [...cameIn([ann]).acts, act('feb-11', 'ann')], reports: [...cameIn([ann]).reports, report('release', 'feb-11')] })
+    const writes = plan(verdict([publish([ann], { act_id: 'feb-11' })]), onFile)
+    expect(writesOn(writes, 'same_acts')).toEqual([{ on: 'same_acts', type: 'insert', row: { act_id: 'act-of-i1', same_as_id: 'feb-11', marked_by: EDITORS_ID, marked_at: NOW } }])
+    expect(writesOn(writes, 'acts')).toEqual([])
+    expect(writesOn(writes, 'reports')).toEqual([])
+    expect(rowsOf<Review>(writes, 'reviews').map((r) => [r.act_id, r.question_id])).toEqual([['feb-11', 'policy']])
+  })
+
+  it('writes no second mark when the act that came in was already marked as that act, and moves a mark that points elsewhere', () => {
+    const mark = (sameAs: string) => ({ act_id: 'act-of-i1', same_as_id: sameAs, marked_by: EDITORS_ID, marked_at: '2026-11-01T00:00:00.000Z' })
+    const base = cameIn([ann], { acts: [...cameIn([ann]).acts, act('feb-11', 'ann'), act('mar-02', 'ann')] })
+    expect(writesOn(plan(verdict([publish([ann], { act_id: 'feb-11' })]), { ...base, sameActs: [mark('feb-11')] }), 'same_acts')).toEqual([])
+    expect(writesOn(plan(verdict([publish([ann], { act_id: 'feb-11' })]), { ...base, sameActs: [mark('mar-02')] }), 'same_acts')).toEqual([
+      { on: 'same_acts', type: 'update', id: 'act-of-i1', changes: { same_as_id: 'feb-11', marked_by: EDITORS_ID, marked_at: NOW } },
+    ])
+  })
+
+  it('says nothing on a question left off, on the act that came in, when it is marked as an act already on the record', () => {
+    const onMarkup = item('i3', 'p1', 'ann', 'markup', { act_id: 'act-of-i1', sort: 1 })
+    const onFile = cameIn([ann, onMarkup], { acts: [...cameIn([ann]).acts, act('feb-11', 'ann')] })
+    const writes = plan(verdict([publish([ann, onMarkup], { act_id: 'feb-11', readings: [{ question_id: 'policy', reading: 'support', item: ann }] })]), onFile)
+    expect(rowsOf<Review>(writes, 'reviews').map((r) => [r.act_id, r.question_id, r.position])).toEqual([
+      ['feb-11', 'policy', 'support'],
+      ['act-of-i1', 'markup', null],
+    ])
+  })
+
+  it('adds a report to an act already on file for a lead the editor finds on the record, in this source’s words', () => {
+    const lead = item('lead', 'p1', 'ann', 'policy', { act_id: null })
+    const writes = plan(verdict([publish([lead], { act_id: 'feb-11', quote: 'As the paper words it.' })]), published({ acts: [act('feb-11', 'ann')] }))
+    expect(writesOn(writes, 'acts')).toEqual([])
+    expect(rowsOf<Report>(writes, 'reports').map((r) => [r.act_id, r.excerpt])).toEqual([['feb-11', 'As the paper words it.']])
+  })
+
+  it("adds the editors' review beside a review by someone else, and changes only the editors' own after", () => {
+    const first = plan(verdict([publish([ann])]), cameIn([ann]))
+    expect(rowsOf<Review>(first, 'reviews').map((r) => r.reviewer_id)).toEqual([EDITORS_ID])
+    const again = plan(verdict([publish([ann], { weight: 'passing' })]), cameIn([ann], { reviews: [review('act-of-i1', 'policy', 'support', 'clear', NEWS_READER_ID), review('act-of-i1', 'policy', 'support', 'clear')] }))
+    expect(updatesOf(again, 'reviews')).toEqual([{ on: 'reviews', type: 'update', id: 'editors:act-of-i1@policy', changes: { position: 'support', weight: 'passing', updated_at: NOW } }])
+    expect(writesOn(plan(verdict([publish([ann])]), cameIn([ann], { reviews: [review('act-of-i1', 'policy', 'support', 'clear')] })), 'reviews')).toEqual([])
+  })
+
+  it('writes nothing on the parent, which works out what a sub-question implies from the review there', () => {
+    const onBill = item('i1', 'p1', 'ann', 'bill')
+    const writes = plan(verdict([publish([onBill], { kind: 'commits', weight: 'concrete' })]), cameIn([onBill]))
+    expect(rowsOf<Review>(writes, 'reviews').map((r) => [r.question_id, r.position, r.weight])).toEqual([['bill', 'support', 'concrete']])
   })
 
   it('writes every table after the ones its rows point at', () => {
-    const entry = publish([item('i1', 'p1', 'ann', 'bill')], { decision: { question_id: 'bill', action: 'set', position: 'support', reason: 'Said so on the floor.' } })
+    const entry = publish([item('i1', 'p1', 'ann', 'bill', { act_id: null })], { act_id: 'new', decision: { question_id: 'bill', action: 'set', position: 'support', reason: 'Said so on the floor.' } })
     const order = [...new Set(plan(verdict([entry], 'x')).map((w) => w.on))]
     expect(order).toEqual(['acts', 'reports', 'reviews', 'set_positions', 'proposal_items', 'proposal_notes', 'proposals'])
   })
 
-  it('writes one act, one report with its passage and two readings for an entry read on two questions', () => {
-    const onMarkup = item('i1', 'p1', 'ann', 'markup', { act_id: 'shared' })
-    const onPolicy = item('i2', 'p1', 'ann', 'policy', { act_id: 'shared', sort: 1, reading: 'oppose' })
-    const writes = plan(verdict([publish([onMarkup, onPolicy], { passage: 'The paragraph the words sit in.' })]))
-    expect(rowsOf<Act>(writes, 'acts').map((a) => a.id)).toEqual(['shared'])
-    expect(rowsOf<Report>(writes, 'reports').map((r) => [r.source_id, r.act_id, r.passage])).toEqual([['article', 'shared', 'The paragraph the words sit in.']])
-    expect(rowsOf<Review>(writes, 'reviews').map((r) => [r.act_id, r.question_id, r.position])).toEqual([
-      ['shared', 'markup', 'support'],
-      ['shared', 'policy', 'oppose'],
-    ])
-    expect(updatesOf(writes, 'proposal_items').map((u) => [u.id, u.changes.status, u.changes.question_id, u.changes.reading])).toEqual([
-      ['i1', 'accepted', 'markup', 'support'],
-      ['i2', 'accepted', 'policy', 'oppose'],
-    ])
-  })
-
-  it('writes onto each accepted item what the editor left in the form', () => {
-    const lead = item('i1', 'p1', 'ann', 'policy')
-    const entry = publish([lead], {
-      act_id: 'chosen',
-      kind: 'does',
-      occurred_on: '2026-11-03',
-      quote: 'Voted for it.',
-      passage: 'On Tuesday she voted for it.',
-      weight: 'concrete',
-      readings: [{ question_id: 'markup', reading: 'lean_support', item: lead }],
-    })
-    expect(updatesOf(plan(verdict([entry])), 'proposal_items')).toEqual([
-      {
-        on: 'proposal_items',
-        type: 'update',
-        id: 'i1',
-        changes: { act_id: 'chosen', kind: 'does', occurred_on: '2026-11-03', quote: 'Voted for it.', passage: 'On Tuesday she voted for it.', weight: 'concrete', status: 'accepted', question_id: 'markup', reading: 'lean_support' },
-      },
-    ])
-  })
-
-  it('inserts an accepted item for a reading added in the form', () => {
-    const lead = item('i1', 'p1', 'ann', 'policy', { sort: 4 })
-    const entry = publish([lead], {
-      passage: 'The paragraph.',
-      readings: [
-        { question_id: 'policy', reading: 'support', item: lead },
-        { question_id: 'markup', reading: 'lean_support', item: null },
-      ],
-    })
-    const writes = plan(verdict([entry]))
-    expect(rowsOf<Review>(writes, 'reviews').map((r) => [r.question_id, r.position])).toEqual([
-      ['policy', 'support'],
-      ['markup', 'lean_support'],
-    ])
-    expect(rowsOf<ProposalItem>(writes, 'proposal_items')).toEqual([
-      {
-        id: expect.stringMatching(/^new-/),
-        proposal_id: 'p1',
-        sort: 5,
-        decider_id: 'ann',
-        question_id: 'markup',
-        act_id: 'act-of-i1',
-        kind: 'says',
-        occurred_on: '2026-11-10',
-        quote: 'words of i1',
-        passage: 'The paragraph.',
-        reading: 'lean_support',
-        weight: 'clear',
-        status: 'accepted',
-      },
-    ])
-  })
-
-  it('publishes an entry the editor added, which has no item, and numbers its items after the proposal’s', () => {
-    const lead = item('i1', 'p1', 'ann', 'policy', { sort: 2 })
-    const added: EntryVerdict = {
-      decider_id: 'bob',
-      items: [],
-      note: 'Named in the third paragraph.',
-      publish: true,
-      act_id: 'bob-act',
-      kind: 'says',
-      occurred_on: '2026-11-10',
-      quote: 'Bob said no.',
-      passage: null,
-      weight: 'clear',
-      readings: [
-        { question_id: 'policy', reading: 'oppose', item: null },
-        { question_id: 'markup', reading: 'oppose', item: null },
-      ],
-      decision: null,
-    }
-    const writes = plan(verdict([publish([lead]), added]))
-    expect(rowsOf<Act>(writes, 'acts').map((a) => [a.id, a.decider_id, a.body])).toEqual([
-      ['act-of-i1', 'ann', 'words of i1'],
-      ['bob-act', 'bob', 'Bob said no.'],
-    ])
-    const inserted = rowsOf<ProposalItem>(writes, 'proposal_items')
-    expect(inserted.map((i) => [i.decider_id, i.question_id, i.act_id, i.sort, i.status])).toEqual([
-      ['bob', 'policy', 'bob-act', 3, 'accepted'],
-      ['bob', 'markup', 'bob-act', 4, 'accepted'],
-    ])
-    expect(notesOf(writes)).toEqual([[inserted[0].id, 'Named in the third paragraph.']])
-  })
-
-  it('rejects an item whose reading the editor took off the entry', () => {
-    const onPolicy = item('i1', 'p1', 'ann', 'policy', { act_id: 'shared' })
-    const onMarkup = item('i2', 'p1', 'ann', 'markup', { act_id: 'shared', sort: 1 })
-    const writes = plan(verdict([publish([onPolicy, onMarkup], { readings: [{ question_id: 'policy', reading: 'support', item: onPolicy }] })]))
-    expect(rowsOf<Review>(writes, 'reviews').map((r) => r.question_id)).toEqual(['policy'])
-    expect(updatesOf(writes, 'proposal_items').map((u) => [u.id, u.changes.status])).toEqual([
-      ['i1', 'accepted'],
-      ['i2', 'rejected'],
-    ])
-  })
-
-  it('puts the note on a published entry on its first item', () => {
-    const first = item('i1', 'p1', 'ann', 'policy', { act_id: 'shared' })
-    const second = item('i2', 'p1', 'ann', 'markup', { act_id: 'shared', sort: 1 })
-    expect(notesOf(plan(verdict([publish([first, second], { note: 'Checked against the video.' })])))).toEqual([['i1', 'Checked against the video.']])
-  })
-
   it('refuses to publish an entry with no reading, or one read on a question that is not on file', () => {
-    const lead = item('i1', 'p1', 'ann', 'policy')
-    expect(() => plan(verdict([publish([lead], { readings: [] })]))).toThrow(/at least one question/)
-    expect(() => plan(verdict([publish([lead], { readings: [{ question_id: 'gone', reading: 'support', item: lead }] })]))).toThrow(/Unknown question gone/)
-  })
-
-  it("publishes each reading as the editors' review, starting from nobody else's", () => {
-    const writes = plan(verdict([publish([item('i1', 'p1', 'ann', 'policy')])]))
-    expect(rowsOf<Review>(writes, 'reviews')).toEqual([
-      { id: expect.any(String), reviewer_id: EDITORS_ID, act_id: 'act-of-i1', question_id: 'policy', position: 'support', weight: 'clear', based_on: null, created_at: NOW, updated_at: NOW },
-    ])
-  })
-
-  it('writes nothing on the parent, which works out what a sub-question implies from the review there', () => {
-    const writes = plan(verdict([publish([item('i1', 'p1', 'ann', 'bill')], { kind: 'commits', weight: 'concrete' })]))
-    expect(rowsOf<Review>(writes, 'reviews').map((r) => [r.question_id, r.position, r.weight])).toEqual([['bill', 'support', 'concrete']])
-    expect(rowsOf<ProposalItem>(writes, 'proposal_items')).toEqual([])
-  })
-
-  it("adds the editors' review beside a review by someone else, and leaves theirs as it is", () => {
-    const onFile = published({ acts: [act('feb-11', 'ann')], reviews: [review('feb-11', 'policy', 'oppose', 'clear', 'a-reader')] })
-    const writes = plan(verdict([publish([item('i1', 'p1', 'ann', 'policy')], { act_id: 'feb-11' })]), onFile)
-    expect(rowsOf<Review>(writes, 'reviews').map((r) => [r.reviewer_id, r.position])).toEqual([[EDITORS_ID, 'support']])
-    expect(updatesOf(writes, 'reviews')).toEqual([])
-  })
-
-  it('adds a report to an act already on file instead of a second act', () => {
-    const onFile = published({
-      acts: [act('feb-11', 'ann')],
-      reports: [report('release', 'feb-11')],
-      reviews: [review('feb-11', 'policy', 'lean_support')],
-    })
-    const entry = publish([item('i1', 'p1', 'ann', 'policy')], { act_id: 'feb-11', quote: 'As the paper words it.', passage: 'The paragraph in the paper.' })
-    const writes = plan(verdict([entry]), onFile)
-    expect(rowsOf<Act>(writes, 'acts')).toEqual([])
-    expect(rowsOf<Report>(writes, 'reports').map((r) => [r.source_id, r.act_id, r.excerpt, r.passage])).toEqual([['article', 'feb-11', 'As the paper words it.', 'The paragraph in the paper.']])
-    expect(rowsOf<Review>(writes, 'reviews')).toEqual([])
-    expect(updatesOf(writes, 'reviews')).toEqual([{ on: 'reviews', type: 'update', id: 'editors:feb-11@policy', changes: { position: 'support', weight: 'clear', updated_at: NOW } }])
-    expect(updatesOf(writes, 'proposal_items')[0].changes.act_id).toBe('feb-11')
-    expect(onFile.reviews[0].position).toBe('lean_support')
-  })
-
-  it('writes no second report from the same source, and leaves a reading that has not changed', () => {
-    const onFile = published({ acts: [act('feb-11', 'ann')], reports: [report('article', 'feb-11')], reviews: [review('feb-11', 'policy', 'support')] })
-    const writes = plan(verdict([publish([item('i1', 'p1', 'ann', 'policy')], { act_id: 'feb-11' })]), onFile)
-    expect(writesOn(writes, 'reports')).toEqual([])
-    expect(writesOn(writes, 'reviews')).toEqual([])
-  })
-
-  it('changes the weight of a reading on file when the editor reads the act again', () => {
-    const onFile = published({ acts: [act('feb-11', 'ann')], reviews: [review('feb-11', 'policy', 'support', 'passing')] })
-    const writes = plan(verdict([publish([item('i1', 'p1', 'ann', 'policy')], { act_id: 'feb-11' })]), onFile)
-    expect(updatesOf(writes, 'reviews')).toEqual([{ on: 'reviews', type: 'update', id: 'editors:feb-11@policy', changes: { position: 'support', weight: 'clear', updated_at: NOW } }])
-  })
-
-  it('rejects a whole proposal without publishing anything', () => {
-    const writes = plan(verdict([dismiss([item('i1', 'p1', 'ann', 'policy')])], 'Spam.'))
-    expect(writes.map((w) => `${w.type} ${w.on}`)).toEqual(['update proposal_items', 'insert proposal_notes', 'update proposals'])
-  })
-
-  it('rejects every item of a dismissed entry and puts its note on the first', () => {
-    const first = item('i1', 'p1', 'ann', 'policy', { act_id: 'shared' })
-    const second = item('i2', 'p1', 'ann', 'markup', { act_id: 'shared', sort: 1 })
-    const writes = plan(verdict([dismiss([first, second], 'A paraphrase.')]))
-    expect(updatesOf(writes, 'proposal_items').map((u) => [u.id, u.changes])).toEqual([
-      ['i1', { status: 'rejected' }],
-      ['i2', { status: 'rejected' }],
-    ])
-    expect(notesOf(writes)).toEqual([['i1', 'A paraphrase.']])
+    expect(() => plan(verdict([publish([ann], { readings: [] })]), cameIn([ann]))).toThrow(/at least one question/)
+    expect(() => plan(verdict([publish([ann], { readings: [{ question_id: 'gone', reading: 'support', item: ann }] })]), cameIn([ann]))).toThrow(/Unknown question gone/)
   })
 })
 
@@ -308,9 +217,9 @@ describe('planReview and the source’s publish date', () => {
 })
 
 describe('planReview with a decision about a set position', () => {
-  const lead = item('i1', 'p1', 'ann', 'policy', { reading: 'oppose' })
+  const lead = item('i1', 'p1', 'ann', 'policy')
   const held = setPosition('policy', 'ann', 'support', 'Promised it at the convention.')
-  const decide = (decision: PositionDecision, setPositions: SetPosition[] = [held]) => plan(verdict([publish([lead], { decision })]), published({ setPositions }))
+  const decide = (decision: PositionDecision, setPositions: SetPosition[] = [held]) => plan(verdict([publish([lead], { decision }, 'oppose')]), cameIn([lead], { setPositions }))
 
   it('sets a position where there was none, with its reason and the time', () => {
     const writes = decide({ question_id: 'policy', action: 'set', position: 'lean_oppose', reason: 'Told the caucus she will vote no.' }, [])
@@ -333,7 +242,7 @@ describe('planReview with a decision about a set position', () => {
 
   it('sets it for the person the entry is about, on the question the decision names', () => {
     const entry = publish([lead], { decision: { question_id: 'markup', action: 'set', position: 'mixed', reason: 'Both ways in one week.' } })
-    expect(rowsOf<SetPosition>(plan(verdict([entry])), 'set_positions').map((s) => [s.id, s.question_id, s.decider_id])).toEqual([['markup:ann', 'markup', 'ann']])
+    expect(rowsOf<SetPosition>(plan(verdict([entry]), cameIn([lead])), 'set_positions').map((s) => [s.id, s.question_id, s.decider_id])).toEqual([['markup:ann', 'markup', 'ann']])
   })
 
   it('writes nothing to keep a set position as it is', () => {

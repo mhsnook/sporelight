@@ -4,7 +4,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import type { SearchHit } from '../../worker/leads.ts'
 import { searchNews } from '../../worker/news.ts'
 import type { Tracker } from '../../worker/tracker.ts'
-import { rows, seed } from './helpers.ts'
+import { claims, rows, seed } from './helpers.ts'
 
 const NOW = new Date('2026-11-19T12:00:00Z')
 
@@ -26,12 +26,10 @@ function stubbedEnv(respond: (query: string) => Response | Promise<Response> = (
 
 const tracker = () => getServerByName<Env, Tracker>(env.Tracker, 'main')
 
-const leads = () =>
-  rows<{ url: string; question_id: string; decider_id: string; origin: string; reading: null; occurred_on: string | null }>(
-    `SELECT s.url, i.question_id, i.decider_id, p.origin, i.reading, i.occurred_on
-     FROM proposal_items i JOIN proposals p ON p.id = i.proposal_id JOIN sources s ON s.id = p.source_id
-     ORDER BY s.url, i.question_id, i.decider_id`,
-  )
+const leads = async () =>
+  (await claims())
+    .map(({ url, question_id, decider_id, origin, reading, occurred_on }) => ({ url, question_id, decider_id, origin, reading, occurred_on }))
+    .sort((a, b) => a.url.localeCompare(b.url) || a.question_id.localeCompare(b.question_id) || a.decider_id.localeCompare(b.decider_id))
 
 beforeAll(seed)
 
@@ -57,13 +55,15 @@ describe('searchNews', () => {
     // The hot question is put to the Senate as well, so Bob is on its roster. The
     // closing question is put to Congress alone, so only Ann is.
     expect(await leads()).toEqual([
-      { url: 'https://news.example/ann', question_id: 'closing', decider_id: 'ann', origin: 'news_search', reading: null, occurred_on: '2026-11-18' },
-      { url: 'https://news.example/ann', question_id: 'hot', decider_id: 'ann', origin: 'news_search', reading: null, occurred_on: '2026-11-18' },
+      { url: 'https://news.example/ann', question_id: 'closing', decider_id: 'ann', origin: 'news_search', reading: null, occurred_on: null },
+      { url: 'https://news.example/ann', question_id: 'hot', decider_id: 'ann', origin: 'news_search', reading: null, occurred_on: null },
       { url: 'https://news.example/bob', question_id: 'hot', decider_id: 'bob', origin: 'news_search', reading: null, occurred_on: null },
       { url: 'https://news.example/both', question_id: 'closing', decider_id: 'ann', origin: 'news_search', reading: null, occurred_on: null },
       { url: 'https://news.example/both', question_id: 'hot', decider_id: 'ann', origin: 'news_search', reading: null, occurred_on: null },
       { url: 'https://news.example/both', question_id: 'hot', decider_id: 'bob', origin: 'news_search', reading: null, occurred_on: null },
     ])
+    // A lead puts forward no act, so its search date is the source's.
+    expect(await rows(`SELECT published_on FROM sources WHERE url = 'https://news.example/ann'`)).toEqual([{ published_on: '2026-11-18' }])
     expect(report.error).toBeUndefined()
     expect(report.questions.map((q) => [q.question, q.queued])).toEqual([
       ['Hot Topic', 4],

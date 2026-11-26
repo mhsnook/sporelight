@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { NEWS_READER_ID, type Direction } from '../../shared/schema.ts'
+import type { TrackerData } from './build-tracker.ts'
+import type { Claim } from './claims.ts'
 import { buildStories, buildWaiting, feedPage, mergeFeed, pageHolding, questionFamily } from './feed.ts'
-import { act, data, decider, item, proposal, question, review, report, role, seat, setPosition, source, track } from './fixtures.ts'
+import { act, data, decider, incoming, item, onFile, proposal, question, review, report, role, seat, setPosition, source, track } from './fixtures.ts'
 
 const at = (day: string, time = '12:00') => `${day}T${time}:00.000Z`
 
@@ -31,7 +34,7 @@ const aside = published('aside', 'ann', 'blog', at('2026-11-14'))
 // A later article reporting an act already on file, with its own excerpt.
 const followUp = report('wire', 'bob-says', { created_at: at('2026-11-16'), excerpt: 'Bob said it again.', passage: 'Asked on Monday, Bob said it again. He did not say more.' })
 
-const tracker = track({
+const trackerData = data({
   bodies,
   deciders: [decider('ann'), decider('bob'), decider('cy')],
   seats: [seat('s1'), seat('s2'), seat('c1', { body_id: 'council' })],
@@ -49,6 +52,7 @@ const tracker = track({
     review('council-vote', 'elsewhere', 'support'),
   ],
 })
+const tracker = track(trackerData)
 
 const keys = (stories: { source: { id: string } }[]) => stories.map((s) => s.source.id)
 const people = (story: { items: { decider: { id: string } }[] }) => story.items.map((i) => i.decider.id)
@@ -154,22 +158,30 @@ describe('paging', () => {
 
 describe('what is waiting for review', () => {
   const proposals = [
-    proposal('from-reader', 'paper', { created_at: at('2026-11-17') }),
-    proposal('from-model', 'record', { origin: 'model', created_at: at('2026-11-18') }),
-    proposal('lead', 'minutes', { origin: 'news_search', created_at: at('2026-11-18') }),
-    proposal('done', 'paper', { status: 'reviewed', created_at: at('2026-11-01') }),
+    proposal('from-reader', 'paper', { submitted_by: 'a-reader', created_at: at('2026-11-17') }),
+    proposal('from-model', 'record', { origin: 'model', submitted_by: NEWS_READER_ID, created_at: at('2026-11-18') }),
+    proposal('lead', 'minutes', { origin: 'news_search', submitted_by: NEWS_READER_ID, created_at: at('2026-11-18') }),
+    proposal('done', 'paper', { status: 'reviewed', submitted_by: 'a-reader', created_at: at('2026-11-01') }),
   ]
-  const items = [
-    item('claim', 'from-reader', 'ann', 'policy', { reading: 'support' }),
-    item('turned-down', 'from-reader', 'bob', 'policy', { reading: 'oppose', status: 'rejected' }),
-    item('on-bill', 'from-model', 'bob', 'bill', { reading: 'support', act_id: 'one-act', sort: 0 }),
-    item('on-policy', 'from-model', 'bob', 'policy', { reading: 'support', act_id: 'one-act', sort: 1 }),
-    item('second-act', 'from-model', 'ann', 'other', { reading: 'mixed', act_id: 'two' }),
-    item('bare-lead', 'lead', 'cy', 'elsewhere'),
-    item('published', 'done', 'ann', 'policy', { reading: 'support', status: 'accepted' }),
-    item('unknown-person', 'from-reader', 'nobody', 'policy', { reading: 'support' }),
+  const sent = (id: string, proposalId: string, deciderId: string, questionId: string, reading: Direction, over: { act_id?: string; sort?: number; verdict?: Claim['verdict'] } = {}) => {
+    const row = item(id, proposalId, deciderId, questionId, { act_id: over.act_id ?? `act-of-${id}`, sort: over.sort ?? 0 })
+    return { item: row, rows: incoming(row, proposals.find((x) => x.id === proposalId)!, { reading, weight: 'clear', occurred_on: '2026-01-01', verdict: over.verdict }) }
+  }
+  const brought = [
+    sent('claim', 'from-reader', 'ann', 'policy', 'support'),
+    sent('turned-down', 'from-reader', 'bob', 'policy', 'oppose', { verdict: 'turned_down' }),
+    sent('on-bill', 'from-model', 'bob', 'bill', 'support', { act_id: 'one-act', sort: 0 }),
+    sent('on-policy', 'from-model', 'bob', 'policy', 'support', { act_id: 'one-act', sort: 1 }),
+    sent('second-act', 'from-model', 'ann', 'other', 'mixed', { act_id: 'two' }),
+    sent('published', 'done', 'ann', 'policy', 'support', { verdict: 'published' }),
   ]
-  const waiting = buildWaiting(tracker, proposals, items)
+  const items = [...brought.map((b) => b.item), item('bare-lead', 'lead', 'cy', 'elsewhere', { act_id: null, excerpt: 'Cy was named.' }), item('unknown-person', 'from-reader', 'nobody', 'policy')]
+  const withWaiting = (base: TrackerData) => {
+    const rows = onFile(...brought.map((b) => b.rows))
+    return track({ ...base, acts: [...base.acts, ...rows.acts], reports: [...base.reports, ...rows.reports], reviews: [...base.reviews, ...rows.reviews], people: [{ id: NEWS_READER_ID, kind: 'agent' }] })
+  }
+  const waitingTracker = withWaiting(trackerData)
+  const waiting = buildWaiting(waitingTracker, proposals, items)
   const claimed = (stories: typeof waiting) => stories.map((s) => [s.proposal.id, s.items.map((i) => i.claims.map((c) => c.item.id))])
 
   it('is one story per proposal with pending items that claim a reading, newest first', () => {
@@ -185,12 +197,12 @@ describe('what is waiting for review', () => {
   })
 
   it('takes the same filters as the record', () => {
-    expect(claimed(buildWaiting(tracker, proposals, items, { questionId: 'bill' }))).toEqual([['from-model', [['on-bill']]]])
-    expect(claimed(buildWaiting(tracker, proposals, items, { bodyId: 'council' }))).toEqual([])
+    expect(claimed(buildWaiting(waitingTracker, proposals, items, { questionId: 'bill' }))).toEqual([['from-model', [['on-bill']]]])
+    expect(claimed(buildWaiting(waitingTracker, proposals, items, { bodyId: 'council' }))).toEqual([])
   })
 
-  it('sits in the feed beside the record, by when it was put forward', () => {
-    const merged = mergeFeed(buildStories(tracker), waiting)
+  it('sits in the feed beside what editors published, by when it was put forward, and the acts it claims are not stories until editors review them', () => {
+    const merged = mergeFeed(buildStories(waitingTracker), waiting)
     expect(merged.map((f) => (f.kind === 'published' ? f.story.source.id : `waiting:${f.story.proposal.id}`))).toEqual([
       'waiting:from-model',
       'waiting:from-reader',
@@ -199,7 +211,9 @@ describe('what is waiting for review', () => {
       'blog',
       'paper',
       'record',
+      'paper',
     ])
+    expect(buildStories(waitingTracker).flatMap((st) => st.items.map((i) => i.act.id))).not.toContain('one-act')
   })
 
   it('says where each person stood on the question before the claim', () => {
@@ -208,19 +222,26 @@ describe('what is waiting for review', () => {
       ['bill', 'unknown'],
       ['policy', 'oppose'],
     ])
-    const signed = buildWaiting(tracker, proposals, [item('again', 'from-reader', 'ann', 'bill', { reading: 'support' })])
+    const again = sent('again', 'from-reader', 'ann', 'bill', 'support')
+    const signed = buildWaiting(track({ ...trackerData, acts: [...trackerData.acts, ...again.rows.acts], reports: [...trackerData.reports, ...again.rows.reports], reviews: [...trackerData.reviews, ...again.rows.reviews] }), proposals, [again.item])
     expect(signed[0].items[0].claims[0].before).toBe('support')
   })
 
   it('names the position editors set when a claim sits across from it, and not otherwise', () => {
     const set = setPosition('policy', 'ann', 'lean_oppose')
-    const withSet = track({ deciders: [decider('ann'), decider('bob')], questions: [policy, other], setPositions: [set, setPosition('other', 'ann', 'mixed')] })
-    const claims = [
-      item('across', 'from-reader', 'ann', 'policy', { reading: 'lean_support', sort: 0 }),
-      item('same-side', 'from-reader', 'ann', 'policy', { reading: 'oppose', act_id: 'second', sort: 1 }),
-      item('against-mixed', 'from-reader', 'ann', 'other', { reading: 'oppose', act_id: 'third', sort: 2 }),
-      item('nothing-set', 'from-reader', 'bob', 'policy', { reading: 'support', act_id: 'fourth', sort: 3 }),
+    const lines = [
+      sent('across', 'from-reader', 'ann', 'policy', 'lean_support', { sort: 0 }),
+      sent('same-side', 'from-reader', 'ann', 'policy', 'oppose', { act_id: 'second', sort: 1 }),
+      sent('against-mixed', 'from-reader', 'ann', 'other', 'oppose', { act_id: 'third', sort: 2 }),
+      sent('nothing-set', 'from-reader', 'bob', 'policy', 'support', { act_id: 'fourth', sort: 3 }),
     ]
+    const withSet = track({
+      deciders: [decider('ann'), decider('bob')],
+      questions: [policy, other],
+      setPositions: [set, setPosition('other', 'ann', 'mixed')],
+      ...onFile(...lines.map((l) => l.rows)),
+    })
+    const claims = lines.map((l) => l.item)
     const [story] = buildWaiting(withSet, proposals, claims)
     expect(story.items.flatMap((i) => i.claims.map((c) => [c.item.id, c.before, c.across]))).toEqual([
       ['across', 'lean_oppose', set],

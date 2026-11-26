@@ -1,9 +1,9 @@
 import { env } from 'cloudflare:workers'
 import { getServerByName } from 'partyserver'
 import { beforeAll, describe, expect, it } from 'vitest'
-import type { ProposalDraft } from '../../shared/schema.ts'
+import { NEWS_READER_ID, type ProposalDraft } from '../../shared/schema.ts'
 import type { Tracker } from '../../worker/tracker.ts'
-import { postAs, proposal, reader, rows, seed, noOutsidePages } from './helpers.ts'
+import { postAs, proposal, reader, rows, seed, noOutsidePages, claims, editorsSay } from './helpers.ts'
 
 const tracker = () => getServerByName<Env, Tracker>(env.Tracker, 'main')
 // What the Worker answers a proposal it queued, and one it already had.
@@ -85,13 +85,8 @@ describe('POST /api/proposals: refused input', () => {
     })
     const answer = await res.json()
     expect(answer).toEqual(QUEUED)
-    const [row] = await rows(
-      `SELECT p.id AS proposal_id, p.origin, p.status AS proposal_status, p.submitted_by, p.reviewed_at, p.unread,
-              i.id, i.act_id, i.status, i.weight, i.passage, i.sort
-       FROM proposal_items i JOIN proposals p ON p.id = i.proposal_id JOIN sources s ON s.id = p.source_id WHERE s.url = ?`,
-      url,
-    )
-    expect(row).toMatchObject({ origin: 'reader', proposal_status: 'pending', submitted_by: personId, reviewed_at: null, unread: null, status: 'pending', weight: 'clear', passage: null, sort: 0 })
+    const [row] = (await claims()).filter((c) => c.url === url)
+    expect(row).toMatchObject({ origin: 'reader', proposal_status: 'pending', submitted_by: personId, reviewed_at: null, unread: null, verdict: 'waiting', weight: 'clear', passage: null, sort: 0 })
     expect([row.proposal_id, row.id, row.act_id]).not.toContain('forged-proposal')
     expect((answer as { proposal_id: string }).proposal_id).toBe(row.proposal_id)
     expect(row.act_id).not.toBe('forged-act')
@@ -138,7 +133,7 @@ describe('POST /api/proposals: a new source', () => {
     expect(source.title).toBe('Ann Alpha backs the bill')
     const proposals = await rows(`SELECT * FROM proposals WHERE source_id = ?`, source.id)
     expect(proposals).toMatchObject([{ id: answer.proposal_id, origin: 'reader', status: 'pending', unread: null, reviewed_at: null }])
-    const items = await rows(`SELECT * FROM proposal_items WHERE proposal_id = ?`, proposals[0].id)
+    const items = (await claims()).filter((c) => c.proposal_id === proposals[0].id)
     expect(items).toMatchObject([
       {
         question_id: 'hot',
@@ -147,7 +142,7 @@ describe('POST /api/proposals: a new source', () => {
         reading: 'support',
         weight: 'clear',
         passage: null,
-        status: 'pending',
+        verdict: 'waiting',
         quote: 'I will vote for this bill when it comes up.',
         occurred_on: '2026-11-01',
       },
@@ -165,12 +160,7 @@ describe('POST /api/proposals: a new source', () => {
 
 describe('POST /api/proposals: duplicates from the same source', () => {
   const url = 'https://news.example/duplicates'
-  const itemsFor = (decider: string) =>
-    rows<{ id: string; status: string; quote: string }>(
-      `SELECT i.id, i.status, i.quote FROM proposal_items i JOIN proposals p ON p.id = i.proposal_id JOIN sources s ON s.id = p.source_id WHERE s.url = ? AND i.decider_id = ? ORDER BY p.created_at`,
-      url,
-      decider,
-    )
+  const itemsFor = async (decider: string) => (await claims()).filter((c) => c.url === url && c.decider_id === decider)
   const submit = async (overrides: Record<string, unknown>) =>
     (await (await send('/api/proposals', proposal({ source_url: url, ...overrides }))).json()) as { ok: boolean; duplicate: boolean; proposal_id: string | null }
 
@@ -189,25 +179,24 @@ describe('POST /api/proposals: duplicates from the same source', () => {
 
   it('a published item blocks the same person and question', async () => {
     expect(await submit({ decider_id: 'fay' })).toEqual(QUEUED)
-    await env.DB.prepare(`UPDATE proposal_items SET status = 'accepted' WHERE id = ?`).bind((await itemsFor('fay'))[0].id).run()
+    await editorsSay((await itemsFor('fay'))[0].id, 'support')
     expect(await submit({ decider_id: 'fay', quote: 'A different sentence from the article.' })).toEqual(DUPLICATE)
   })
 
   it('a rejected item blocks a reader only for the same quote', async () => {
     expect(await submit({ decider_id: 'ann', quote: 'The words that were turned down.' })).toEqual(QUEUED)
-    await env.DB.prepare(`UPDATE proposal_items SET status = 'rejected' WHERE id = ?`).bind((await itemsFor('ann'))[0].id).run()
+    await editorsSay((await itemsFor('ann'))[0].id, null)
     expect(await submit({ decider_id: 'ann', quote: 'The words that were turned down.' })).toEqual(DUPLICATE)
     expect(await submit({ decider_id: 'ann', quote: 'A better quote from the same article.' })).toEqual(QUEUED)
-    expect((await itemsFor('ann')).map((i) => i.status)).toEqual(['rejected', 'pending'])
+    expect((await itemsFor('ann')).map((i) => i.verdict)).toEqual(['turned_down', 'waiting'])
   })
 
   it('a rejected item blocks the news search whatever the quote', async () => {
     const newsUrl = 'https://news.example/rejected-lead'
     const draft = (quote: string) => ({ source: { url: newsUrl, title: null }, note: null, items: [{ question_id: 'hot', decider_id: 'ann', kind: 'says' as const, occurred_on: null, quote, reading: null }] })
     expect(await (await tracker()).propose(draft('Ann Alpha said something.'), 'news_search')).toEqual({ ok: true, queued: 1, proposal_id: expect.any(String), source_id: expect.any(String), undated: true })
-    await env.DB.prepare(
-      `UPDATE proposal_items SET status = 'rejected' WHERE proposal_id IN (SELECT p.id FROM proposals p JOIN sources s ON s.id = p.source_id WHERE s.url = ?)`,
-    )
+    // A lead is turned down by reviewing its proposal without publishing it.
+    await env.DB.prepare(`UPDATE proposals SET status = 'reviewed' WHERE source_id IN (SELECT id FROM sources WHERE url = ?)`)
       .bind(newsUrl)
       .run()
     expect(await (await tracker()).propose(draft('Ann Alpha said something else.'), 'news_search')).toEqual({ ok: true, queued: 0, proposal_id: null, source_id: expect.any(String), undated: true })
@@ -223,11 +212,34 @@ describe('Tracker.propose', () => {
     if (!result.ok || !result.proposal_id) throw new Error(`not queued: ${JSON.stringify(result)}`)
     return result.proposal_id
   }
-  const itemsOf = (proposalId: string) => rows<{ id: string; decider_id: string; weight: string | null; passage: string | null }>(`SELECT id, decider_id, weight, passage FROM proposal_items WHERE proposal_id = ? ORDER BY sort`, proposalId)
+  const itemsOf = async (proposalId: string) => (await claims()).filter((c) => c.proposal_id === proposalId)
 
   it('returns the id of the proposal it wrote', async () => {
     const id = await propose('id', [draftItem()])
     expect(await rows(`SELECT s.url FROM proposals p JOIN sources s ON s.id = p.source_id WHERE p.id = ?`, id)).toEqual([{ url: 'https://news.example/propose-id' }])
+  })
+
+  it("writes an act, its report and the news reader's review for each act the model found, and only an item for a lead", async () => {
+    const id = await propose('came-in', [draftItem({ occurred_on: '2026-11-10', passage: 'Ann said: Some words from the article.' }), draftItem({ decider_id: 'bob', reading: null, quote: 'A search excerpt.' })])
+    const [found, lead] = await rows<{ act_id: string | null; excerpt: string | null }>(`SELECT act_id, excerpt FROM proposal_items WHERE proposal_id = ? ORDER BY sort`, id)
+    expect(lead).toEqual({ act_id: null, excerpt: 'A search excerpt.' })
+    expect(await rows(`SELECT decider_id, kind, occurred_on, body FROM acts WHERE id = ?`, found.act_id)).toEqual([{ decider_id: 'ann', kind: 'says', occurred_on: '2026-11-10', body: 'Some words from the article.' }])
+    expect(await rows(`SELECT s.url, r.passage FROM reports r JOIN sources s ON s.id = r.source_id WHERE r.act_id = ?`, found.act_id)).toEqual([
+      { url: 'https://news.example/propose-came-in', passage: 'Ann said: Some words from the article.' },
+    ])
+    expect(await rows(`SELECT reviewer_id, question_id, position, weight FROM reviews WHERE act_id = ?`, found.act_id)).toEqual([{ reviewer_id: NEWS_READER_ID, question_id: 'hot', position: 'support', weight: 'clear' }])
+    expect(await rows(`SELECT submitted_by FROM proposals WHERE id = ?`, id)).toEqual([{ submitted_by: NEWS_READER_ID }])
+  })
+
+  it("writes a signed-in reader's submission as their own review", async () => {
+    const answer = (await (await send('/api/proposals', proposal({ source_url: 'https://news.example/own-review' }))).json()) as { proposal_id: string }
+    const [row] = await rows<{ act_id: string }>(`SELECT act_id FROM proposal_items WHERE proposal_id = ?`, answer.proposal_id)
+    expect(await rows(`SELECT reviewer_id, position FROM reviews WHERE act_id = ?`, row.act_id)).toEqual([{ reviewer_id: personId, position: 'support' }])
+  })
+
+  it('keeps an act the model could not date, undated', async () => {
+    const id = await propose('undated', [draftItem()])
+    expect(await rows(`SELECT a.occurred_on FROM acts a JOIN proposal_items i ON i.act_id = a.id WHERE i.proposal_id = ?`, id)).toEqual([{ occurred_on: null }])
   })
 
   it('gives an item that came with no weight the usual one for its kind', async () => {
@@ -276,7 +288,7 @@ describe('Tracker.propose', () => {
     expect(await rows(`SELECT proposal_id, proposal_item_id, before, after FROM proposal_contexts WHERE proposal_id = ?`, id)).toEqual([
       { proposal_id: id, proposal_item_id: bob.id, before: 'The paragraph before.', after: 'The paragraph after.' },
     ])
-    expect(await rows(`SELECT 1 FROM proposal_items WHERE proposal_id = ?1 AND (quote LIKE '%The paragraph before.%' OR passage LIKE '%The paragraph before.%')`, id)).toEqual([])
+    expect((await itemsOf(id)).filter((c) => c.quote.includes('The paragraph before.') || c.passage?.includes('The paragraph before.'))).toEqual([])
   })
 
   it('stores the people the article only names', async () => {

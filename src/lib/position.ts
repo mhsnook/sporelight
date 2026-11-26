@@ -93,6 +93,8 @@ export const KIND_CHOICE: Record<ActKind, string> = {
 
 const dateFmt = new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })
 export const formatDate = (iso: string) => dateFmt.format(new Date(iso))
+// An act's date, or that it has not been found yet.
+export const actDate = (occurredOn: string | null) => (occurredOn ? formatDate(occurredOn) : 'Date not found')
 
 // The first date shown for a source. A date from the search results is not
 // called a publish date: it may be when the page last changed.

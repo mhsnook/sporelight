@@ -1,4 +1,5 @@
-import type { Act, ActKind, Direction, Position, Proposal, ProposalContext, ProposalItem, PublishedOnFrom, Question, Source, Weight } from '../../shared/schema.ts'
+import type { Act, ActKind, Direction, Position, ProposalContext, ProposalItem, PublishedOnFrom, Question, Source, Weight } from '../../shared/schema.ts'
+import { cameInOf, type Claim } from './claims.ts'
 import type { Listing, RelatedQuestion, Tracker } from './build-tracker.ts'
 import type { Standing } from './position.ts'
 import type { EntryVerdict, PositionDecision, Verdict } from './review-plan.ts'
@@ -9,9 +10,10 @@ export type EntryDraft = {
   key: string
   // null on an entry the editor added, until they choose who it is about.
   decider_id: string | null
-  // An act on file, or `newActId`.
+  // `newActId`, or another act on file chosen as the one this entry reports.
   act_id: string
-  // The id the act takes if it is not one already on file.
+  // The act the entry reports unless another is chosen: the act that came in
+  // with the proposal, or for a lead or an added entry, the id a new act takes.
   newActId: string
   // The proposal's rows for this act. Empty on an entry the editor added.
   items: ProposalItem[]
@@ -43,39 +45,42 @@ export type EntryDraft = {
 
 const newDecision = (): EntryDraft['decision'] => ({ action: 'keep', position: null, reason: '' })
 
-// The proposal's items as entries: items that share an act and a person are
-// one entry, read on the first item's question and on the others' beside it.
-export function draftEntries(items: ProposalItem[], contexts: ProposalContext[] = []): EntryDraft[] {
+// The proposal's claims as entries: claims about one act are one entry, read
+// on the first claim's question and on the others' beside it. A lead is an
+// entry of its own, with no words: the editor types them.
+export function draftEntries(claims: Claim[], contexts: ProposalContext[] = []): EntryDraft[] {
   const drafts: EntryDraft[] = []
   const contextOf = new Map(contexts.map((c) => [c.proposal_item_id, c]))
-  // An item that was dismissed goes after the others, so an act is read first on a question it was published on.
-  for (const item of [...items].sort((a, b) => Number(a.status === 'rejected') - Number(b.status === 'rejected') || a.sort - b.sort)) {
-    const key = `${item.decider_id} ${item.act_id}`
+  // A claim that was turned down goes after the others, so an act is read first on a question it was published on.
+  for (const claim of [...claims].sort((a, b) => Number(a.verdict === 'turned_down') - Number(b.verdict === 'turned_down') || a.item.sort - b.item.sort)) {
+    const { item } = claim
+    const actId = item.act_id ?? item.id
+    const key = `${item.decider_id} ${actId}`
+    const turnedDown = claim.verdict === 'turned_down'
     const entry = drafts.find((d) => d.key === key)
     if (entry) {
       entry.items.push(item)
-      if (item.status !== 'rejected') entry.related[item.question_id] = item.reading
-      entry.dismissed &&= item.status === 'rejected'
+      if (!turnedDown) entry.related[item.question_id] = claim.reading
+      entry.dismissed &&= turnedDown
       continue
     }
     drafts.push({
       key,
       decider_id: item.decider_id,
-      act_id: item.act_id,
-      newActId: item.act_id,
+      act_id: actId,
+      newActId: actId,
       items: [item],
       question_id: item.question_id,
-      kind: item.kind,
-      occurred_on: item.occurred_on ?? '',
-      // A search excerpt is not anyone's words. It is shown on the card, and the editor types the words.
-      quote: item.reading === null && item.passage === null ? '' : item.quote,
-      passage: item.passage,
-      wider: wider(item, contextOf.get(item.id)),
-      reading: item.reading,
+      kind: claim.kind,
+      occurred_on: claim.occurred_on ?? '',
+      quote: claim.quote,
+      passage: claim.passage,
+      wider: wider(claim.passage, contextOf.get(item.id)),
+      reading: claim.reading,
       mainSkipped: false,
-      weight: item.weight,
+      weight: claim.weight,
       related: {},
-      dismissed: item.status === 'rejected',
+      dismissed: turnedDown,
       note: '',
       copiedFrom: null,
       setPosition: null,
@@ -86,8 +91,8 @@ export function draftEntries(items: ProposalItem[], contexts: ProposalContext[] 
   return drafts.sort((a, b) => firstSort(a) - firstSort(b))
 }
 
-const wider = (item: ProposalItem, context: ProposalContext | undefined) =>
-  context && item.passage !== null ? [...context.before.split('\n'), item.passage, ...context.after.split('\n')].filter((p) => p.trim()) : null
+const wider = (passage: string | null, context: ProposalContext | undefined) =>
+  context && passage !== null ? [...context.before.split('\n'), passage, ...context.after.split('\n')].filter((p) => p.trim()) : null
 
 // "Add another person" starts from the first entry's answers and its passage,
 // with no words marked.
@@ -114,7 +119,7 @@ export function addedEntry(first: EntryDraft, copiedFrom: string | null, newId: 
 // The entry as a report of an act already on file, which keeps its own kind
 // and date, or of a new act when `act` is null.
 export const reportingAct = (entry: EntryDraft, act: Act | null): EntryDraft =>
-  act ? { ...entry, act_id: act.id, kind: act.kind, occurred_on: act.occurred_on } : { ...entry, act_id: entry.newActId }
+  act ? { ...entry, act_id: act.id, kind: act.kind, occurred_on: act.occurred_on ?? '' } : { ...entry, act_id: entry.newActId }
 
 // An entry for someone the source only describes: what it says of them, to be
 // counted as presumed, with no answer filled in.
@@ -131,13 +136,12 @@ export function missingFrom(entry: EntryDraft): string | null {
   if (!entry.quote.trim()) return 'the words'
   const isRead = entry.mainSkipped ? Object.values(entry.related).some((r) => r !== null) : entry.reading !== null
   if (!isRead || !entry.weight) return 'both answers'
-  if (!entry.occurred_on) return 'the date'
   return null
 }
 
 // The act an entry reports: the one on file, or the one publishing it would make.
 const actOf = (tracker: Pick<Tracker, 'actById'>, entry: EntryDraft): Act =>
-  tracker.actById.get(entry.act_id) ?? { id: entry.act_id, decider_id: entry.decider_id ?? '', kind: entry.kind, occurred_on: entry.occurred_on, body: entry.quote, primary_source_id: null, withdrawn_on: null, created_at: '' }
+  tracker.actById.get(entry.act_id) ?? { id: entry.act_id, decider_id: entry.decider_id ?? '', kind: entry.kind, occurred_on: entry.occurred_on || null, body: entry.quote, primary_source_id: null, withdrawn_on: null, created_at: '' }
 
 export type Outlook = {
   // Where the person is listed today, and where publishing the entry would leave them.
@@ -149,15 +153,16 @@ export type Outlook = {
 
 // Where publishing this entry's reading on a question would leave the person.
 // `then` is null until both answers are in.
-export function outlook(tracker: Pick<Tracker, 'actById' | 'listingFor' | 'recordFor' | 'entryOf' | 'acrossFor'>, entry: EntryDraft, question: Question, given: Direction | null): Outlook {
+export function outlook(tracker: Pick<Tracker, 'actById' | 'listingFor' | 'entryOf' | 'acrossFor'>, entry: EntryDraft, question: Question, given: Direction | null): Outlook {
   const reading = entry.mainSkipped && question.id === entry.question_id ? null : given
   const deciderId = entry.decider_id ?? ''
-  const now = tracker.listingFor(question, deciderId)
+  // Where they stand without the act that came in, which is what is being reviewed.
+  const cameIn = cameInOf(entry.items)
+  const without = cameIn ? [cameIn] : []
+  const now = tracker.listingFor(question, deciderId, [], without)
   if (!reading || !entry.weight || !entry.decider_id) return { now, then: null, across: undefined }
-  // An act on file that is already read here is on the record as it stands.
-  const alreadyRead = tracker.recordFor(question, deciderId).some((e) => e.act.id === entry.act_id)
   const read = { id: '', act_id: entry.act_id, question_id: question.id, position: reading, weight: entry.weight, via_question_id: null }
-  const then = alreadyRead ? now : tracker.listingFor(question, deciderId, [tracker.entryOf(actOf(tracker, entry), read)])
+  const then = tracker.listingFor(question, deciderId, [tracker.entryOf(actOf(tracker, entry), read)], without)
   return { now, then, across: tracker.acrossFor(question, deciderId, reading) }
 }
 
@@ -235,8 +240,8 @@ export const decisionStandings = (entry: EntryDraft, view: Outlook): Record<Posi
 })
 
 // Whether anything a waiting proposal claims sits across from a position editors set, as its card would find.
-export const proposalIsAcross = (tracker: Pick<Tracker, 'questionById' | 'acrossFor'>, items: ProposalItem[]) =>
-  draftEntries(items).some((d) => {
+export const proposalIsAcross = (tracker: Pick<Tracker, 'questionById' | 'acrossFor'>, claims: Claim[]) =>
+  draftEntries(claims).some((d) => {
     const question = tracker.questionById.get(d.question_id)
     return !d.dismissed && question !== undefined && d.reading !== null && d.decider_id !== null && tracker.acrossFor(question, d.decider_id, d.reading) !== undefined
   })
