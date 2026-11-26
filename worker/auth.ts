@@ -2,11 +2,11 @@ import { betterAuth } from 'better-auth'
 import { apiKey } from '@better-auth/api-key'
 import { APIError, createAuthMiddleware, getSessionFromCtx } from 'better-auth/api'
 import { admin } from 'better-auth/plugins/admin'
-import { defaultAc } from 'better-auth/plugins/admin/access'
 import { anonymous } from 'better-auth/plugins/anonymous'
 import { emailOTP } from 'better-auth/plugins/email-otp'
 import { waitUntil } from 'cloudflare:workers'
 import { getServerByName } from 'partyserver'
+import { ROLE_RIGHTS } from '../shared/account-roles.ts'
 import { SIGN_IN_CODE_MINUTES, type AccountRole, type Person } from '../shared/schema.ts'
 import type { Tracker } from './tracker.ts'
 
@@ -20,13 +20,6 @@ const MODELS = {
   rateLimit: 'auth_rate_limits',
   apikey: 'auth_api_keys',
 } as const
-
-// What each role may do through Better Auth's admin routes. An editor manages
-// people but cannot impersonate one, since nobody writes as someone else.
-const ROLE_RIGHTS = {
-  member: defaultAc.newRole({ user: [], session: [] }),
-  editor: defaultAc.newRole({ user: ['list', 'get', 'set-role', 'ban'], session: ['list', 'revoke'] }),
-} satisfies Record<AccountRole, unknown>
 
 export const roleOf = (user: { role?: string | null }): AccountRole => (user.role === 'editor' ? 'editor' : 'member')
 

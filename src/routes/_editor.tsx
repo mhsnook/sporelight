@@ -11,7 +11,15 @@ function Editor() {
   // These pages read tables only signed-in people are sent, which start over after a reset.
   const generation = useSyncGeneration()
   if (isPending) return null
-  if (role === 'editor') return <Outlet key={generation} />
+  if (role === 'editor')
+    return (
+      <>
+        <p className="editor-band -mt-8 mb-8">
+          <span className="editor-tag">Editors</span> Only editors can open this page.
+        </p>
+        <Outlet key={generation} />
+      </>
+    )
   return (
     <div className="card mx-auto mt-8 max-w-md space-y-4 p-6">
       <h1 className="text-[28px] font-black">Editors only</h1>

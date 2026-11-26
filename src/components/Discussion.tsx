@@ -77,9 +77,12 @@ export function Discussion({ question, decider }: { question: Question; decider:
               <span className="text-sm font-semibold text-ink">{c.display_name}</span>
               <time dateTime={c.created_at}>{timeFmt.format(new Date(c.created_at))}</time>
               {editor && (
-                <button type="button" className="ml-auto underline underline-offset-2 hover:text-oppose" onClick={() => db.comments.delete(c.id)}>
-                  Remove
-                </button>
+                <span className="editor-inline ml-auto">
+                  <span className="editor-inline-label">Editors</span>
+                  <button type="button" className="hover:text-oppose" onClick={() => db.comments.delete(c.id)}>
+                    Remove
+                  </button>
+                </span>
               )}
             </p>
             <p className="text-sm whitespace-pre-wrap">{c.body}</p>

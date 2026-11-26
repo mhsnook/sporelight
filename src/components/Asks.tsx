@@ -86,7 +86,7 @@ export function CloseQuestion({ question }: { question: Question }) {
   if (question.status !== 'open') {
     return (
       <span className="flex items-center gap-2">
-        <button type="button" className="btn" onClick={() => save({ status: 'open', closed_on: null, closed_note: null })}>
+        <button type="button" className="btn btn-editor" onClick={() => save({ status: 'open', closed_on: null, closed_note: null })}>
           {isOpenOn(question, today()) ? 'Remove the closing date' : `Reopen this ${noun}`}
         </button>
         {error && <span className="text-sm text-oppose">Not saved: {error}</span>}
@@ -96,7 +96,7 @@ export function CloseQuestion({ question }: { question: Question }) {
 
   return (
     <>
-      <button type="button" className="btn" onClick={() => setOpen(true)}>
+      <button type="button" className="btn btn-editor" onClick={() => setOpen(true)}>
         Close this {noun}
       </button>
       <Modal open={open} onClose={() => setOpen(false)} title={`Close this ${noun}`} description={question.title}>

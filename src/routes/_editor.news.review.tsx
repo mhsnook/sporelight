@@ -1,4 +1,4 @@
-import { Link, createFileRoute } from '@tanstack/react-router'
+import { Link, createFileRoute, useLocation } from '@tanstack/react-router'
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useLiveQuery } from '@tanstack/react-db'
 import { isUnreadLead, type Proposal, type ProposalContext, type ProposalItem, type ProposalMention, type ProposalNote, type Question, type Source } from '../../shared/schema.ts'
@@ -47,6 +47,7 @@ function Queue() {
   const question = search.question ? tracker.questionBySlug.get(search.question) : undefined
   const proposals = useLiveQuery((q) => q.from({ row: db.proposals }))
   const allItems = useLiveQuery((q) => q.from({ row: db.proposal_items }))
+  const setUp = useLocation({ select: (l) => l.state.setUp === true })
   const allNotes = useLiveQuery((q) => q.from({ row: db.proposal_notes }))
   const allContexts = useLiveQuery((q) => q.from({ row: db.proposal_contexts }))
   const allMentions = useLiveQuery((q) => q.from({ row: db.proposal_mentions }))
@@ -150,6 +151,7 @@ function Queue() {
 
   return (
     <div>
+      {setUp && <p className="mb-6 rounded-xl border-2 border-ink bg-mint px-4 py-2.5 font-semibold">The site is set up. You are its first editor.</p>}
       <div className="flex flex-wrap items-center gap-x-5 gap-y-4">
         <h1 className="h-page">Review queue</h1>
         <ProgressBar label="Reviewed" done={reviewed.length} total={total} className="h-3.5 min-w-[200px] flex-1 sm:h-[18px]" />

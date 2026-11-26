@@ -10,6 +10,10 @@ declare module '@tanstack/react-router' {
   interface Register {
     router: typeof router
   }
+  interface HistoryState {
+    // Set by /setup when it hands the first editor over to the review queue.
+    setUp?: boolean
+  }
 }
 
 createRoot(document.getElementById('root')!).render(

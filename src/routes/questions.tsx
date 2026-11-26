@@ -17,13 +17,13 @@ function Questions() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="h-page">Questions</h1>
         {editor && (
-          <Link to="/questions/new" className="btn">
+          <Link to="/questions/new" className="btn btn-editor">
             Add a question
           </Link>
         )}
       </div>
       {bodies.map((body) => {
-        const questions = tracker.questionsIn(body.id)
+        const questions = tracker.questionsIn(body.id).filter((q) => q.archived_at === null)
         return (
           <section key={body.id}>
             <div className="mb-5 flex flex-wrap items-center gap-x-3 gap-y-1">

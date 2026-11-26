@@ -2,10 +2,11 @@ import { useMemo } from 'react'
 import { useLiveQuery } from '@tanstack/react-db'
 import { createAuthClient } from 'better-auth/react'
 import { adminClient, emailOTPClient } from 'better-auth/client/plugins'
+import { ROLE_RIGHTS } from '../../shared/account-roles.ts'
 import type { AccountRole, Person } from '../../shared/schema.ts'
 import { db, onReset, resetSync } from './db.ts'
 
-export const authClient = createAuthClient({ basePath: '/api/auth', plugins: [emailOTPClient(), adminClient()] })
+export const authClient = createAuthClient({ basePath: '/api/auth', plugins: [emailOTPClient(), adminClient({ roles: ROLE_RIGHTS })] })
 
 // The room resets this browser's sync when the person's role changes or they
 // are deactivated, and then the session has to be read again too.

@@ -39,7 +39,7 @@ export async function signInWithCode(page: Page, email: string) {
   const signIn = page.getByRole('dialog').filter({ hasText: 'We email you a code' })
   await signIn.getByLabel('Email address').fill(email)
   await signIn.getByRole('button', { name: 'Email me a code' }).click()
-  await expect(signIn.getByText(`We sent a code to ${email}`)).toBeVisible()
+  await expect(signIn.getByText('We sent a six-digit code to the address you gave.')).toBeVisible()
   await signIn.getByLabel('Code').fill(codeFor(email))
   await signIn.getByRole('button', { name: 'Sign in' }).click()
   await expect(signIn).toBeHidden()

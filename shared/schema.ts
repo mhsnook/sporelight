@@ -172,6 +172,8 @@ export const questionSchema = z.object({
   closed_note: z.string().nullable(),
   // The day a decision is expected, if one is set.
   decides_on: z.string().nullable(),
+  // Set while an editor has archived the question: off /questions and out of the news search. Its page still works.
+  archived_at: z.string().nullable(),
   // What doing the thing this sub-question asks about says on its parent: a
   // supporting reading here also writes this reading there, as cosponsoring a
   // bill is support for its policy and signing a letter against it is not.

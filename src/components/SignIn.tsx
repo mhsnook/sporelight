@@ -1,4 +1,5 @@
 import { useState, useSyncExternalStore, type FormEvent, type ReactNode } from 'react'
+import { Link } from '@tanstack/react-router'
 import { SIGN_IN_CODE_MINUTES } from '../../shared/schema.ts'
 import { authClient, signOut, useSession, useSignedIn } from '../lib/auth.ts'
 import { resetSync } from '../lib/db.ts'
@@ -22,8 +23,10 @@ export function SignIn({ className }: { className: string }) {
   if (isPending) return null
   if (signedIn) {
     return (
-      <span className="flex items-center gap-2 text-sm font-semibold">
-        <span>{person?.display_name ?? 'Signed in'}</span>
+      <span className="flex items-center gap-3 text-sm font-semibold md:ml-3">
+        <Link to="/profile" className="hover:text-accent [&.active]:underline">
+          {person?.display_name ?? 'Signed in'}
+        </Link>
         <button type="button" className="underline underline-offset-2 hover:text-accent" onClick={() => void signOut()}>
           Sign out
         </button>
@@ -67,8 +70,18 @@ export function SignInDialog() {
   )
 }
 
-// Asks for an email address, then for the code sent to it.
-export function CodeSignIn({ onSignedIn, onCancel }: { onSignedIn: () => void; onCancel?: () => void }) {
+// Asks for an email address, then for the code sent to it. `heading` is shown above each step.
+export function CodeSignIn({
+  onSignedIn,
+  onCancel,
+  heading,
+  signInLabel = 'Sign in',
+}: {
+  onSignedIn: () => void
+  onCancel?: () => void
+  heading?: (step: Step['at']) => ReactNode
+  signInLabel?: string
+}) {
   const [step, setStep] = useState<Step>({ at: 'email' })
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -98,6 +111,7 @@ export function CodeSignIn({ onSignedIn, onCancel }: { onSignedIn: () => void; o
 
   return step.at === 'email' ? (
     <form onSubmit={sendCode} className="space-y-4">
+      {heading?.('email')}
       <div>
         <label className="label" htmlFor="sign-in-email">
           Email address
@@ -118,9 +132,8 @@ export function CodeSignIn({ onSignedIn, onCancel }: { onSignedIn: () => void; o
     </form>
   ) : (
     <form onSubmit={(e) => void checkCode(e, step.email)} className="space-y-4">
-      <p className="text-sm">
-        We sent a code to <span className="font-semibold">{step.email}</span>. It works once, for {SIGN_IN_CODE_MINUTES} minutes.
-      </p>
+      {heading?.('code')}
+      <p className="text-sm">We sent a six-digit code to the address you gave. It works once, for {SIGN_IN_CODE_MINUTES} minutes.</p>
       <div>
         <label className="label" htmlFor="sign-in-code">
           Code
@@ -130,7 +143,7 @@ export function CodeSignIn({ onSignedIn, onCancel }: { onSignedIn: () => void; o
       {error && <p className="text-sm text-oppose">{error}</p>}
       <div className="flex flex-wrap gap-2">
         <button type="submit" className="btn btn-primary" disabled={busy}>
-          {busy ? 'Checking…' : 'Sign in'}
+          {busy ? 'Checking…' : signInLabel}
         </button>
         <button
           type="button"

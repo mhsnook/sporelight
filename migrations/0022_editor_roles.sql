@@ -28,6 +28,9 @@ UPDATE people SET role = 'editor', deactivated_at = '2026-11-26T00:00:00.000Z' W
 
 DROP TABLE role_assignments;
 
+-- An archived question is off /questions and out of the news search, and its page still works.
+ALTER TABLE questions ADD COLUMN archived_at TEXT;
+
 -- Who reviewed each proposal. Every review so far was made with the editor token.
 ALTER TABLE proposals ADD COLUMN reviewed_by TEXT REFERENCES people(id);
 UPDATE proposals SET reviewed_by = 'editors' WHERE status = 'reviewed';

@@ -22,6 +22,7 @@ export const question = (id: string, over: Partial<Question> = {}): Question => 
   status: 'open',
   closed_on: null,
   closed_note: null,
+  archived_at: null,
   decides_on: null,
   implies_on_parent: null,
   ...over,

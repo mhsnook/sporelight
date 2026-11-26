@@ -1,4 +1,4 @@
-import { Link, Outlet, createRootRoute, retainSearchParams } from '@tanstack/react-router'
+import { Link, Outlet, createRootRoute, retainSearchParams, useLocation } from '@tanstack/react-router'
 import { useState } from 'react'
 import { TrackerProvider, today } from '../lib/tracker.tsx'
 import { formatDate } from '../lib/position.ts'
@@ -26,7 +26,7 @@ function NavLinks({ className, onNavigate }: { className: string; onNavigate?: (
         Questions
       </Link>
       <Link to="/news" activeOptions={{ exact: true }} className={className} onClick={onNavigate}>
-        Latest
+        News
       </Link>
       <Link to="/" hash="how" className={className} activeProps={{}} onClick={onNavigate}>
         How it works
@@ -35,9 +35,14 @@ function NavLinks({ className, onNavigate }: { className: string; onNavigate?: (
         Run your own
       </Link>
       {editor && (
-        <Link to="/news/review" className={className} onClick={onNavigate}>
-          Review queue
-        </Link>
+        <>
+          <Link to="/news/review" className={className} onClick={onNavigate}>
+            Review
+          </Link>
+          <Link to="/admin" className={`${className} nav-editor bg-editor md:border-2 md:border-ink`} onClick={onNavigate}>
+            Admin
+          </Link>
+        </>
       )}
     </>
   )
@@ -45,6 +50,8 @@ function NavLinks({ className, onNavigate }: { className: string; onNavigate?: (
 
 function Header() {
   const [menuOpen, setMenuOpen] = useState(false)
+  // Setting up a new site is the whole page, with nothing to navigate to yet.
+  const settingUp = useLocation({ select: (l) => l.pathname === '/setup' })
   return (
     <header className="-mx-5 border-b-2 border-ink px-5 sm:-mx-8 sm:px-8">
       <div className="flex items-center justify-between gap-4 py-4 sm:py-6">
@@ -52,6 +59,8 @@ function Header() {
           <Logo />
           <span className="font-display text-xl font-black sm:text-2xl">Sporelight</span>
         </Link>
+        {!settingUp && (
+          <>
         <nav className="hidden items-center gap-1 text-[15px] font-semibold md:flex">
           <NavLinks className="rounded-full px-3.5 py-2 hover:text-accent [&.active]:bg-ink [&.active]:text-paper" />
           <SignIn className="rounded-full px-3.5 py-2 hover:text-accent" />
@@ -59,6 +68,8 @@ function Header() {
         <button type="button" className="btn px-3 text-sm font-bold shadow-none md:hidden" aria-expanded={menuOpen} aria-controls="menu" onClick={() => setMenuOpen(!menuOpen)}>
           {menuOpen ? 'Close' : 'Menu'}
         </button>
+          </>
+        )}
       </div>
       {menuOpen && (
         <nav id="menu" className="flex flex-col pb-3 text-lg font-bold md:hidden">

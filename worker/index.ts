@@ -193,6 +193,11 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
     if (person.role !== 'editor') return Response.json({ error: 'Only editors can do this.' }, { status: 403 })
     if (url.pathname === '/api/editor/news-search' && req.method === 'POST') return startNewsSearch(req, env, ctx)
     if (url.pathname === '/api/editor/news-runs' && req.method === 'GET') return Response.json({ runs: await listRuns(env.DB) })
+    // When each person's latest session was last used, for /admin. A session ends when its person signs out, so this can be missing.
+    if (url.pathname === '/api/editor/last-seen' && req.method === 'GET') {
+      const seen = await env.DB.prepare(`SELECT "userId" AS id, MAX("updatedAt") AS at FROM auth_sessions GROUP BY "userId"`).all<{ id: string; at: string }>()
+      return Response.json({ last_seen: Object.fromEntries(seen.results.map((r) => [r.id, r.at])) })
+    }
     const runPath = url.pathname.match(/^\/api\/editor\/news-runs\/([^/]+)$/)
     if (runPath && req.method === 'GET') {
       const found = await runWithSteps(env.DB, runPath[1])
