@@ -5,7 +5,7 @@ import { editorPage, signInWithCode } from './fixtures.ts'
 const person = '/q/free-ferry/bartholomew-sato'
 
 
-test('a signed-out reader is asked to sign in instead of commenting, signs in with an emailed code, and comments under a name of their own', async ({ page, browser }) => {
+test('a signed-out reader is asked to sign in instead of commenting, signs in with an emailed code, picks a name when they first post, and comments under it', async ({ page, browser }) => {
   const stamp = Date.now()
   const email = `reader-${stamp}@example.org`
   const name = `Reader ${stamp}`
@@ -13,23 +13,28 @@ test('a signed-out reader is asked to sign in instead of commenting, signs in wi
 
   await page.goto(person)
   const header = page.getByRole('banner')
-  await expect(page.getByText('Sign in to comment.')).toBeVisible()
+  const discussion = page.locator('#discussion')
+  await expect(discussion.getByText('Sign in to join the discussion.')).toBeVisible()
   await expect(page.getByLabel('Comment')).toHaveCount(0)
-  await page.locator('#discussion').getByRole('button', { name: 'Sign in' }).click()
-  await signInWithCode(page, email)
-  await expect(header.getByRole('button', { name: 'Sign out' })).toBeVisible()
-  await expect(header.getByText('Signed in')).toBeVisible()
+  await discussion.getByRole('button', { name: 'Sign in to comment' }).click()
+  await expect(page.getByRole('dialog').getByRole('heading', { name: 'Sign in to comment' })).toBeVisible()
+  await signInWithCode(page, email, { askedForName: 'leave' })
 
-  // The first comment asks for the name the person will be shown under, in the same form.
-  await page.getByLabel('Your name').fill('   ')
+  // A first sign-in asks for a name. Not now leaves the person unnamed, shown as "Signed in", with the comment box ready.
+  const naming = page.getByRole('dialog').filter({ hasText: 'Pick a display name' })
+  await naming.getByRole('button', { name: 'Not now' }).click()
+  await expect(header.getByRole('button', { name: 'Sign out' })).toBeVisible()
+  await expect(header.getByRole('link', { name: 'Signed in' })).toHaveAttribute('href', '/profile')
+  await expect(page.getByLabel('Comment')).toBeFocused()
+
+  // Posting without a name asks for one first, then posts.
   await page.getByLabel('Comment').fill(body)
   await page.getByRole('button', { name: 'Post comment' }).click()
-  await expect(page.getByText('Choose a name to show with your comments.')).toBeVisible()
-  await page.getByLabel('Your name').fill(name)
-  await page.getByRole('button', { name: 'Post comment' }).click()
+  await naming.getByLabel('Display name').fill(name)
+  await naming.getByRole('button', { name: 'Save' }).click()
   await expect(page.getByRole('listitem').filter({ hasText: body })).toContainText(name)
   await expect(header.getByText(name)).toBeVisible()
-  await expect(page.getByLabel('Your name')).toHaveCount(0)
+  await expect(discussion.getByText(`Posting as ${name}`)).toBeVisible()
   await expect(page.getByText(email)).toHaveCount(0)
   const [posted] = query<{ email: string }>(`SELECT u.email FROM comments c JOIN auth_users u ON u.id = c.person_id WHERE c.body = '${body}'`)
   expect(posted.email).toBe(email)
@@ -39,12 +44,13 @@ test('a signed-out reader is asked to sign in instead of commenting, signs in wi
   await reader.goto(person)
   await expect(reader.getByRole('listitem').filter({ hasText: body })).toContainText(name)
 
-  // A rename shows on the comment already posted.
-  await page.getByRole('button', { name: 'change' }).click()
-  const renaming = page.getByRole('dialog').filter({ hasText: 'Change your name' })
-  await renaming.getByLabel('Name').fill(`${name} Renamed`)
-  await renaming.getByRole('button', { name: 'Save' }).click()
+  // A rename on the profile shows on the comment already posted.
+  await discussion.getByRole('link', { name: 'change on your profile' }).click()
+  await page.getByRole('button', { name: 'Change' }).click()
+  await page.getByLabel('Display name').fill(`${name} Renamed`)
+  await page.getByRole('button', { name: 'Save' }).click()
   await expect(reader.getByRole('listitem').filter({ hasText: body })).toContainText(`${name} Renamed`)
+  await page.goto(person)
 
   // An editor can remove it.
   const editor = await editorPage(browser)
@@ -54,5 +60,5 @@ test('a signed-out reader is asked to sign in instead of commenting, signs in wi
 
   await header.getByRole('button', { name: 'Sign out' }).click()
   await expect(header.getByRole('button', { name: 'Sign in' })).toBeVisible()
-  await expect(page.getByText('Sign in to comment.')).toBeVisible()
+  await expect(discussion.getByText('Sign in to join the discussion.')).toBeVisible()
 })

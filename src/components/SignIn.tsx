@@ -6,14 +6,17 @@ import { Modal } from './Modal.tsx'
 
 type Step = { at: 'email' } | { at: 'code'; email: string }
 
-// One dialog for the whole page, opened from the header or from any form that needs a signed-in person.
-let dialogOpen = false
+// One dialog for the whole page, opened from the header or from any form that
+// needs a signed-in person. A form names why, as the dialog's title, and what
+// to do once the person is signed in.
+type Asked = { title: string; then?: () => void }
+let asked: Asked | null = null
 const listeners = new Set<() => void>()
-function setDialogOpen(open: boolean) {
-  dialogOpen = open
+function setAsked(next: Asked | null) {
+  asked = next
   for (const listener of listeners) listener()
 }
-export const openSignIn = () => setDialogOpen(true)
+export const openSignIn = (title = 'Sign in', then?: () => void) => setAsked({ title, then })
 const subscribe = (listener: () => void) => (listeners.add(listener), () => void listeners.delete(listener))
 
 // The header's sign-in button, or who is signed in.
@@ -33,38 +36,48 @@ export function SignIn({ className }: { className: string }) {
     )
   }
   return (
-    <button type="button" className={className} onClick={openSignIn}>
+    <button type="button" className={className} onClick={() => openSignIn()}>
       Sign in
     </button>
   )
 }
 
-// A form only a signed-in person can use, with a prompt to sign in in its place.
-export function SignedInOnly({ prompt, children }: { prompt: string; children: ReactNode }) {
+// A form only a signed-in person can use, with a line and a button to sign in in its place.
+export function SignedInOnly({ lead, detail, action, then, children }: { lead: string; detail: string; action: string; then?: () => void; children: ReactNode }) {
   const { id, isPending } = useSession()
   if (isPending) return null
   if (id !== undefined) return children
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border-2 border-dashed border-line p-4 text-sm">
-      <p className="min-w-0 flex-1">{prompt}</p>
-      <button type="button" className="btn btn-primary" onClick={openSignIn}>
-        Sign in
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-3 rounded-xl border-2 border-dashed border-ink p-4">
+      <p className="min-w-0 flex-1 basis-60">
+        <span className="font-bold">{lead}</span> <span className="text-muted">{detail}</span>
+      </p>
+      <button type="button" className="btn w-full sm:w-auto" onClick={() => openSignIn(action, then)}>
+        {action}
       </button>
     </div>
   )
 }
 
 export function SignInDialog() {
-  const open = useSyncExternalStore(subscribe, () => dialogOpen)
-  const close = () => setDialogOpen(false)
+  const current = useSyncExternalStore(subscribe, () => asked)
+  const close = () => setAsked(null)
   return (
     <Modal
-      open={open}
+      open={current !== null}
       onClose={close}
-      title="Sign in"
-      description="We email you a code. Your email address is never shown to anyone; others see the name you post under."
+      title={current?.title ?? 'Sign in'}
+      description="We email you a code. Your email address is never shown to anyone; others see the name you choose."
     >
-      {open && <CodeSignIn onSignedIn={close} onCancel={close} />}
+      {current && (
+        <CodeSignIn
+          onSignedIn={() => {
+            close()
+            current.then?.()
+          }}
+          onCancel={close}
+        />
+      )}
     </Modal>
   )
 }

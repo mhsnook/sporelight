@@ -19,7 +19,7 @@ function Profile() {
       <div className="card mx-auto max-w-md space-y-4 p-6">
         <h1 className="h-card">Your profile</h1>
         <p>Sign in to see your profile.</p>
-        <button type="button" className="btn btn-primary" onClick={openSignIn}>
+        <button type="button" className="btn btn-primary" onClick={() => openSignIn()}>
           Sign in
         </button>
       </div>

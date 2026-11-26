@@ -28,7 +28,7 @@ function Editor() {
       ) : (
         <>
           <p>This page is for editors. Sign in to open it.</p>
-          <button type="button" className="btn btn-primary" onClick={openSignIn}>
+          <button type="button" className="btn btn-primary" onClick={() => openSignIn()}>
             Sign in
           </button>
         </>

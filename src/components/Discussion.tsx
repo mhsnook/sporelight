@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { useLocation } from '@tanstack/react-router'
+import { Link, useLocation } from '@tanstack/react-router'
 import { eq, useLiveQuery } from '@tanstack/react-db'
 import { pairId, type Decider, type Question } from '../../shared/schema.ts'
 import { db } from '../lib/db.ts'
-import { postAsReader, setDisplayName, useIsEditor, useSignedIn } from '../lib/auth.ts'
-import { Modal } from './Modal.tsx'
+import { postAsReader, useIsEditor, useSignedIn } from '../lib/auth.ts'
+import { askForName } from './NameDialog.tsx'
 import { SignedInOnly } from './SignIn.tsx'
 
 const timeFmt = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
@@ -31,35 +31,39 @@ export function Discussion({ question, decider }: { question: Question; decider:
   const { person, peopleReady } = useSignedIn()
   const editor = useIsEditor()
   const name = person?.display_name ?? ''
-  const [renaming, setRenaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
+  const form = useRef<HTMLFormElement>(null)
+  // Set when someone signs in from the prompt below; the box takes focus once the form has rendered.
+  const [focusComment, setFocusComment] = useState(false)
+  useEffect(() => {
+    const box = form.current?.elements.namedItem('body')
+    if (!focusComment || !(box instanceof HTMLTextAreaElement)) return
+    box.focus()
+    setFocusComment(false)
+  }, [focusComment, peopleReady, person])
 
-  async function onSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    const form = e.currentTarget
-    const f = new FormData(form)
-    const body = (f.get('body') as string).trim()
-    const displayName = name ? undefined : (f.get('display_name') as string).trim()
-    if (displayName === '') return setError('Choose a name to show with your comments.')
-    if (!body) return setError('Write a comment first.')
+  async function send(f: FormData) {
     setError(null)
     setSending(true)
     try {
-      const res = await postAsReader('/api/comments', {
-        question_id: question.id,
-        decider_id: decider.id,
-        body,
-        display_name: displayName,
-        website: f.get('website'),
-      })
+      const res = await postAsReader('/api/comments', { question_id: question.id, decider_id: decider.id, body: String(f.get('body')).trim(), website: f.get('website') })
       if (!res.ok) return setError(((await res.json()) as { error?: string }).error ?? 'Something went wrong.')
-      form.reset()
+      form.current?.reset()
     } catch {
       setError('Could not reach the server. Try again in a moment.')
     } finally {
       setSending(false)
     }
+  }
+
+  function onSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    const f = new FormData(e.currentTarget)
+    if (!String(f.get('body')).trim()) return setError('Write a comment first.')
+    // A comment shows its person's name, so someone without one picks it first, and the comment is sent once it is saved.
+    if (!name) return askForName(() => void send(f), () => setError('Choose a name to post your comment.'))
+    void send(f)
   }
 
   return (
@@ -90,18 +94,9 @@ export function Discussion({ question, decider }: { question: Question; decider:
         ))}
       </ol>
 
-      <SignedInOnly prompt="Sign in to comment. Your comments show the name you choose, never your email address.">
+      <SignedInOnly lead="Sign in to join the discussion." detail="Reading needs no account." action="Sign in to comment" then={() => setFocusComment(true)}>
         {peopleReady && (
-          <form onSubmit={(e) => void onSubmit(e)} className="space-y-3">
-            {!name && (
-              <div>
-                <label className="label" htmlFor="comment-name">
-                  Your name
-                </label>
-                <input id="comment-name" name="display_name" required maxLength={60} autoComplete="nickname" className="field" />
-                <p className="mt-1 text-xs text-muted">It shows next to your comments, in place of your email address. You can change it later.</p>
-              </div>
-            )}
+          <form ref={form} onSubmit={onSubmit} className="space-y-3">
             <textarea name="body" required maxLength={2000} rows={3} className="field" aria-label="Comment" placeholder="Add a comment" />
             <div className="hidden" aria-hidden="true">
               <label>
@@ -117,9 +112,9 @@ export function Discussion({ question, decider }: { question: Question; decider:
               {name && (
                 <p className="text-xs text-muted">
                   Posting as <span className="font-semibold text-ink">{name}</span> ·{' '}
-                  <button type="button" className="underline underline-offset-2 hover:text-ink" onClick={() => setRenaming(true)}>
-                    change
-                  </button>
+                  <Link to="/profile" className="underline underline-offset-2 hover:text-ink">
+                    change on your profile
+                  </Link>
                 </p>
               )}
             </div>
@@ -127,46 +122,6 @@ export function Discussion({ question, decider }: { question: Question; decider:
         )}
       </SignedInOnly>
 
-      <Modal open={renaming} onClose={() => setRenaming(false)} title="Change your name" description="It shows next to your comments, in place of your email address.">
-        <NameForm name={name} onDone={() => setRenaming(false)} />
-      </Modal>
     </section>
-  )
-}
-
-function NameForm({ name, onDone }: { name: string; onDone: () => void }) {
-  const [error, setError] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
-
-  async function onSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    const chosen = (new FormData(e.currentTarget).get('display_name') as string).trim()
-    if (!chosen) return setError('Choose a name to show with your comments.')
-    setError(null)
-    setSaving(true)
-    const failed = await setDisplayName(chosen)
-    setSaving(false)
-    if (failed) return setError(failed)
-    onDone()
-  }
-
-  return (
-    <form onSubmit={(e) => void onSubmit(e)} className="space-y-4">
-      <div>
-        <label className="label" htmlFor="display-name">
-          Name
-        </label>
-        <input id="display-name" name="display_name" required maxLength={60} defaultValue={name} autoComplete="nickname" className="field" />
-      </div>
-      {error && <p className="text-sm text-oppose">{error}</p>}
-      <div className="flex gap-2">
-        <button type="submit" className="btn btn-primary" disabled={saving}>
-          Save
-        </button>
-        <button type="button" className="btn" onClick={onDone}>
-          Cancel
-        </button>
-      </div>
-    </form>
   )
 }

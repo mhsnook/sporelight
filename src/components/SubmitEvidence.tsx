@@ -96,7 +96,7 @@ export function SubmitEvidence({ question, decider, onDone }: { question: Questi
   }
 
   return (
-    <SignedInOnly prompt="Sign in to send something for review. Your email address is never shown to anyone.">
+    <SignedInOnly lead="Sign in to add to the record." detail="Your email address is never shown to anyone." action="Sign in to add to the record">
       <form onSubmit={onSubmit} className="space-y-4">
         <div>
           <label className="label" htmlFor="quote">

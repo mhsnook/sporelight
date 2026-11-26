@@ -38,7 +38,7 @@ export function usePeople() {
 export function useSession() {
   const session = authClient.useSession()
   const role: AccountRole | undefined = session.data ? roleOf(session.data.user) : undefined
-  return { id: session.data?.user.id, role, isPending: session.isPending }
+  return { id: session.data?.user.id, email: session.data?.user.email, role, isPending: session.isPending }
 }
 
 export const useIsEditor = () => useSession().role === 'editor'

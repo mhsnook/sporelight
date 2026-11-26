@@ -4,6 +4,7 @@ import { TrackerProvider, today } from '../lib/tracker.tsx'
 import { formatDate } from '../lib/position.ts'
 import { useIsEditor } from '../lib/auth.ts'
 import { Logo } from '../components/bits.tsx'
+import { NameDialog } from '../components/NameDialog.tsx'
 import { SignIn, SignInDialog } from '../components/SignIn.tsx'
 
 // `as` is the day every body is viewed on, and `body` the one a question put
@@ -105,6 +106,7 @@ function Root() {
       <div className="mx-auto flex min-h-dvh max-w-[1200px] flex-col px-5 sm:px-8">
         <Header />
         <SignInDialog />
+        <NameDialog />
         {as && as !== today() && <ViewedDay day={as} />}
         <main className="flex-1 py-8">
           <Outlet />
