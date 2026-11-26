@@ -321,6 +321,15 @@ describe('reviews in the sync room', () => {
     expect(await rows(`SELECT id FROM reviews WHERE id = 'to-delete'`)).toEqual([])
   })
 
+  it("takes a member's review confirming someone else's, and lets the first one's author delete theirs, leaving the copy", async () => {
+    await env.DB.prepare(`INSERT INTO acts (id, decider_id, kind, occurred_on, body, created_at) VALUES ('act-confirmed', 'ann', 'says', '2026-11-21', 'I back it.', '2026-11-21T00:00:00Z')`).run()
+    const on = { act_id: 'act-confirmed' }
+    expect((await write('insert', { ...review('first-word', editorOne.personId), ...on }, editorOne.cookie)).status).toBe(200)
+    expect((await write('insert', { ...review('confirmed', member.personId), ...on, based_on: 'first-word' }, member.cookie)).status).toBe(200)
+    expect((await write('delete', { id: 'first-word' }, editorOne.cookie)).status).toBe(200)
+    expect(await rows(`SELECT id, reviewer_id, position, based_on FROM reviews WHERE act_id = 'act-confirmed'`)).toEqual([{ id: 'confirmed', reviewer_id: member.personId, position: 'support', based_on: null }])
+  })
+
   it('sends every review to a signed-out reader', async () => {
     const socket = await partySocket()
     await until(() => rowsOn(socket.frames, 'reviews').some((r) => r.id === 'by-member'))

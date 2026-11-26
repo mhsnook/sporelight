@@ -5,13 +5,14 @@ import { FOOTING_HINT } from '../../shared/standing.ts'
 import { useTracker, useViewedBody, type Tenure } from '../lib/tracker.tsx'
 import { FootingTag, NotFound, StandingPill, Syncing } from '../components/bits.tsx'
 import { QuestionHeader } from '../components/QuestionHeader.tsx'
-import { RecordItem } from '../components/RecordItem.tsx'
+import { ActWords, RecordItem } from '../components/RecordItem.tsx'
+import { OwnReview } from '../components/OwnReview.tsx'
 import { SubmitEvidence } from '../components/SubmitEvidence.tsx'
 import { Discussion } from '../components/Discussion.tsx'
 import { Modal } from '../components/Modal.tsx'
 import { AskStatus, CloseQuestion, ClosedNote } from '../components/Asks.tsx'
 import { MergeAct, WithdrawAct } from '../components/MergeAct.tsx'
-import { claimLabel, formatDate, standingLabel } from '../lib/position.ts'
+import { KIND_LABEL, actDate, claimLabel, formatDate, standingLabel } from '../lib/position.ts'
 import { useIsEditor } from '../lib/auth.ts'
 
 export const Route = createFileRoute('/q/$slug/$decider')({ component: DeciderOnQuestion })
@@ -57,6 +58,7 @@ function DeciderOnQuestion() {
     .map((r) => tracker.contender(question, r))
     .filter((c) => c !== undefined)
   const outOfScope = question.chamber && question.chamber !== seat.chamber
+  const saidNothing = tracker.saidNothingOn(question, decider.id)
 
   return (
     <div className="space-y-8">
@@ -158,11 +160,28 @@ function DeciderOnQuestion() {
             <ol className="space-y-3">
               {me.record.map((entry) => (
                 <RecordItem key={entry.reading.id} entry={entry} question={question}>
+                  <OwnReview act={entry.act} question={entry.via ?? question} />
                   {editor && <WithdrawAct act={entry.act} />}
                   {editor && <MergeAct act={entry.act} />}
                 </RecordItem>
               ))}
             </ol>
+          )}
+          {saidNothing.length > 0 && (
+            <details className="mt-4 text-sm">
+              <summary className="cursor-pointer text-muted">Reviewed as saying nothing on this question ({saidNothing.length})</summary>
+              <ul className="mt-2 space-y-2">
+                {saidNothing.map(({ act, question: on }) => (
+                  <li key={act.id} className="rounded-lg border border-line p-3">
+                    <p className="mb-1 text-xs text-muted">
+                      {actDate(act.occurred_on)} · {KIND_LABEL[act.kind]}
+                    </p>
+                    <ActWords kind={act.kind} words={act.body} />
+                    <OwnReview act={act} question={on} />
+                  </li>
+                ))}
+              </ul>
+            </details>
           )}
           <Modal
             open={adding}

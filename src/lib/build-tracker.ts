@@ -148,6 +148,8 @@ export function asShown(c: Pick<TrackerData, 'acts' | 'reports' | 'reviews' | 's
 // loose a review does not carry upward.
 // The tier a reviewer's reviews count in, from their row: an editor's role, then
 // whether they are an agent. A reviewer with no row counts in the lowest tier.
+export type TieredReview = { review: Review; tier: ReviewerTier }
+
 export function reviewerTiers(people: TrackerData['people']): (reviewerId: string) => ReviewerTier {
   const tiers = new Map(people.map((p): [string, ReviewerTier] => [p.id, p.role === 'editor' ? 'editor' : p.kind]))
   return (reviewerId) => tiers.get(reviewerId) ?? REVIEWER_TIERS[REVIEWER_TIERS.length - 1]
@@ -199,6 +201,10 @@ export function buildTracker(c: TrackerData, asOf: string) {
     const theirs = editorsReviews.get(`${shown.shownAs(actId)} ${questionId}`)
     return !theirs ? 'waiting' : theirs.some((r) => r.position) ? 'published' : 'turned_down'
   }
+  // The reviews that count for an act as shown on a question, each in its reviewer's tier.
+  const readOn = new Set(readings.map((r) => `${r.act_id} ${r.question_id}`))
+  const countedReviews = groupBy(shown.reviews, (r) => `${r.act_id} ${r.question_id}`)
+  const reviewsOn = (actId: string, questionId: string): TieredReview[] => (countedReviews.get(`${actId} ${questionId}`) ?? []).map((review) => ({ review, tier: tierOf(review.reviewer_id) }))
   const seatsByBody = groupBy(c.seats, (s) => s.body_id)
   const SURENESS: Record<Certainty, number> = { certain: 0, likely: 1, possible: 2 }
   // Surest first, so anything that takes the first holder takes the surest.
@@ -297,6 +303,20 @@ export function buildTracker(c: TrackerData, asOf: string) {
   // A decider's record on a question is the readings on that question alone. A
   // reading on a sub-question appears here only if it was also written here.
   const recordFor = (question: Question, deciderId: string): RecordEntry[] => entriesByPair.get(pairId(question.id, deciderId)) ?? []
+  // Someone's acts that were reviewed on a question, or on a step under it, and
+  // left off their record there because the reviews that count say they say
+  // nothing. Where the editors said so, it is settled and not listed.
+  const saidNothingOn = (question: Question, deciderId: string): { act: Act; question: Question }[] => {
+    const onRecord = new Set(recordFor(question, deciderId).map((e) => e.act.id))
+    return (actsByDecider.get(deciderId) ?? []).flatMap((act) => {
+      if (onRecord.has(act.id)) return []
+      const on = [question, ...subQuestionsOf(question.id)].find((q) => {
+        const reviews = reviewsOn(act.id, q.id)
+        return reviews.length > 0 && !readOn.has(`${act.id} ${q.id}`) && !reviews.some((r) => r.tier === 'editor')
+      })
+      return on ? [{ act, question: on }] : []
+    })
+  }
 
   const agreed = (entries: RecordEntry[]): Standing => {
     const positions = new Set(entries.map((e) => e.reading.position))
@@ -463,6 +483,8 @@ export function buildTracker(c: TrackerData, asOf: string) {
     sameActsOf,
     reportIn,
     reviewBy,
+    reviewsOn,
+    saidNothingOn,
     editorsVerdict,
     deciderById,
     deciderBySlug,

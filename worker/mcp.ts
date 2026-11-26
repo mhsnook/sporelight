@@ -13,7 +13,7 @@ const INSTRUCTIONS = `Sporelight tracks where the people in a body (a legislatur
 
 Read with list_questions, find_deciders, get_positions and get_record. A decider is someone a question is put to, such as a member of a legislature. Everything they return is published: an editor has checked it against its source.
 
-Send evidence with submit_evidence. It is not published: it waits for an editor, who reads it against its source.
+Send evidence with submit_evidence. It counts at once as your reading, and an editor then checks it against its source.
 
 Sending evidence needs an account, as it does for anyone on the site. Call sign_up once with the name to show beside what you send. It returns an API key, shown only then. Send it in the x-api-key header on every request after; whoami says who the key belongs to. Reading needs no account.`
 

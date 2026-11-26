@@ -826,3 +826,33 @@ describe('0023_editor_roles', () => {
     expect(all(db, `SELECT id FROM auth_users WHERE role = 'editor' AND coalesce(banned, 0) = 0`)).toEqual([{ id: 'bea' }])
   })
 })
+
+describe('0024_review_based_on', () => {
+  const db = database('0024')
+  db.exec(`
+    INSERT INTO deciders (id, slug, name, sort_name) VALUES ('ann', 'ann', 'Ann', 'Ann');
+    INSERT INTO bodies (id, slug, name) VALUES ('b', 'b', 'Body');
+    INSERT INTO questions (id, slug, body_id, kind, title, short_title) VALUES ('q', 'q', 'b', 'position', 'Q?', 'Q');
+    INSERT INTO acts (id, decider_id, kind, occurred_on, body, created_at) VALUES ('a', 'ann', 'says', '2026-11-01', 'Yes.', 't');
+    INSERT INTO reviews (id, reviewer_id, act_id, question_id, position, weight, based_on, created_at, updated_at) VALUES
+      ('first', '${NEWS_READER_ID}', 'a', 'q', 'support', 'clear', NULL, 't', 't'),
+      ('copy', '${EDITORS_ID}', 'a', 'q', 'support', 'clear', 'first', 't', 't');
+  `)
+  apply(db, '0024_review_based_on.sql')
+
+  it('keeps what each review started from', () => {
+    expect(all(db, `SELECT id, based_on FROM reviews ORDER BY id`)).toEqual([
+      { id: 'copy', based_on: 'first' },
+      { id: 'first', based_on: null },
+    ])
+  })
+
+  it('lets a review someone confirmed be deleted, leaving the copy with nothing to point at', () => {
+    db.exec(`DELETE FROM reviews WHERE id = 'first'`)
+    expect(all(db, `SELECT id, position, based_on FROM reviews`)).toEqual([{ id: 'copy', position: 'support', based_on: null }])
+  })
+
+  it('refuses a review started from one that does not exist', () => {
+    expect(() => db.exec(`INSERT INTO reviews (id, reviewer_id, act_id, question_id, position, weight, based_on, created_at, updated_at) VALUES ('x', '${NEWS_READER_ID}', 'a', 'q', 'mixed', 'clear', 'missing', 't', 't')`)).toThrow(/FOREIGN KEY/)
+  })
+})
