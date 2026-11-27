@@ -143,6 +143,9 @@ test('an editor adds a body with two chambers and its seats, puts someone in a s
 
   // Something hangs from it, so it cannot be removed.
   await page.goto(`/bodies/${body.slug}`)
+  await page.getByRole('region', { name: 'Questions' }).getByRole('link', { name: 'Add a question' }).click()
+  await expect(page.getByRole('form', { name: 'The new question' }).getByLabel('Body')).toHaveValue(body.id)
+  await page.goBack()
   await expect(page.getByRole('region', { name: 'Removing' })).toContainText('This body cannot be removed while it has 6 seats, 1 question listed under it')
   await expect(page.getByRole('button', { name: 'Remove this body' })).toHaveCount(0)
 })

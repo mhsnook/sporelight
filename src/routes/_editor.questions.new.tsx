@@ -4,14 +4,17 @@ import { useTracker } from '../lib/tracker.tsx'
 import { NotFound, Syncing } from '../components/bits.tsx'
 import { QuestionForm } from '../components/QuestionForm.tsx'
 
-// With no search, a new question in a body. `parent` and `sub` make a measure
-// or an ask under a question, and `linkTo` a question linked to another as a
-// smaller step or a related issue. Each names the other question by its slug.
-type NewSearch = { parent?: string; sub?: 'measure' | 'ask'; linkTo?: string }
+// With no search, a new question in a body: the one `in` names by its slug, or
+// else the first. `in` is not `body`, which the root route carries along every
+// link as the body a question is viewed through. `parent` and `sub` make a
+// measure or an ask under a question, and `linkTo` a question linked to another
+// as a smaller step or a related issue. Each names the other question by its slug.
+type NewSearch = { in?: string; parent?: string; sub?: 'measure' | 'ask'; linkTo?: string }
 
 export const Route = createFileRoute('/_editor/questions/new')({
   component: NewQuestion,
   validateSearch: (s: Record<string, unknown>): NewSearch => ({
+    in: typeof s.in === 'string' && s.in ? s.in : undefined,
     parent: typeof s.parent === 'string' && s.parent ? s.parent : undefined,
     sub: s.sub === 'measure' || s.sub === 'ask' ? s.sub : undefined,
     linkTo: typeof s.linkTo === 'string' && s.linkTo ? s.linkTo : undefined,
@@ -36,7 +39,7 @@ function NewQuestion() {
     if (!linkTo) return <NotFound what="question to link this to" />
     place = { kind: 'step', to: linkTo, relation: 'smaller_step' }
   } else {
-    const first = tracker.bodiesInOrder[0]
+    const first = (search.in ? tracker.bodyBySlug.get(search.in) : undefined) ?? tracker.bodiesInOrder[0]
     if (!first) return <NotFound what="body to add a question to" />
     place = { kind: 'question', body_id: first.id }
   }

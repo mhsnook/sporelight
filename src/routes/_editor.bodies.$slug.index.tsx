@@ -154,7 +154,7 @@ function Seats({ body }: { body: Body }) {
         <p className="text-sm">No seats yet. A body with no seats has nobody to put a question to.</p>
       ) : (
         <>
-          {seats.length > SHOWN && (
+          {(seats.length > SHOWN || q) && (
             <div>
               <label className="label" htmlFor="seat-search">
                 Find a seat
@@ -221,7 +221,7 @@ function Questions({ body }: { body: Body }) {
           ))}
         </ul>
       )}
-      <Link to="/questions/new" className="btn btn-sm">
+      <Link to="/questions/new" search={{ in: body.slug }} className="btn btn-sm">
         Add a question
       </Link>
     </Section>
