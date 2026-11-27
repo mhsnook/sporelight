@@ -47,11 +47,19 @@ function EditPerson() {
           <ul className="divide-y divide-line border-y border-line">
             {roles.map((r) => {
               const seat = tracker.seatById.get(r.seat_id)
+              const body = seat && tracker.bodyById.get(seat.body_id)
               return (
                 <li key={r.id} className="flex items-start justify-between gap-3 py-2 text-sm">
                   <span>
                     <span className="font-medium">{seat?.label ?? 'A seat that no longer exists'}</span>
-                    {seat && <span className="text-muted"> · {tracker.bodyById.get(seat.body_id)?.name}</span>}
+                    {body && (
+                      <>
+                        <span className="text-muted"> · </span>
+                        <Link to="/bodies/$slug" params={{ slug: body.slug }} className="link text-muted">
+                          {body.name}
+                        </Link>
+                      </>
+                    )}
                     <span className="block text-xs text-muted first-letter:uppercase">
                       {claimLabel(r, tracker.asOf)}
                       {r.affiliation && ` · ${r.affiliation}`}

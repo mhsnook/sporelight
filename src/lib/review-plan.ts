@@ -4,8 +4,11 @@ import {
   pairId,
   type Act,
   type ActKind,
+  type Body,
   type Decider,
   type Direction,
+  type Office,
+  type OfficeHolder,
   type Position,
   type Proposal,
   type ProposalItem,
@@ -19,6 +22,7 @@ import {
   type Review,
   type Role,
   type SameAct,
+  type Seat,
   type SetPosition,
   type Source,
   type Weight,
@@ -27,6 +31,10 @@ import { indexBy } from './build-tracker.ts'
 import { cameInOf } from './claims.ts'
 
 type Rows = {
+  bodies: Body
+  seats: Seat
+  offices: Office
+  office_holders: OfficeHolder
   deciders: Decider
   roles: Role
   questions: Question

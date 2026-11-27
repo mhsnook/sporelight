@@ -115,6 +115,13 @@ export const endRole = (role: Role, on: string): Write => ({ on: 'roles', type: 
 // The seats an editor chooses among once they have narrowed by body, chamber and region.
 export type SeatFilter = { body_id: string; chamber: string | null; region: string | null }
 
+// Who certainly or likely holds a seat on the day viewed, by name.
+export const holderNames = (seat: Pick<Seat, 'id'>, tracker: Pick<Tracker, 'rolesBySeat' | 'deciderById'>) =>
+  (tracker.rolesBySeat.get(seat.id) ?? [])
+    .filter((r) => r.certainty !== 'possible')
+    .flatMap((r) => tracker.deciderById.get(r.decider_id)?.name ?? [])
+    .join(', ')
+
 export const chambersIn = (seats: readonly Seat[], bodyId: string) => [...new Set(seats.filter((s) => s.body_id === bodyId && s.chamber).map((s) => s.chamber!))].sort()
 export const regionsIn = (seats: readonly Seat[], bodyId: string, chamber: string | null) =>
   [...new Set(seats.filter((s) => s.body_id === bodyId && (chamber === null || s.chamber === chamber) && s.region).map((s) => s.region!))].sort()

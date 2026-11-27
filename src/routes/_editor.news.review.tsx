@@ -170,6 +170,9 @@ function Queue() {
           <Link to="/people" className="btn btn-sm shadow-none">
             People
           </Link>
+          <Link to="/bodies" className="btn btn-sm shadow-none">
+            Bodies
+          </Link>
         </NewsSearch>
       </div>
 

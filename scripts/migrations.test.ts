@@ -489,6 +489,47 @@ describe('the seed', () => {
     expect(all(db, `PRAGMA foreign_key_check`)).toEqual([])
   })
 
+  it('keeps the next term an editor set on Congress when the asks file is replayed alone, and fills it in where there is none', () => {
+    const db = database()
+    db.exec(seed)
+    const asks = readFileSync(new URL('seed/out/us-congress-asks.sql', root), 'utf8')
+    const term = () => all(db, `SELECT next_term_on, next_term_label FROM bodies WHERE id = 'us-congress'`)
+    const seeded = term()
+    db.exec(`UPDATE bodies SET next_term_on = '2027-01-04', next_term_label = 'The next Congress' WHERE id = 'us-congress'`)
+    db.exec(asks)
+    expect(term()).toEqual([{ next_term_on: '2027-01-04', next_term_label: 'The next Congress' }])
+    db.exec(`UPDATE bodies SET next_term_on = NULL, next_term_label = NULL WHERE id = 'us-congress'`)
+    db.exec(asks)
+    expect(term()).toEqual(seeded)
+  })
+
+  it('keeps a body an editor added, and seats an editor added to a seeded body, when the seed is replayed', () => {
+    const db = database()
+    db.exec(seed)
+    db.exec(`INSERT INTO bodies (id, slug, name, jurisdiction, description, is_demo, sort, next_term_on, next_term_label) VALUES ('0b6f2c1e-8d4a-4f3b-9e7c-1a2b3c4d5e6f', 'lakeview-council', 'Lakeview Council', NULL, NULL, 0, 9, '2027-11-01', NULL);
+      INSERT INTO seats (id, body_id, chamber, region, label, is_voting, next_election_on) VALUES
+        ('5c3d2e1f-0a9b-4c8d-8e7f-6a5b4c3d2e1f', '0b6f2c1e-8d4a-4f3b-9e7c-1a2b3c4d5e6f', NULL, NULL, 'Ward 1', 1, NULL),
+        ('7e6d5c4b-3a2f-4e1d-9c0b-8a7f6e5d4c3b', 'halifax-regional-council', NULL, NULL, 'District 17', 1, NULL);`)
+    db.exec(seed)
+    expect(all(db, `SELECT s.label, b.name, b.next_term_on FROM seats s JOIN bodies b ON b.id = s.body_id WHERE s.id IN ('5c3d2e1f-0a9b-4c8d-8e7f-6a5b4c3d2e1f', '7e6d5c4b-3a2f-4e1d-9c0b-8a7f6e5d4c3b') ORDER BY s.label`)).toEqual([
+      { label: 'District 17', name: 'Halifax Regional Council', next_term_on: null },
+      { label: 'Ward 1', name: 'Lakeview Council', next_term_on: '2027-11-01' },
+    ])
+    expect(all(db, `PRAGMA foreign_key_check`)).toEqual([])
+  })
+
+  it("puts a chamber's old name back on the seed's own seats when the seed is replayed, and leaves it on seats added on the site", () => {
+    const db = database()
+    db.exec(seed)
+    db.exec(`INSERT INTO seats (id, body_id, chamber, region, label, is_voting, next_election_on) VALUES ('2f1e0d9c-8b7a-4f6e-9d5c-4b3a2f1e0d9c', 'us-congress', 'House', 'XX', 'XX-1', 1, NULL);
+      UPDATE seats SET chamber = 'House of Representatives' WHERE body_id = 'us-congress' AND chamber = 'House';`)
+    db.exec(seed)
+    expect(all(db, `SELECT chamber, COUNT(*) AS n FROM seats WHERE body_id = 'us-congress' AND chamber LIKE 'House%' GROUP BY chamber ORDER BY chamber`)).toEqual([
+      { chamber: 'House', n: expect.any(Number) },
+      { chamber: 'House of Representatives', n: 1 },
+    ])
+  })
+
   describe('members-elect', () => {
     // Whoever certainly or likely holds each seat on a day. Those who only may
     // hold it are left out, as on the pages.

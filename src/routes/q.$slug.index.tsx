@@ -1,6 +1,6 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useMemo } from 'react'
-import type { Question, Seat } from '../../shared/schema.ts'
+import type { Body, Question, Seat } from '../../shared/schema.ts'
 import { NEEDS_ATTENTION } from '../../shared/standing.ts'
 import { isHeld, useTracker, useViewedBody, type HeldSeat } from '../lib/tracker.tsx'
 import { SPECTRUM, STANDINGS, STANDING_BG, claimTag, formatDate, standingLabel, type Standing } from '../lib/position.ts'
@@ -81,7 +81,7 @@ function Board() {
     <div className="space-y-6">
       <QuestionHeader question={question} />
       <ClosedNote question={question} />
-      <EditorTools question={question} />
+      <EditorTools question={question} body={body} />
 
       <KeyPeople people={tracker.keyPeople(question, body.id)} />
 
@@ -261,7 +261,7 @@ function Ask({ question, bodyId }: { question: Question; bodyId: string }) {
         ))}
       </ul>
       <div className="flex flex-wrap items-center gap-4">
-        <EditorTools question={question} />
+        <EditorTools question={question} body={tracker.bodyById.get(bodyId)} />
         {parent && (
           <Link to="/q/$slug" params={{ slug: parent.slug }} className="link text-sm">
             ← {parent.title}
@@ -272,7 +272,7 @@ function Ask({ question, bodyId }: { question: Question; bodyId: string }) {
   )
 }
 
-function EditorTools({ question }: { question: Question }) {
+function EditorTools({ question, body }: { question: Question; body: Body | undefined }) {
   const { tracker } = useTracker()
   if (!useIsEditor()) return null
   return (
@@ -281,6 +281,11 @@ function EditorTools({ question }: { question: Question }) {
         Edit this {nounOf(question, tracker.isAsk(question))}
       </Link>
       <CloseQuestion question={question} />
+      {body && (
+        <Link to="/bodies/$slug" params={{ slug: body.slug }} className="btn btn-editor">
+          Edit {body.name}
+        </Link>
+      )}
     </div>
   )
 }
