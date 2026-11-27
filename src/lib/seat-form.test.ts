@@ -75,6 +75,8 @@ describe('seat problems', () => {
   it('refuses a seat with no chamber in a body whose other seats have one, which no chart would draw', () => {
     expect(seatProblems(one, [seat('h', { chamber: 'House' })])).toEqual([expect.stringContaining('The other seats in this body are each in a chamber')])
     expect(seatsProblems({ ...many, chamber: null }, [seat('h', { chamber: 'House' })])).toEqual([expect.stringContaining('The other seats in this body are each in a chamber')])
+    expect(seatsProblems(many, [seat('w1'), seat('w2')])).toEqual([expect.stringContaining("The body's other seats have no chamber")])
+    expect(seatsProblems(many, [])).toEqual([])
     // The first seat put in a chamber starts the change from none, one seat at a time.
     expect(seatProblems({ ...one, chamber: 'House' }, [seat('other')])).toEqual([])
   })
@@ -119,12 +121,13 @@ describe('chambers', () => {
     seats: [seat('h1', { chamber: 'House' }), seat('h2', { chamber: 'House' }), seat('s1', { chamber: 'Senate' }), seat('x', { body_id: 'other', chamber: 'House' })],
     questions: [question('q', { chamber: 'House' }), question('whole'), question('away', { body_id: 'other', chamber: 'House' })],
     offices: [office('speaker', { chamber: 'House' }), office('away-chair', { body_id: 'other', chamber: 'House' }), office('at-large', { body_id: null, chamber: null })],
+    questionBodies: [{ id: 'l', question_id: 'q', body_id: 'other' }],
   }
 
-  it('lists each chamber in the body with what names it, and the questions from elsewhere a rename leaves alone', () => {
+  it('lists each chamber in the body with what names it, the questions from elsewhere a rename leaves alone, and its own questions put elsewhere too', () => {
     expect(chamberUse('body', rows, [rows.questions[0], rows.questions[1], rows.questions[2]])).toEqual([
-      { name: 'House', seats: 2, questions: 1, offices: 1, fromElsewhere: 1 },
-      { name: 'Senate', seats: 1, questions: 0, offices: 0, fromElsewhere: 0 },
+      { name: 'House', seats: 2, questions: 1, offices: 1, fromElsewhere: 1, sharedOut: 1 },
+      { name: 'Senate', seats: 1, questions: 0, offices: 0, fromElsewhere: 0, sharedOut: 0 },
     ])
   })
 

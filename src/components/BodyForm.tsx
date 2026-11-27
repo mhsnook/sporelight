@@ -32,7 +32,7 @@ export function BodyForm({ editing, onSaved }: { editing?: Body; onSaved?: (save
         <Field label="Description" id="b-description" optional hint="Shown under its name on the questions page.">
           <textarea id="b-description" name="description" rows={3} maxLength={BODY_LIMITS.description} defaultValue={start.description ?? ''} className="field" />
         </Field>
-        <Field label="Order in the list" id="b-sort" optional hint={editing ? 'Bodies are listed from the lowest number. Demo bodies come last.' : `Bodies are listed from the lowest number. Left empty, it is ${nextBodySort(tracker.bodies)}, after the others.`}>
+        <Field label="Order in the list" id="b-sort" optional hint={editing ? 'Bodies are listed from the lowest number. Demo bodies come last. Left empty, it keeps its place.' : `Bodies are listed from the lowest number. Left empty, it is ${nextBodySort(tracker.bodies)}, after the others.`}>
           <input id="b-sort" name="sort" type="number" step={1} inputMode="numeric" defaultValue={start.sort ?? ''} className="field max-w-40" />
         </Field>
       </Section>

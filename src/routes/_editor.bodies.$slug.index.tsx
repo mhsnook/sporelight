@@ -47,7 +47,7 @@ function EditBody() {
 
 function Chambers({ body }: { body: Body }) {
   const { tracker } = useTracker()
-  const [error, setError] = useState<string[]>([])
+  const [problems, setProblems] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const putHere = tracker.questions.filter((q) => tracker.appliesIn(q, body.id))
   const chambers = chamberUse(body.id, tracker, putHere)
@@ -60,14 +60,14 @@ function Chambers({ body }: { body: Body }) {
     const f = new FormData(form)
     const from = textField(f, 'from')
     const to = textField(f, 'to')
-    const problems = renameProblems(from, to, chambers.map((c) => c.name))
-    setError(problems)
-    if (problems.length) return
+    const found = renameProblems(from, to, chambers.map((c) => c.name))
+    setProblems(found)
+    if (found.length) return
     if (chambers.some((c) => c.name === to) && !window.confirm(`${body.name} already has a chamber called ${to}. Put the seats of ${from} in it? The two cannot be told apart afterwards.`)) return
     setSaving(true)
     commit(renameChamber(body.id, from, to, tracker)).then(
       () => (setSaving(false), form.reset()),
-      (err: unknown) => (setSaving(false), setError([notSaved(err)])),
+      (err: unknown) => (setSaving(false), setProblems([notSaved(err)])),
     )
   }
 
@@ -91,6 +91,12 @@ function Chambers({ body }: { body: Body }) {
               <span className="block text-xs text-muted">
                 {c.fromElsewhere === 1 ? 'A question put to this body from another names' : `${c.fromElsewhere} questions put to this body from others name`} a chamber {c.name} too. Renaming
                 leaves {c.fromElsewhere === 1 ? 'it' : 'them'} as {c.fromElsewhere === 1 ? 'it is' : 'they are'}.
+              </span>
+            )}
+            {c.sharedOut > 0 && (
+              <span className="block text-xs text-muted">
+                {c.sharedOut === 1 ? 'A question listed here that names it is' : `${c.sharedOut} questions listed here that name it are`} also put to other bodies. Renaming changes the
+                chamber {c.sharedOut === 1 ? 'it is' : 'they are'} narrowed to there too.
               </span>
             )}
           </li>
@@ -117,9 +123,9 @@ function Chambers({ body }: { body: Body }) {
             <input id="c-to" name="to" maxLength={SEAT_LIMITS.chamber} autoComplete="off" className="field" />
           </Field>
         </div>
-        {error.length > 0 && (
+        {problems.length > 0 && (
           <ul role="alert" className="list-disc space-y-1 pl-5 text-sm text-oppose">
-            {error.map((p) => (
+            {problems.map((p) => (
               <li key={p}>{p}</li>
             ))}
           </ul>

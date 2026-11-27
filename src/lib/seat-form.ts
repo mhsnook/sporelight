@@ -1,4 +1,4 @@
-import type { Office, Question, Role, Seat } from '../../shared/schema.ts'
+import type { Office, Question, QuestionBody, Role, Seat } from '../../shared/schema.ts'
 import type { Write } from './review-plan.ts'
 import { changedFields, isDay, orNull, textField } from './form-input.ts'
 
@@ -69,10 +69,19 @@ export function seatProblems(input: SeatInput, otherSeats: readonly Seat[]): str
   return [...label, ...sharedProblems(input, otherSeats)]
 }
 
+// A body is moved into chambers one seat at a time from each seat's page, so a
+// batch never leaves the body's existing seats with no chamber beside new ones that have one.
+function batchProblems(input: SeatsInput, bodySeats: readonly Seat[]): string[] {
+  const shared = sharedProblems(input, bodySeats)
+  if (input.chamber && bodySeats.length > 0 && bodySeats.every((s) => !s.chamber))
+    shared.push("The body's other seats have no chamber, so it is drawn as one chart. Leave the chamber empty, or put each of its seats in a chamber from the seat's page first.")
+  return shared
+}
+
 export function seatsProblems(input: SeatsInput, bodySeats: readonly Seat[]): string[] {
-  if (input.lines.length === 0) return ['Add at least one seat, one label per line.', ...sharedProblems(input, bodySeats)]
+  if (input.lines.length === 0) return ['Add at least one seat, one label per line.', ...batchProblems(input, bodySeats)]
   if (input.lines.length > SEATS_AT_ONCE) return [`At most ${SEATS_AT_ONCE} seats can be added at once. Add the rest after these are saved.`]
-  return [...input.lines.flatMap((line, i) => lineProblems(line, `Line ${i + 1}`)), ...sharedProblems(input, bodySeats)]
+  return [...input.lines.flatMap((line, i) => lineProblems(line, `Line ${i + 1}`)), ...batchProblems(input, bodySeats)]
 }
 
 // New seats get random ids, so re-running the seed, which writes its own ids, never replaces them.
@@ -114,9 +123,12 @@ type ChamberRows = { seats: readonly Seat[]; questions: readonly Question[]; off
 // Each chamber a body names, with what names it. `fromElsewhere` counts the
 // questions put to this body from another that narrow to a chamber of this name;
 // a rename leaves them alone, since the name may be their own body's chamber.
-export type ChamberUse = { name: string; seats: number; questions: number; offices: number; fromElsewhere: number }
+// `sharedOut` counts this body's questions naming it that are also put to other
+// bodies; a rename changes their chamber there too.
+export type ChamberUse = { name: string; seats: number; questions: number; offices: number; fromElsewhere: number; sharedOut: number }
 
-export function chamberUse(bodyId: string, rows: ChamberRows, putHere: readonly Question[]): ChamberUse[] {
+export function chamberUse(bodyId: string, rows: ChamberRows & { questionBodies: readonly QuestionBody[] }, putHere: readonly Question[]): ChamberUse[] {
+  const alsoElsewhere = new Set(rows.questionBodies.filter((l) => l.body_id !== bodyId).map((l) => l.question_id))
   const names = new Set<string>()
   for (const s of rows.seats) if (s.body_id === bodyId && s.chamber) names.add(s.chamber)
   for (const q of rows.questions) if (q.body_id === bodyId && q.chamber) names.add(q.chamber)
@@ -127,6 +139,7 @@ export function chamberUse(bodyId: string, rows: ChamberRows, putHere: readonly 
     questions: rows.questions.filter((q) => q.body_id === bodyId && q.chamber === name).length,
     offices: rows.offices.filter((o) => o.body_id === bodyId && o.chamber === name).length,
     fromElsewhere: putHere.filter((q) => q.body_id !== bodyId && q.chamber === name).length,
+    sharedOut: rows.questions.filter((q) => q.body_id === bodyId && q.chamber === name && alsoElsewhere.has(q.id)).length,
   }))
 }
 
