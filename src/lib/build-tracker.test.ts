@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { claimLabel, claimTag } from './position.ts'
+import { claimLabel, claimTag, spanOf } from './position.ts'
 import { EDITORS_ID, type Direction, type SameAct, type Weight } from '../../shared/schema.ts'
-import { asShown, readingsFrom, reviewerTiers, type RecordEntry } from './build-tracker.ts'
+import { asShown, readingsFrom, reviewerTiers, type PutTo, type RecordEntry } from './build-tracker.ts'
 import { act, decider, holder, link, office, question, review, relation, report, role, seat, setPosition, source, track } from './fixtures.ts'
 
 const policy = question('policy')
@@ -755,6 +755,8 @@ describe('the questions put to one person', () => {
   const now = track(rows)
   const next = track(rows, TERM)
   const ids = (list: { question: { id: string } }[]) => list.map((p) => p.question.id)
+  // What the person page says of the seat or office that puts a question to them.
+  const reachNote = (t: ReturnType<typeof track>, p: PutTo) => [spanOf(p.claim, t.asOf), p.claim.certainty]
 
   it('lists every open question put to them by body, once each, with where they stand and the footing', () => {
     const { current } = now.questionsOf('ann')
@@ -779,36 +781,41 @@ describe('the questions put to one person', () => {
       ['budget', 'unknown', null],
       ['markup', 'unknown', 'Committee chair'],
     ])
-    expect(faresRow.under.find((p) => p.question.id === 'markup')).toMatchObject({ certainty: 'likely', startsOn: TERM })
+    expect(reachNote(now, faresRow.under.find((p) => p.question.id === 'markup')!)).toEqual(['from Jan 3, 2027', 'likely'])
   })
 
   it('lists apart, under the question they belong to, an ask that has closed and one of an office they no longer hold', () => {
     expect(now.questionsOf('ann').former.map((p) => [p.question.id, p.parent?.id, p.roleLabel])).toEqual([['note', 'fares', 'Budget chair']])
-    expect(next.questionsOf('bob').former.map((p) => [p.question.id, p.parent?.id, p.endedOn])).toEqual([['fares', undefined, TERM], ['pledge', undefined, TERM]])
+    expect(next.questionsOf('bob').former.map((p) => [p.question.id, p.parent?.id, spanOf(p.claim, next.asOf)])).toEqual([
+      ['fares', undefined, 'until Jan 3, 2027'],
+      ['pledge', undefined, 'until Jan 3, 2027'],
+    ])
     const bobNow = now.questionsOf('bob').current[0].questions.find((q) => q.question.id === 'fares')!
-    expect(bobNow.under.find((p) => p.question.id === 'markup')).toMatchObject({ roleLabel: 'Committee chair', startsOn: null })
+    const bobMarkup = bobNow.under.find((p) => p.question.id === 'markup')!
+    expect([bobMarkup.roleLabel, ...reachNote(now, bobMarkup)]).toEqual(['Committee chair', null, 'certain'])
   })
 
   it('follows the day viewed: a measure past its closing date moves apart, and an office taken up is asked of them', () => {
     const later = next.questionsOf('ann')
     expect(ids(later.current[0].questions[0].under)).toEqual(['ordinance', 'markup'])
-    expect(later.current[0].questions[0].under.find((p) => p.question.id === 'markup')).toMatchObject({ certainty: 'likely', startsOn: null })
+    expect(reachNote(next, later.current[0].questions[0].under.find((p) => p.question.id === 'markup')!)).toEqual([null, 'likely'])
     expect(later.former.map((p) => [p.question.id, p.parent?.id])).toEqual([['budget', 'fares'], ['note', 'fares']])
   })
 
   it('marks a seat still to come, and how sure it is', () => {
-    expect(now.questionsOf('new').current[0].questions.map((p) => [p.question.id, p.certainty, p.startsOn])).toEqual([
-      ['fares', 'likely', TERM],
-      ['pledge', 'likely', TERM],
+    expect(now.questionsOf('new').current[0].questions.map((p) => [p.question.id, ...reachNote(now, p)])).toEqual([
+      ['fares', 'from Jan 3, 2027', 'likely'],
+      ['pledge', 'from Jan 3, 2027', 'likely'],
     ])
-    expect(next.questionsOf('new').current[0].questions[0]).toMatchObject({ certainty: 'likely', startsOn: null })
+    expect(reachNote(next, next.questionsOf('new').current[0].questions[0])).toEqual([null, 'likely'])
   })
 
   it('leaves out what closed before their seat began, and dates an ask put to them now from now', () => {
     expect(next.questionsOf('new').former.map((p) => p.question.id)).toEqual([])
     expect(next.questionsOf('ann').former.map((p) => p.question.id)).toContain('budget')
     const elect = track({ ...rows, questionDeciders: [...rows.questionDeciders, link('markup', 'new', 'Incoming chair')] })
-    expect(elect.questionsOf('new').current[0].questions[0].under.find((p) => p.question.id === 'markup')).toMatchObject({ roleLabel: 'Incoming chair', startsOn: null })
+    const asked = elect.questionsOf('new').current[0].questions[0].under.find((p) => p.question.id === 'markup')!
+    expect([asked.roleLabel, ...reachNote(elect, asked)]).toEqual(['Incoming chair', null, 'certain'])
   })
 
   it('lists a question that has closed apart, with where they stood when it closed', () => {
@@ -843,10 +850,10 @@ describe('the questions put to one person', () => {
 
   it('keeps an open ask put to them by name with its question once their seat has ended', () => {
     const named = track({ ...rows, questionDeciders: [...rows.questionDeciders, link('markup', 'bob', 'Former chair')] }, TERM)
-    expect(named.questionsOf('bob').former.map((p) => [p.question.id, p.parent?.id, p.roleLabel, p.endedOn])).toEqual([
-      ['fares', undefined, null, TERM],
+    expect(named.questionsOf('bob').former.map((p) => [p.question.id, p.parent?.id, p.roleLabel, spanOf(p.claim, named.asOf)])).toEqual([
+      ['fares', undefined, null, 'until Jan 3, 2027'],
       ['markup', 'fares', 'Former chair', null],
-      ['pledge', undefined, null, TERM],
+      ['pledge', undefined, null, 'until Jan 3, 2027'],
     ])
   })
 
@@ -856,16 +863,16 @@ describe('the questions put to one person', () => {
       questions: rows.questions.map((q) => (q.id === 'markup' ? { ...q, status: 'resolved' as const, closed_on: '2026-07-01' } : q)),
       officeHolders: [holder('chair', 'ann', null, '2026-06-01'), { ...holder('chair', 'ann', TERM), id: 'chair:ann:again' }],
     })
-    expect(again.questionsOf('ann').former.find((p) => p.question.id === 'markup')).toMatchObject({ parent: { id: 'fares' }, roleLabel: 'Committee chair', endedOn: '2026-06-01' })
+    const markupRow = again.questionsOf('ann').former.find((p) => p.question.id === 'markup')!
+    expect([markupRow.parent?.id, markupRow.roleLabel, ...reachNote(again, markupRow)]).toEqual(['fares', 'Committee chair', 'until Jun 1, 2026', 'certain'])
   })
 
   it('marks a claim that ended before it began, as a withdrawn candidate’s does', () => {
     const quit = track({ ...rows, roles: [...rows.roles, role('w2', 'dee', { starts_on: '2027-05-04', ends_on: '2026-11-10', certainty: 'possible', contest: 'general' })] })
-    expect(quit.questionsOf('dee').former.map((p) => [p.question.id, p.endedOn, p.neverHeld])).toEqual([
-      ['fares', '2026-11-10', true],
-      ['pledge', '2026-11-10', true],
+    expect(quit.questionsOf('dee').former.map((p) => [p.question.id, spanOf(p.claim, quit.asOf)])).toEqual([
+      ['fares', 'no longer in line since Nov 10, 2026'],
+      ['pledge', 'no longer in line since Nov 10, 2026'],
     ])
-    expect(now.questionsOf('bob').current[0].questions[0].neverHeld).toBe(false)
   })
 
   it('is empty for someone with no seat', () => {

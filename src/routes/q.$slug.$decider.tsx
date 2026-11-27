@@ -3,7 +3,7 @@ import { useState } from 'react'
 import type { Certainty } from '../../shared/schema.ts'
 import { FOOTING_HINT } from '../../shared/standing.ts'
 import { useTracker, useViewedBody, type Tenure } from '../lib/tracker.tsx'
-import { FootingTag, NotFound, StandingPill, Syncing } from '../components/bits.tsx'
+import { FootingTag, NotFound, SeatLine, StandingPill, Syncing } from '../components/bits.tsx'
 import { QuestionHeader } from '../components/QuestionHeader.tsx'
 import { ActWords, RecordItem } from '../components/RecordItem.tsx'
 import { OwnReview } from '../components/OwnReview.tsx'
@@ -54,8 +54,6 @@ function DeciderOnQuestion() {
       ...tenures.filter((t) => span(t.holder)).map((t) => t.office.label + span(t.holder)),
     ]),
   ]
-  const claim = claimLabel(me.role, tracker.asOf)
-  const holds = claim === 'holds the seat' ? '' : claim
   // Everyone else with a claim on this seat, now or later.
   const rivals = [...(tracker.rolesBySeat.get(seat.id) ?? []), ...(tracker.upcomingBySeat.get(seat.id) ?? [])]
     .filter((r) => r.decider_id !== decider.id)
@@ -77,11 +75,7 @@ function DeciderOnQuestion() {
               </Link>
             </h2>
             <p className="text-sm text-muted">
-              {seat.label}
-              {seat.chamber && `, ${seat.chamber}`}
-              {me.role.affiliation && ` · ${me.role.affiliation}`}
-              {seat.next_election_on && ` · next election ${formatDate(seat.next_election_on)}`}
-              {holds && ` · ${holds}`}
+              <SeatLine role={me.role} seat={seat} day={tracker.asOf} />
             </p>
             {roleLabels.length > 0 && <p className="text-sm font-medium">{roleLabels.join(' · ')}</p>}
             {held.flatMap((t) => {

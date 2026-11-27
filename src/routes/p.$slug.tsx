@@ -1,13 +1,13 @@
 import { Link, createFileRoute, stripSearchParams } from '@tanstack/react-router'
 import { useState, type ReactNode } from 'react'
-import type { Decider } from '../../shared/schema.ts'
+import type { Decider, Question } from '../../shared/schema.ts'
 import { today, useTracker, type PutTo, type Tenure } from '../lib/tracker.tsx'
-import { KIND_LABEL, actDate, claimLabel, formatDate, spanOf } from '../lib/position.ts'
+import { formatDate, spanOf } from '../lib/position.ts'
 import { useIsEditor } from '../lib/auth.ts'
-import { CertaintyTag, FootingTag, NotFound, StandingPill, Syncing, Token } from '../components/bits.tsx'
+import { CertaintyTag, FootingTag, NotFound, SeatLine, StandingPill, Syncing, Token } from '../components/bits.tsx'
 import { AskStatus } from '../components/Asks.tsx'
 import { TermToggle } from '../components/QuestionHeader.tsx'
-import { ActWords, SourceList } from '../components/RecordItem.tsx'
+import { ActDateAndKind, ActWords, SourceList } from '../components/RecordItem.tsx'
 import { ReadingLine } from '../components/Story.tsx'
 import type { SiteSearch } from './__root.tsx'
 
@@ -41,18 +41,11 @@ function Person() {
                 {body.name}
                 {body.is_demo && ' · demo data, not real'}
               </p>
-              {seats.map(({ role, seat }) => {
-                const claim = claimLabel(role, tracker.asOf)
-                return (
-                  <p key={role.id} className="text-sm">
-                    <span className="font-medium">{seat.label}</span>
-                    {seat.chamber && `, ${seat.chamber}`}
-                    {role.affiliation && ` · ${role.affiliation}`}
-                    {seat.next_election_on && ` · next election ${formatDate(seat.next_election_on)}`}
-                    {claim !== 'holds the seat' && ` · ${claim}`}
-                  </p>
-                )
-              })}
+              {seats.map(({ role, seat }) => (
+                <p key={role.id} className="text-sm">
+                  <SeatLine role={role} seat={seat} day={tracker.asOf} />
+                </p>
+              ))}
               {offices.map((t) => (
                 <OfficeLine key={t.holder.id} tenure={t} />
               ))}
@@ -112,18 +105,7 @@ function Person() {
                         {p.under.length > 0 && (
                           <ul className="mt-3 divide-y divide-line border-t border-line">
                             {p.under.map((sub) => (
-                              <li key={sub.question.id} className="flex flex-col gap-2 py-2.5 text-sm sm:flex-row sm:items-center sm:justify-between">
-                                <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                                  <RecordLink putTo={sub} decider={decider} className="font-medium hover:underline">
-                                    {sub.question.title}
-                                  </RecordLink>
-                                  <PutToNote putTo={sub} />
-                                  <AskStatus ask={sub.question} />
-                                </span>
-                                <span className="shrink-0">
-                                  <StandingPill standing={sub.contender.standing} question={sub.question} />
-                                </span>
-                              </li>
+                              <QuestionRow key={sub.question.id} putTo={sub} decider={decider} title={sub.question.title} />
                             ))}
                           </ul>
                         )}
@@ -143,19 +125,7 @@ function Person() {
               <p className="mb-3 text-sm text-muted">Questions that have closed, and those put to a seat or office that is no longer theirs, with where they stood.</p>
               <ul className="divide-y divide-line border-y border-line">
                 {former.map((p) => (
-                  <li key={p.question.id} className="flex flex-col gap-2 py-2.5 text-sm sm:flex-row sm:items-center sm:justify-between">
-                    <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                      {p.parent && <span className="text-muted">{p.parent.short_title} ·</span>}
-                      <RecordLink putTo={p} decider={decider} className="font-medium hover:underline">
-                        {p.parent ? p.question.title : p.question.short_title}
-                      </RecordLink>
-                      <PutToNote putTo={p} />
-                      <AskStatus ask={p.question} />
-                    </span>
-                    <span className="shrink-0">
-                      <StandingPill standing={p.contender.standing} question={p.question} />
-                    </span>
-                  </li>
+                  <QuestionRow key={p.question.id} putTo={p} decider={decider} title={p.parent ? p.question.title : p.question.short_title} parent={p.parent} />
                 ))}
               </ul>
             </section>
@@ -186,15 +156,7 @@ function LatestActs({ decider }: { decider: Decider }) {
           {shownActs.map(({ act, entries }) => (
             <li key={act.id} className="rounded-xl border-2 border-ink bg-surface p-4">
               <p className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
-                {act.occurred_on ? (
-                  <time dateTime={act.occurred_on} className="font-semibold text-ink">
-                    {formatDate(act.occurred_on)}
-                  </time>
-                ) : (
-                  <span className="font-semibold text-ink">{actDate(null)} · not counted until dated</span>
-                )}
-                <span>·</span>
-                <span>{KIND_LABEL[act.kind]}</span>
+                <ActDateAndKind act={act} />
                 {act.withdrawn_on && <span className="rounded bg-paper px-1.5 py-0.5">Withdrawn {formatDate(act.withdrawn_on)}</span>}
               </p>
               <ActWords kind={act.kind} words={act.body} />
@@ -240,18 +202,34 @@ function RecordLink({ putTo, decider, className, children }: { putTo: PutTo; dec
   )
 }
 
+// A sub-question or a past question, one line each.
+function QuestionRow({ putTo, decider, title, parent }: { putTo: PutTo; decider: Decider; title: string; parent?: Question }) {
+  return (
+    <li className="flex flex-col gap-2 py-2.5 text-sm sm:flex-row sm:items-center sm:justify-between">
+      <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+        {parent && <span className="text-muted">{parent.short_title} ·</span>}
+        <RecordLink putTo={putTo} decider={decider} className="font-medium hover:underline">
+          {title}
+        </RecordLink>
+        <PutToNote putTo={putTo} />
+        <AskStatus ask={putTo.question} />
+      </span>
+      <span className="shrink-0">
+        <StandingPill standing={putTo.contender.standing} question={putTo.question} />
+      </span>
+    </li>
+  )
+}
+
 function PutToNote({ putTo }: { putTo: PutTo }) {
-  const when = putTo.startsOn
-    ? `from ${formatDate(putTo.startsOn)}`
-    : putTo.endedOn
-      ? `${putTo.neverHeld ? 'no longer in line since' : 'until'} ${formatDate(putTo.endedOn)}`
-      : null
-  if (!putTo.roleLabel && !when && putTo.certainty === 'certain') return null
+  const { tracker } = useTracker()
+  const when = spanOf(putTo.claim, tracker.asOf)
+  if (!putTo.roleLabel && !when && putTo.claim.certainty === 'certain') return null
   return (
     <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
       {putTo.roleLabel && <span>{putTo.roleLabel}</span>}
       {when && <span>{when}</span>}
-      <CertaintyTag certainty={putTo.certainty} />
+      <CertaintyTag certainty={putTo.claim.certainty} />
     </span>
   )
 }

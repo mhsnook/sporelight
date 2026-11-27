@@ -10,15 +10,7 @@ export function RecordItem({ entry, question, children }: { entry: RecordEntry; 
   return (
     <li className="rounded-xl border-2 border-ink bg-surface p-4">
       <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
-        {act.occurred_on ? (
-          <time dateTime={act.occurred_on} className="font-semibold text-ink">
-            {formatDate(act.occurred_on)}
-          </time>
-        ) : (
-          <span className="font-semibold text-ink">{actDate(null)} · not counted until dated</span>
-        )}
-        <span>·</span>
-        <span>{KIND_LABEL[act.kind]}</span>
+        <ActDateAndKind act={act} />
         {via && via.id !== question?.id && <span className="rounded bg-paper px-1.5 py-0.5">{via.short_title}</span>}
         <WeightTag weight={reading.weight} />
         {!entry.checked && <UncheckedTag />}
@@ -33,6 +25,22 @@ export function RecordItem({ entry, question, children }: { entry: RecordEntry; 
       <SourceList reports={reports} />
       {children}
     </li>
+  )
+}
+
+export function ActDateAndKind({ act }: { act: Act }) {
+  return (
+    <>
+      {act.occurred_on ? (
+        <time dateTime={act.occurred_on} className="font-semibold text-ink">
+          {formatDate(act.occurred_on)}
+        </time>
+      ) : (
+        <span className="font-semibold text-ink">{actDate(null)} · not counted until dated</span>
+      )}
+      <span>·</span>
+      <span>{KIND_LABEL[act.kind]}</span>
+    </>
   )
 }
 

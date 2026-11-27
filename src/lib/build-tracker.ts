@@ -77,24 +77,9 @@ export type PutTo = {
   contender: Contender
   // The title an ask is put to them under. Null for a question put to their seat.
   roleLabel: string | null
-  certainty: Certainty
-  // When the seat or office that puts it to them is theirs from, if that is after the day viewed.
-  startsOn: string | null
-  // When it stopped being theirs, if that is on or before the day viewed.
-  endedOn: string | null
-  // It ended before it began, as a candidate's claim does when they withdraw.
-  neverHeld: boolean
+  // The seat or office that puts it to them. An ask by name has no dates.
+  claim: { starts_on: string | null; ends_on: string | null; certainty: Certainty }
 }
-
-export type QuestionsOf = {
-  // The open questions put to them on the day viewed, by body, each with its open measures and asks.
-  current: { body: Body; questions: (PutTo & { under: PutTo[] })[] }[]
-  // What has closed, and what they are no longer part of because their seat or office has ended.
-  former: (PutTo & { parent: Question | undefined })[]
-}
-
-// One act, with what it shows on each question it is read on.
-export type ActAcross = { act: Act; entries: (RecordEntry & { question: Question })[] }
 
 export type TrackerData = {
   bodies: Body[]
@@ -327,7 +312,6 @@ export function buildTracker(c: TrackerData, asOf: string) {
   }
 
   const entriesByPair = new Map<string, RecordEntry[]>()
-  const entriesByDecider = new Map<string, (RecordEntry & { question: Question })[]>()
   for (const reading of readings) {
     const act = actById.get(reading.act_id)
     if (!act) continue
@@ -336,11 +320,6 @@ export function buildTracker(c: TrackerData, asOf: string) {
     const list = entriesByPair.get(key)
     if (list) list.push(entry)
     else entriesByPair.set(key, [entry])
-    const question = questionById.get(reading.question_id)
-    if (!question) continue
-    const theirs = entriesByDecider.get(act.decider_id)
-    if (theirs) theirs.push({ ...entry, question })
-    else entriesByDecider.set(act.decider_id, [{ ...entry, question }])
   }
   for (const list of entriesByPair.values()) list.sort((a, b) => newestFirst(a.act, b.act))
 
@@ -424,7 +403,6 @@ export function buildTracker(c: TrackerData, asOf: string) {
   // Claims on a seat or an office in the order they count: held on the day
   // viewed, surest first; then to come, soonest first; then ended, latest first.
   type Dated = { starts_on: string | null; ends_on: string | null; certainty: Certainty }
-  const neverHeld = (r: { starts_on: string | null; ends_on: string | null }) => r.starts_on !== null && r.ends_on !== null && r.ends_on <= r.starts_on
   const stage = (r: Dated) => (inEffect(r, asOf) ? 0 : stillAhead(r, asOf) ? 1 : 2)
   const byClaim = (a: Dated, b: Dated) =>
     stage(a) - stage(b) ||
@@ -450,7 +428,7 @@ export function buildTracker(c: TrackerData, asOf: string) {
 
   // Every seat and office someone has a claim on, past, present or to come, by
   // body. A role held at large belongs to no body and is listed apart.
-  function seatsAndOfficesOf(deciderId: string): { bodies: { body: Body; seats: { role: Role; seat: Seat }[]; offices: Tenure[] }[]; atLarge: Tenure[] } {
+  function seatsAndOfficesOf(deciderId: string) {
     const seats = (everyRoleByDecider.get(deciderId) ?? []).flatMap((role) => {
       const seat = seatById.get(role.seat_id)
       return seat ? [{ role, seat }] : []
@@ -567,43 +545,34 @@ export function buildTracker(c: TrackerData, asOf: string) {
   const keyPeople = (question: Question, bodyId: string = question.body_id): KeyPerson[] =>
     (asksOf.get(question.id) ?? []).filter((a) => appliesIn(a, bodyId)).flatMap((a) => peopleOf(a, bodyId))
 
-  const asksFor = (question: Question, deciderId: string, bodyId: string = question.body_id): KeyPerson[] =>
-    keyPeople(question, bodyId).filter((k) => k.contender.decider.id === deciderId)
+  // One entry per ask, the first way it reaches them: someone can be asked it through an office and by name.
+  const asksFor = (question: Question, deciderId: string, bodyId: string = question.body_id): KeyPerson[] => {
+    const theirs = keyPeople(question, bodyId).filter((k) => k.contender.decider.id === deciderId)
+    return theirs.filter((k, i) => theirs.findIndex((other) => other.ask.id === k.ask.id) === i)
+  }
 
   // Every question put to one person, across bodies. Each is listed once,
   // under the body of the seat that puts it to them, as `claimsOn` picks it.
   // Archived questions are left out, as they are from the lists of questions.
-  function questionsOf(deciderId: string): QuestionsOf {
+  function questionsOf(deciderId: string) {
     const current = new Map<string, (PutTo & { under: PutTo[] })[]>()
-    const former: (PutTo & { parent: Question | undefined })[] = []
+    const former: (PutTo & { parent?: Question })[] = []
     const topLevel = c.questions.filter((q) => !q.parent_id && q.archived_at === null).sort((a, b) => a.sort - b.sort || a.id.localeCompare(b.id))
     for (const question of topLevel) {
       const [role] = claimsOn(question, deciderId)
       const seat = role && seatById.get(role.seat_id)
       const body = seat && bodyById.get(seat.body_id)
-      const person = role && contender(question, role)
-      if (!role || !seat || !body || !person) continue
-      const seated = inEffect(role, asOf) || stillAhead(role, asOf)
-      const putTo: PutTo = {
-        question,
-        body,
-        contender: person,
-        roleLabel: null,
-        certainty: role.certainty,
-        startsOn: stillAhead(role, asOf) ? role.starts_on : null,
-        endedOn: seated ? null : role.ends_on,
-        neverHeld: !seated && neverHeld(role),
-      }
-      // One row per ask: someone can be asked it through an office and by name.
-      const asked = asksFor(question, deciderId, body.id).filter((k, i, all) => all.findIndex((other) => other.ask.id === k.ask.id) === i)
-      const askedOf = (k: KeyPerson): PutTo => ({ ...putTo, question: k.ask, contender: k.contender, roleLabel: k.roleLabel, certainty: k.certainty, startsOn: null })
-      // A question that closed before their seat began was never theirs.
-      const closedBeforeThem = (q: Question) => !isOpen(q) && role.starts_on !== null && q.closed_on !== null && q.closed_on <= role.starts_on
-      if (closedBeforeThem(question)) continue
-      if (!seated || !isOpen(question)) {
-        former.push({ ...putTo, parent: undefined })
+      if (!role || !seat || !body) continue
+      const closedBeforeThem = (q: Question) => role.starts_on !== null && !isOpenOn(q, role.starts_on)
+      const person = !closedBeforeThem(question) && contender(question, role)
+      if (!person) continue
+      const putTo: PutTo = { question, body, contender: person, roleLabel: null, claim: role }
+      const asked = asksFor(question, deciderId, body.id)
+      const askedOf = (k: KeyPerson): PutTo => ({ ...putTo, question: k.ask, contender: k.contender, roleLabel: k.roleLabel, claim: { starts_on: null, ends_on: null, certainty: k.certainty } })
+      if (!(inEffect(role, asOf) || stillAhead(role, asOf)) || !isOpen(question)) {
+        former.push(putTo)
         // An open ask still put to them, by name or through an office they still hold, stays listed with its question.
-        if (isOpen(question)) for (const k of asked) former.push({ ...askedOf(k), startsOn: null, endedOn: null, neverHeld: false, parent: question })
+        if (isOpen(question)) for (const k of asked) former.push({ ...askedOf(k), parent: question })
         continue
       }
 
@@ -612,21 +581,18 @@ export function buildTracker(c: TrackerData, asOf: string) {
         if (isOpen(sub.question)) under.push(sub)
         else if (!closedBeforeThem(sub.question)) former.push({ ...sub, parent: question })
       }
-      for (const measure of measuresIn(question, body.id)) {
-        if (measure.chamber && measure.chamber !== seat.chamber) continue
-        place({ ...putTo, question: measure, contender: contender(measure, role)! })
-      }
+      for (const measure of measuresIn(question, body.id)) if (seatsPutTo(measure)(seat)) place({ ...putTo, question: measure, contender: contender(measure, role)! })
       for (const k of asked) place(askedOf(k))
       // An ask of an office they will hold later, or held before.
       const askedNow = new Set(asked.map((k) => k.ask.id))
       for (const ask of asksOf.get(question.id) ?? []) {
         if (askedNow.has(ask.id) || !appliesIn(ask, body.id)) continue
-        const held = tenuresOn(ask, deciderId)
-        const ahead = held.filter((t) => stillAhead(t.holder, asOf)).sort((a, b) => a.holder.starts_on!.localeCompare(b.holder.starts_on!))[0]
-        const last = held.filter((t) => t.holder.ends_on !== null && t.holder.ends_on <= asOf).sort((a, b) => b.holder.ends_on!.localeCompare(a.holder.ends_on!))[0]
-        const through = (t: Tenure) => ({ ...putTo, question: ask, contender: contender(ask, role)!, roleLabel: t.office.label, certainty: t.holder.certainty })
-        if (ahead && isOpen(ask)) under.push({ ...through(ahead), startsOn: ahead.holder.starts_on })
-        else if (last) former.push({ ...through(last), startsOn: null, endedOn: last.holder.ends_on, neverHeld: neverHeld(last.holder), parent: question })
+        const held = tenuresOn(ask, deciderId).sort((a, b) => byClaim(a.holder, b.holder))
+        const ahead = held.find((t) => stillAhead(t.holder, asOf))
+        const last = held.find((t) => t.holder.ends_on !== null && t.holder.ends_on <= asOf)
+        const through = (t: Tenure): PutTo => ({ ...putTo, question: ask, contender: contender(ask, role)!, roleLabel: t.office.label, claim: t.holder })
+        if (ahead && isOpen(ask)) under.push(through(ahead))
+        else if (last) former.push({ ...through(last), parent: question })
       }
 
       const list = current.get(body.id)
@@ -645,12 +611,12 @@ export function buildTracker(c: TrackerData, asOf: string) {
 
   // Someone's acts, newest first, each with its readings on every question,
   // the question it is read on directly before any it counts on through a sub-question.
-  function latestActsOf(deciderId: string): ActAcross[] {
-    const byAct = groupBy(entriesByDecider.get(deciderId) ?? [], (e) => e.act.id)
-    return [...byAct.values()]
-      .map((entries) => ({
-        act: entries[0].act,
-        entries: entries.sort((a, b) => Number(a.via !== undefined) - Number(b.via !== undefined) || a.question.sort - b.question.sort || a.question.id.localeCompare(b.question.id)),
+  function latestActsOf(deciderId: string) {
+    const entries = c.questions.flatMap((question) => recordFor(question, deciderId).map((entry) => ({ ...entry, question })))
+    return [...groupBy(entries, (e) => e.act.id).values()]
+      .map((readings) => ({
+        act: readings[0].act,
+        entries: readings.sort((a, b) => Number(a.via !== undefined) - Number(b.via !== undefined) || a.question.sort - b.question.sort || a.question.id.localeCompare(b.question.id)),
       }))
       .sort((a, b) => newestFirst(a.act, b.act))
   }
