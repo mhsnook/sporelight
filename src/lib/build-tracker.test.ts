@@ -829,6 +829,38 @@ describe('the questions put to one person', () => {
     expect(former).toEqual([])
   })
 
+  it('lists an ask once when it is put to them both through an office and by name', () => {
+    const both = track({ ...rows, questionDeciders: [...rows.questionDeciders, link('markup', 'ann', 'Committee chair')] }, TERM)
+    expect(ids(both.questionsOf('ann').current[0].questions[0].under)).toEqual(['ordinance', 'markup'])
+  })
+
+  it('keeps an open ask put to them by name with its question once their seat has ended', () => {
+    const named = track({ ...rows, questionDeciders: [...rows.questionDeciders, link('markup', 'bob', 'Former chair')] }, TERM)
+    expect(named.questionsOf('bob').former.map((p) => [p.question.id, p.parent?.id, p.roleLabel, p.endedOn])).toEqual([
+      ['fares', undefined, null, TERM],
+      ['markup', 'fares', 'Former chair', null],
+      ['pledge', undefined, null, TERM],
+    ])
+  })
+
+  it('lists a closed ask of an office they held before, even when they are due to hold it again', () => {
+    const again = track({
+      ...rows,
+      questions: rows.questions.map((q) => (q.id === 'markup' ? { ...q, status: 'resolved' as const, closed_on: '2026-07-01' } : q)),
+      officeHolders: [holder('chair', 'ann', null, '2026-06-01'), { ...holder('chair', 'ann', TERM), id: 'chair:ann:again' }],
+    })
+    expect(again.questionsOf('ann').former.find((p) => p.question.id === 'markup')).toMatchObject({ parent: { id: 'fares' }, roleLabel: 'Committee chair', endedOn: '2026-06-01' })
+  })
+
+  it('marks a claim that ended before it began, as a withdrawn candidate’s does', () => {
+    const quit = track({ ...rows, roles: [...rows.roles, role('w2', 'dee', { starts_on: '2027-05-04', ends_on: '2026-11-10', certainty: 'possible', contest: 'general' })] })
+    expect(quit.questionsOf('dee').former.map((p) => [p.question.id, p.endedOn, p.neverHeld])).toEqual([
+      ['fares', '2026-11-10', true],
+      ['pledge', '2026-11-10', true],
+    ])
+    expect(now.questionsOf('bob').current[0].questions[0].neverHeld).toBe(false)
+  })
+
   it('is empty for someone with no seat', () => {
     expect(track({ ...rows, roles: [] }).questionsOf('ann')).toEqual({ current: [], former: [] })
   })

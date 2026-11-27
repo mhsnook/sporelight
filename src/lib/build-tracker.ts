@@ -82,6 +82,8 @@ export type PutTo = {
   startsOn: string | null
   // When it stopped being theirs, if that is on or before the day viewed.
   endedOn: string | null
+  // It ended before it began, as a candidate's claim does when they withdraw.
+  neverHeld: boolean
 }
 
 export type QuestionsOf = {
@@ -418,6 +420,7 @@ export function buildTracker(c: TrackerData, asOf: string) {
   // Claims on a seat or an office in the order they count: held on the day
   // viewed, surest first; then to come, soonest first; then ended, latest first.
   type Dated = { starts_on: string | null; ends_on: string | null; certainty: Certainty }
+  const neverHeld = (r: { starts_on: string | null; ends_on: string | null }) => r.starts_on !== null && r.ends_on !== null && r.ends_on <= r.starts_on
   const stage = (r: Dated) => (inEffect(r, asOf) ? 0 : stillAhead(r, asOf) ? 1 : 2)
   const byClaim = (a: Dated, b: Dated) =>
     stage(a) - stage(b) ||
@@ -584,9 +587,15 @@ export function buildTracker(c: TrackerData, asOf: string) {
         certainty: role.certainty,
         startsOn: stillAhead(role, asOf) ? role.starts_on : null,
         endedOn: seated ? null : role.ends_on,
+        neverHeld: !seated && neverHeld(role),
       }
+      // One row per ask: someone can be asked it through an office and by name.
+      const asked = asksFor(question, deciderId, body.id).filter((k, i, all) => all.findIndex((other) => other.ask.id === k.ask.id) === i)
+      const askedOf = (k: KeyPerson): PutTo => ({ ...putTo, question: k.ask, contender: k.contender, roleLabel: k.roleLabel, certainty: k.certainty })
       if (!seated || !isOpen(question)) {
         former.push({ ...putTo, parent: undefined })
+        // An open ask still put to them, by name or through an office they still hold, stays listed with its question.
+        if (isOpen(question)) for (const k of asked) former.push({ ...askedOf(k), startsOn: null, endedOn: null, neverHeld: false, parent: question })
         continue
       }
 
@@ -596,8 +605,7 @@ export function buildTracker(c: TrackerData, asOf: string) {
         if (measure.chamber && measure.chamber !== seat.chamber) continue
         place({ ...putTo, question: measure, contender: contender(measure, role)! })
       }
-      const asked = asksFor(question, deciderId, body.id)
-      for (const k of asked) place({ ...putTo, question: k.ask, contender: k.contender, roleLabel: k.roleLabel, certainty: k.certainty })
+      for (const k of asked) place(askedOf(k))
       // An ask of an office they will hold later, or held before.
       const askedNow = new Set(asked.map((k) => k.ask.id))
       for (const ask of asksOf.get(question.id) ?? []) {
@@ -605,11 +613,9 @@ export function buildTracker(c: TrackerData, asOf: string) {
         const held = tenuresOn(ask, deciderId)
         const ahead = held.filter((t) => stillAhead(t.holder, asOf)).sort((a, b) => a.holder.starts_on!.localeCompare(b.holder.starts_on!))[0]
         const last = held.filter((t) => t.holder.ends_on !== null && t.holder.ends_on <= asOf).sort((a, b) => b.holder.ends_on!.localeCompare(a.holder.ends_on!))[0]
-        const tenure = ahead ?? last
-        if (!tenure || (ahead && !isOpen(ask))) continue
-        const sub = { ...putTo, question: ask, contender: contender(ask, role)!, roleLabel: tenure.office.label, certainty: tenure.holder.certainty }
-        if (ahead) under.push({ ...sub, startsOn: ahead.holder.starts_on })
-        else former.push({ ...sub, startsOn: null, endedOn: last.holder.ends_on, parent: question })
+        const through = (t: Tenure) => ({ ...putTo, question: ask, contender: contender(ask, role)!, roleLabel: t.office.label, certainty: t.holder.certainty })
+        if (ahead && isOpen(ask)) under.push({ ...through(ahead), startsOn: ahead.holder.starts_on })
+        else if (last) former.push({ ...through(last), startsOn: null, endedOn: last.holder.ends_on, neverHeld: neverHeld(last.holder), parent: question })
       }
 
       const list = current.get(body.id)
