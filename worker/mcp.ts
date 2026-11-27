@@ -154,7 +154,7 @@ function serverFor(env: Env, req: Request) {
     'get_record',
     {
       description:
-        'The acts behind one person’s position on one question, newest first, with the sources that report each. `checked` is false for a reading only readers or agents have given. `reading_from` is the group whose reviews the reading comes from: editors count first, then signed-in members, then agents such as the news reader. `reviews` lists every review of the act on the question, those that count first; `confirms` is the id of the review one was made by confirming, and `not_counted_because` is `outranked` (a higher group has reviewed it) or `said_nothing` (it says the act says nothing there while others in its group gave a reading).',
+        'The acts behind one person’s position on one question, newest first, with the sources that report each. `checked` is false for a reading only members or agents have given. `reading_from` is the group whose reviews the reading comes from: editors count first, then signed-in members, then agents such as the news reader. `reviews` lists every review of the act on the question, those that count first; `confirms` is the id of the review one was made by confirming, and `reviewer` is the display name, null when there is none; `reviewer_kind` is the group a review counts in, and `reviewer_on_file` is false for a reviewer with no account on file, who counts with the agents; `not_counted_because` is `outranked` (a higher group has reviewed it) or `said_nothing` (it says the act says nothing there while others in its group gave a reading).',
       inputSchema: z.object({
         question: z.string().describe('A question id or slug.'),
         person: z.string().describe('A decider’s id or slug from find_deciders or get_positions.'),
@@ -178,7 +178,8 @@ function serverFor(env: Env, req: Request) {
             return {
               id: row.review.id,
               reviewer: person?.display_name ?? null,
-              reviewer_kind: person ? TIER_LABEL[row.tier] : null,
+              reviewer_kind: TIER_LABEL[row.tier],
+              reviewer_on_file: person !== undefined,
               position: row.position,
               weight: row.weight,
               given_on_sub_question: row.via?.title ?? null,

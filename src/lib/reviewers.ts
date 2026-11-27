@@ -19,15 +19,20 @@ const NOUN: Record<ReviewerTier, [string, string]> = {
 export const TIER_LABEL: Record<ReviewerTier, string> = { editor: 'editor', person: 'member', agent: 'agent' }
 
 const counting = (reviewers: Reviewers) => reviewers.rows.filter((r) => r.notCounted === null)
+// One reviewer's support on two sub-questions can both count on the parent, so rows are not reviewers.
+const reviewerIds = (rows: ReviewerRow[]) => [...new Set(rows.map((r) => r.review.reviewer_id))]
+const onlyReviewer = (reviewers: Reviewers) => {
+  const ids = reviewerIds(counting(reviewers))
+  return ids.length === 1 ? ids[0] : null
+}
 
 // The group the reading comes from, as a reader would name it: "the editors", "2 members", "the news reader".
 function groupName(reviewers: Reviewers): string {
-  const rows = counting(reviewers)
-  const only = rows.length === 1 ? rows[0].review.reviewer_id : null
+  const only = onlyReviewer(reviewers)
   if (only === EDITORS_ID) return 'the editors'
   if (only === NEWS_READER_ID) return 'the news reader'
   const [one, many] = NOUN[reviewers.from]
-  return rows.length === 1 ? one : `${rows.length} ${many}`
+  return only ? one : `${reviewerIds(counting(reviewers)).length} ${many}`
 }
 
 // The short line on an act: whose reviews its reading comes from, and how many more reviews there are that do not count.
@@ -36,14 +41,14 @@ export function reviewedByLine(reviewers: Reviewers): string {
   return `Reviewed by ${groupName(reviewers)}${others > 0 ? ` · ${others} more not counted` : ''}`
 }
 
-const OWNER: Record<ReviewerTier, string> = { editor: 'the editors’', person: 'the members’', agent: 'the agents’' }
+// Whose reviews, for one reviewer and for several.
+const OWNER: Record<ReviewerTier, [string, string]> = { editor: ['an editor’s', 'the editors’'], person: ['a member’s', 'the members’'], agent: ['an agent’s', 'the agents’'] }
 
 // Opens the list: which group the reading comes from, and why that one.
 export function readingFromLine(reviewers: Reviewers): string {
-  const rows = counting(reviewers)
-  const only = rows.length === 1 ? rows[0].review.reviewer_id : null
-  const whose = only === NEWS_READER_ID ? 'the news reader’s' : OWNER[reviewers.from]
-  const what = rows.length === 1 ? `${whose} review` : `${whose} reviews, averaged`
+  const only = onlyReviewer(reviewers)
+  const whose = only === NEWS_READER_ID ? 'the news reader’s' : only === EDITORS_ID ? 'the editors’' : OWNER[reviewers.from][only ? 0 : 1]
+  const what = counting(reviewers).length === 1 ? `${whose} review` : `${whose} reviews, averaged`
   if (reviewers.from === 'editor') return `The reading shown comes from ${what}.`
   if (reviewers.from === 'person') return `No editor has reviewed this yet, so the reading shown comes from ${what}.`
   return `No editor or member has reviewed this yet, so the reading shown comes from ${what}.`

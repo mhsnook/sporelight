@@ -79,6 +79,13 @@ test("a story's reading line says which editor reviewed it, and opens to the rev
     { channel: 'reviews', ops: [{ type: 'insert', value: { id: `rv-${stamp}`, act_id: actId, question_id: 'free-ferry', position: 'support', weight: 'clear', based_on: null, created_at: at, updated_at: at } }] },
   ])
   expect(write.ok()).toBe(true)
+  cleanup = () =>
+    partyWrite(request, [
+      { channel: 'reviews', ops: [{ type: 'delete', value: { id: `rv-${stamp}` } }] },
+      { channel: 'reports', ops: [{ type: 'delete', value: { id: `rep-${stamp}` } }] },
+      { channel: 'acts', ops: [{ type: 'delete', value: { id: actId } }] },
+      { channel: 'sources', ops: [{ type: 'delete', value: { id: `src-${stamp}` } }] },
+    ])
 
   await page.goto('/news?question=free-ferry&recordOnly=true')
   const story = page.getByRole('article', { name: title })
@@ -86,7 +93,7 @@ test("a story's reading line says which editor reviewed it, and opens to the rev
   await expect(reviewedBy).toHaveCount(1)
   await expect(reviewedBy.locator('summary')).toHaveText('Reviewed by an editor')
   await reviewedBy.locator('summary').click()
-  await expect(reviewedBy.getByText('The reading shown comes from the editors’ review.')).toBeVisible()
+  await expect(reviewedBy.getByText('The reading shown comes from an editor’s review.')).toBeVisible()
   await expect(reviewedBy.getByRole('listitem')).toHaveCount(1)
   await expect(reviewedBy.getByRole('listitem')).toContainText('Flow Editor')
   await expect(reviewedBy.getByRole('listitem')).toContainText('editor')

@@ -258,9 +258,9 @@ export function buildTracker<P extends Reviewer = Reviewer>(c: TrackerData<P>, a
   const countedReviews = groupBy(shown.reviews, (r) => `${r.act_id} ${r.question_id}`)
   const reviewsOn = (actId: string, questionId: string): TieredReview[] => (countedReviews.get(`${actId} ${questionId}`) ?? []).map((review) => ({ review, tier: tierOf(review.reviewer_id) }))
   const reviewById = indexBy(c.reviews, (r) => r.id)
-  // Whose reviews the reading of an act as shown on a question comes from, or undefined when it has no reading.
+  // Whose reviews the reading of an act on a question comes from, following same-act marks, or undefined when it has no reading.
   const reviewersOf = (actId: string, questionId: string): Reviewers | undefined => {
-    const group = groups.get(`${actId} ${questionId}`)
+    const group = groups.get(`${shown.shownAs(actId)} ${questionId}`)
     if (!group?.summary) return undefined
     const from = group.summary.tier
     const rows = group.counted.map(({ review, tier, via, position, weight }): ReviewerRow => ({

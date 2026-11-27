@@ -60,7 +60,7 @@ describe('whose reviews a reading comes from', () => {
       [NEWS_READER_ID, { why: 'outranked', by: 'editor' }],
     ])
     expect(reviewedByLine(of)).toBe('Reviewed by an editor · 2 more not counted')
-    expect(readingFromLine(of)).toBe('The reading shown comes from the editors’ review.')
+    expect(readingFromLine(of)).toBe('The reading shown comes from an editor’s review.')
     expect(notCountedLine(of.rows[1].notCounted!)).toBe('Does not count while editors have reviewed it.')
   })
 
@@ -70,7 +70,9 @@ describe('whose reviews a reading comes from', () => {
   })
 
   it('names the editors and the news reader by who they are when they reviewed alone', () => {
-    expect(reviewedByLine(reviewersOf([review('a', 'policy', 'support', 'clear', EDITORS_ID)])!)).toBe('Reviewed by the editors')
+    const editorsOnly = reviewersOf([review('a', 'policy', 'support', 'clear', EDITORS_ID)])!
+    expect(reviewedByLine(editorsOnly)).toBe('Reviewed by the editors')
+    expect(readingFromLine(editorsOnly)).toBe('The reading shown comes from the editors’ review.')
     const agentOnly = reviewersOf([review('a', 'policy', 'support', 'clear', NEWS_READER_ID)])!
     expect(reviewedByLine(agentOnly)).toBe('Reviewed by the news reader')
     expect(readingFromLine(agentOnly)).toBe('No editor or member has reviewed this yet, so the reading shown comes from the news reader’s review.')
@@ -118,6 +120,20 @@ describe('whose reviews a reading comes from', () => {
     expect(reviewersOf([review('a', 'bill', 'support', 'concrete', 'ed')], 'a', 'bill')!.rows[0].via).toBeUndefined()
   })
 
+  it('names one reviewer once when their support on two sub-questions both count on the parent', () => {
+    const tracker = track({
+      deciders: [decider('sato')],
+      questions: [policy, bill, question('pledge', { parent_id: 'policy', kind: 'formal_act', implies_on_parent: 'support', sort: 2 })],
+      acts: [act('a', 'sato')],
+      reviews: [review('a', 'bill', 'support', 'concrete', 'ana'), review('a', 'pledge', 'support', 'concrete', 'ana')],
+      people: reviewers,
+    })
+    const of = tracker.reviewersOf('a', 'policy')!
+    expect(of.rows.map((r) => r.via?.id)).toEqual(['bill', 'pledge'])
+    expect(reviewedByLine(of)).toBe('Reviewed by a member')
+    expect(readingFromLine(of)).toBe('No editor has reviewed this yet, so the reading shown comes from a member’s reviews, averaged.')
+  })
+
   it('leaves out of the average a review in the counting group that says the act says nothing, and says why', () => {
     const of = reviewersOf([review('a', 'policy', 'support', 'clear', 'ana'), review('a', 'policy', null, null, 'ben')])!
     expect(of.rows.map((r) => [r.review.reviewer_id, r.notCounted])).toEqual([
@@ -142,5 +158,6 @@ describe('whose reviews a reading comes from', () => {
       people: reviewers,
     })
     expect(tracker.reviewersOf('a', 'policy')!.rows.map((r) => r.review.reviewer_id)).toEqual(['ana'])
+    expect(tracker.reviewersOf('a-again', 'policy')).toEqual(tracker.reviewersOf('a', 'policy'))
   })
 })

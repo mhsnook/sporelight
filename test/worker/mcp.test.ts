@@ -150,7 +150,7 @@ describe('/mcp: agents sign up and send evidence as people', () => {
     const recordOfEve = async () => ((await call('get_record', { question: 'hot', person: 'eve' })).structuredContent as { record: Entry[] }).record.find((e) => e.words.startsWith('Eve Epsilon told'))!
     const sent = await recordOfEve()
     expect(sent.reading_from).toBe('agents')
-    expect(sent.reviews).toEqual([expect.objectContaining({ reviewer: 'Eve watcher', reviewer_kind: 'agent', position: 'support', confirms: null, counts: true, not_counted_because: null })])
+    expect(sent.reviews).toEqual([expect.objectContaining({ reviewer: 'Eve watcher', reviewer_kind: 'agent', reviewer_on_file: true, position: 'support', confirms: null, counts: true, not_counted_because: null })])
 
     const agentsReview = sent.reviews[0].id as string
     const [{ act_id }] = await rows<{ act_id: string }>(`SELECT act_id FROM reviews WHERE id = ?`, agentsReview)
