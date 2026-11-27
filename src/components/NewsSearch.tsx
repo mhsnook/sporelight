@@ -2,6 +2,7 @@ import { Link } from '@tanstack/react-router'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { NewsRun, NewsStep, ReadOutcome } from '../../shared/news-run.ts'
 import { runStatus, traceOf, traceTotals, type TraceRow } from '../lib/news-trace.ts'
+import { plural } from '../lib/position.ts'
 import { ProgressBar } from './bits.tsx'
 
 const POLL_MS = 1500
@@ -117,7 +118,6 @@ const MARK: Record<'search' | 'stopped_reading' | 'stopped' | 'reading' | ReadOu
 
 const rowMark = (row: TraceRow) => MARK[row.kind === 'article' ? row.state : row.kind]
 const questionOf = (row: TraceRow | undefined) => (row && (row.kind === 'search' || row.kind === 'article') ? row.question : null)
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
 
 function rowText(row: TraceRow) {
   if (row.kind === 'stopped' || row.kind === 'stopped_reading') {

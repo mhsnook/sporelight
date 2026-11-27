@@ -1,4 +1,5 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
+import { plural } from '../lib/position.ts'
 import { chambersIn } from '../lib/role-form.ts'
 import { useTracker } from '../lib/tracker.tsx'
 import { Syncing } from '../components/bits.tsx'
@@ -8,7 +9,6 @@ export const Route = createFileRoute('/_editor/bodies/')({ component: Bodies })
 function Bodies() {
   const { tracker, isReady } = useTracker()
   if (!isReady) return <Syncing />
-  const seatCount = (bodyId: string) => tracker.seats.filter((s) => s.body_id === bodyId).length
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -21,7 +21,6 @@ function Bodies() {
       <p className="text-muted">The legislatures, councils and boards questions are put to, each with its seats and the day its next term starts.</p>
       <ul className="divide-y divide-line border-y border-line">
         {tracker.bodiesInOrder.map((b) => {
-          const seats = seatCount(b.id)
           const chambers = chambersIn(tracker.seats, b.id)
           return (
             <li key={b.id} className="flex items-start justify-between gap-3 py-2 text-sm">
@@ -29,7 +28,7 @@ function Bodies() {
                 <span className="font-medium">{b.name}</span>
                 {b.is_demo && <span className="text-faint"> (demo)</span>}
                 <span className="block text-xs text-muted">
-                  {seats === 1 ? '1 seat' : `${seats} seats`}
+                  {plural(tracker.seatsByBody.get(b.id)?.length ?? 0, 'seat', 'seats')}
                   {chambers.length > 0 && ` · ${chambers.join(', ')}`}
                 </span>
               </span>

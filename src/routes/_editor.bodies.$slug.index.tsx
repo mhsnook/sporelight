@@ -1,16 +1,16 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
-import { useState, type FormEvent } from 'react'
+import { useMemo, useState, type FormEvent } from 'react'
 import type { Body } from '../../shared/schema.ts'
 import { db } from '../lib/db.ts'
 import { bodyDependents } from '../lib/body-form.ts'
-import { commit } from '../lib/review.ts'
-import { holderNames } from '../lib/role-form.ts'
-import { SEAT_LIMITS, chamberUse, renameChamber, renameProblems } from '../lib/seat-form.ts'
+import { plural } from '../lib/position.ts'
+import { byLabel, holderNames } from '../lib/role-form.ts'
+import { SEAT_LIMITS, chamberUse, renameChamber, renameProblems, type ChamberUse } from '../lib/seat-form.ts'
 import { textField } from '../lib/form-input.ts'
 import { useTracker } from '../lib/tracker.tsx'
 import { NotFound, Syncing } from '../components/bits.tsx'
 import { BodyForm } from '../components/BodyForm.tsx'
-import { Field, Section, notSaved } from '../components/form.tsx'
+import { Field, Problems, Section, notSaved, useSave } from '../components/form.tsx'
 
 // Enough to find a seat by its label; the search narrows the rest.
 const SHOWN = 50
@@ -47,11 +47,9 @@ function EditBody() {
 
 function Chambers({ body }: { body: Body }) {
   const { tracker } = useTracker()
-  const [problems, setProblems] = useState<string[]>([])
-  const [saving, setSaving] = useState(false)
+  const save = useSave()
   const putHere = tracker.questions.filter((q) => tracker.appliesIn(q, body.id))
   const chambers = chamberUse(body.id, tracker, putHere)
-  const inNone = tracker.seats.filter((s) => s.body_id === body.id && !s.chamber).length
   if (chambers.length === 0) return null
 
   function onSubmit(e: FormEvent<HTMLFormElement>) {
@@ -60,25 +58,13 @@ function Chambers({ body }: { body: Body }) {
     const f = new FormData(form)
     const from = textField(f, 'from')
     const to = textField(f, 'to')
-    const found = renameProblems(from, to, chambers.map((c) => c.name))
-    setProblems(found)
-    if (found.length) return
+    if (!save.check(renameProblems(from, to, chambers.map((c) => c.name)))) return
     if (chambers.some((c) => c.name === to) && !window.confirm(`${body.name} already has a chamber called ${to}. Put the seats of ${from} in it? The two cannot be told apart afterwards.`)) return
-    setSaving(true)
-    commit(renameChamber(body.id, from, to, tracker)).then(
-      () => (setSaving(false), form.reset()),
-      (err: unknown) => (setSaving(false), setProblems([notSaved(err)])),
-    )
+    save.save(renameChamber(body.id, from, to, tracker), () => form.reset())
   }
 
-  const uses = (c: (typeof chambers)[number]) =>
-    [
-      c.seats === 1 ? '1 seat' : `${c.seats} seats`,
-      c.questions > 0 && (c.questions === 1 ? '1 question' : `${c.questions} questions`),
-      c.offices > 0 && (c.offices === 1 ? '1 office' : `${c.offices} offices`),
-    ]
-      .filter(Boolean)
-      .join(', ')
+  const uses = (c: ChamberUse) =>
+    [plural(c.seats, 'seat', 'seats'), c.questions > 0 && plural(c.questions, 'question', 'questions'), c.offices > 0 && plural(c.offices, 'office', 'offices')].filter(Boolean).join(', ')
 
   return (
     <Section id="chambers" title="Chambers" hint="A chamber is a name on each seat. Questions and offices can be narrowed to one by the same name.">
@@ -89,26 +75,23 @@ function Chambers({ body }: { body: Body }) {
             <span className="text-muted"> · {uses(c)}</span>
             {c.fromElsewhere > 0 && (
               <span className="block text-xs text-muted">
-                {c.fromElsewhere === 1 ? 'A question put to this body from another names' : `${c.fromElsewhere} questions put to this body from others name`} a chamber {c.name} too. Renaming
-                leaves {c.fromElsewhere === 1 ? 'it' : 'them'} as {c.fromElsewhere === 1 ? 'it is' : 'they are'}.
+                {c.fromElsewhere === 1
+                  ? `A question put to this body from another names a chamber ${c.name} too. Renaming leaves it as it is.`
+                  : `${c.fromElsewhere} questions put to this body from others name a chamber ${c.name} too. Renaming leaves them as they are.`}
               </span>
             )}
             {c.sharedOut > 0 && (
               <span className="block text-xs text-muted">
-                {c.sharedOut === 1 ? 'A question listed here that names it is' : `${c.sharedOut} questions listed here that name it are`} also put to other bodies. Renaming changes the
-                chamber {c.sharedOut === 1 ? 'it is' : 'they are'} narrowed to there too.
+                {c.sharedOut === 1
+                  ? 'A question listed here that names it is also put to other bodies. Renaming changes the chamber it is narrowed to there too.'
+                  : `${c.sharedOut} questions listed here that name it are also put to other bodies. Renaming changes the chamber they are narrowed to there too.`}
               </span>
             )}
           </li>
         ))}
       </ul>
-      {inNone > 0 && (
-        <p role="note" className="text-sm font-semibold text-oppose">
-          {inNone === 1 ? 'One seat has' : `${inNone} seats have`} no chamber, so {inNone === 1 ? 'it is' : 'they are'} left off the seat charts. Give {inNone === 1 ? 'it' : 'each'} a chamber from{' '}
-          {inNone === 1 ? 'its' : 'their'} own page.
-        </p>
-      )}
       <form onSubmit={onSubmit} noValidate aria-label="Rename a chamber" className="space-y-3">
+        <Problems save={save} />
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Chamber to rename" id="c-from">
             <select id="c-from" name="from" className="field" defaultValue={chambers[0].name}>
@@ -123,14 +106,7 @@ function Chambers({ body }: { body: Body }) {
             <input id="c-to" name="to" maxLength={SEAT_LIMITS.chamber} autoComplete="off" className="field" />
           </Field>
         </div>
-        {problems.length > 0 && (
-          <ul role="alert" className="list-disc space-y-1 pl-5 text-sm text-oppose">
-            {problems.map((p) => (
-              <li key={p}>{p}</li>
-            ))}
-          </ul>
-        )}
-        <button className="btn" disabled={saving}>
+        <button className="btn" disabled={save.saving}>
           Rename the chamber
         </button>
       </form>
@@ -142,9 +118,10 @@ function Seats({ body }: { body: Body }) {
   const { tracker } = useTracker()
   const { q } = Route.useSearch()
   const navigate = Route.useNavigate()
-  const seats = tracker.seats
-    .filter((s) => s.body_id === body.id)
-    .sort((a, b) => (a.chamber ?? '').localeCompare(b.chamber ?? '') || a.label.localeCompare(b.label, undefined, { numeric: true }))
+  const seats = useMemo(
+    () => [...(tracker.seatsByBody.get(body.id) ?? [])].sort((a, b) => (a.chamber ?? '').localeCompare(b.chamber ?? '') || byLabel(a.label, b.label)),
+    [tracker, body.id],
+  )
   const needle = q?.toLowerCase()
   const matching = needle ? seats.filter((s) => [s.label, s.region, s.chamber, holderNames(s, tracker)].join(' ').toLowerCase().includes(needle)) : seats
 
@@ -170,7 +147,7 @@ function Seats({ body }: { body: Body }) {
             </div>
           )}
           <p className="text-sm text-muted tabular-nums">
-            {matching.length > SHOWN ? `The first ${SHOWN} of ${matching.length}` : `${matching.length} ${matching.length === 1 ? 'seat' : 'seats'}`}
+            {matching.length > SHOWN ? `The first ${SHOWN} of ${matching.length}` : plural(matching.length, 'seat', 'seats')}
           </p>
           <ul className="divide-y divide-line border-y border-line">
             {matching.slice(0, SHOWN).map((s) => {

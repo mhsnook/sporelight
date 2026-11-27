@@ -2,7 +2,7 @@ import { Link, createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
 import type { Role, Seat } from '../../shared/schema.ts'
 import { db } from '../lib/db.ts'
-import { claimLabel } from '../lib/position.ts'
+import { claimLabel, plural } from '../lib/position.ts'
 import { seatClaims } from '../lib/seat-form.ts'
 import { useTracker } from '../lib/tracker.tsx'
 import { NotFound, Syncing } from '../components/bits.tsx'
@@ -18,7 +18,7 @@ function EditSeat() {
   const seat = tracker.seatById.get(seatId)
   const body = seat && tracker.bodyById.get(seat.body_id)
   if (!seat || !body) return <NotFound what="seat" />
-  const claims = [...seatClaims(seat, tracker.roles)].sort((a, b) => (a.starts_on ?? '').localeCompare(b.starts_on ?? '') || a.id.localeCompare(b.id))
+  const claims = seatClaims(seat, tracker.roles).sort((a, b) => (a.starts_on ?? '').localeCompare(b.starts_on ?? '') || a.id.localeCompare(b.id))
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -72,6 +72,7 @@ function Claims({ seat, claims }: { seat: Seat; claims: Role[] }) {
   )
 }
 
+// A seat that has had a claim on it, ended or not, stays on file. Only one entered by mistake is removed.
 function DeleteSeat({ seat, claims, bodySlug }: { seat: Seat; claims: Role[]; bodySlug: string }) {
   const navigate = Route.useNavigate()
   const [error, setError] = useState<string | null>(null)
@@ -90,7 +91,7 @@ function DeleteSeat({ seat, claims, bodySlug }: { seat: Seat; claims: Role[]; bo
     <Section id="delete-seat" title="Removing">
       {claims.length > 0 ? (
         <p className="text-sm">
-          This seat cannot be removed, since it has {claims.length === 1 ? 'a claim' : `${claims.length} claims`} on file. Change its label or whether it votes instead.
+          This seat cannot be removed, since it has {claims.length === 1 ? 'a claim' : plural(claims.length, 'claim', 'claims')} on file. Change its label or whether it votes instead.
         </p>
       ) : (
         <>

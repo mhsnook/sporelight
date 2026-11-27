@@ -45,12 +45,9 @@ export function readSeatsForm(f: FormData): SeatsInput {
   return { chamber, is_voting, next_election_on, lines: seatLines(textField(f, 'lines')) }
 }
 
-// The seat charts draw one chart per chamber, and a body with no chambers as one
-// chart. A seat with no chamber in a body whose other seats have one is in no chart.
-function sharedProblems(input: Pick<SeatInput, 'chamber' | 'next_election_on'>, otherSeats: readonly Seat[]): string[] {
+function sharedProblems(input: Pick<SeatInput, 'chamber' | 'next_election_on'>): string[] {
   const problems: string[] = []
   if (input.chamber && input.chamber.length > SEAT_LIMITS.chamber) problems.push(`The chamber is longer than ${SEAT_LIMITS.chamber} characters.`)
-  if (!input.chamber && otherSeats.some((s) => s.chamber)) problems.push('The other seats in this body are each in a chamber. Choose one here too, or the seat is left off the seat charts.')
   if (input.next_election_on !== null && !isDay(input.next_election_on)) problems.push('The day of the next election is not a date.')
   return problems
 }
@@ -63,25 +60,15 @@ function lineProblems(line: { label: string; region: string | null }, where: str
   return problems
 }
 
-// `otherSeats` are the body's seats, leaving out the one being edited.
-export function seatProblems(input: SeatInput, otherSeats: readonly Seat[]): string[] {
+export function seatProblems(input: SeatInput): string[] {
   const label = input.label ? lineProblems(input, 'The seat') : ['The seat needs a label.']
-  return [...label, ...sharedProblems(input, otherSeats)]
+  return [...label, ...sharedProblems(input)]
 }
 
-// A body is moved into chambers one seat at a time from each seat's page, so a
-// batch never leaves the body's existing seats with no chamber beside new ones that have one.
-function batchProblems(input: SeatsInput, bodySeats: readonly Seat[]): string[] {
-  const shared = sharedProblems(input, bodySeats)
-  if (input.chamber && bodySeats.length > 0 && bodySeats.every((s) => !s.chamber))
-    shared.push("The body's other seats have no chamber, so it is drawn as one chart. Leave the chamber empty, or put each of its seats in a chamber from the seat's page first.")
-  return shared
-}
-
-export function seatsProblems(input: SeatsInput, bodySeats: readonly Seat[]): string[] {
-  if (input.lines.length === 0) return ['Add at least one seat, one label per line.', ...batchProblems(input, bodySeats)]
+export function seatsProblems(input: SeatsInput): string[] {
+  if (input.lines.length === 0) return ['Add at least one seat, one label per line.', ...sharedProblems(input)]
   if (input.lines.length > SEATS_AT_ONCE) return [`At most ${SEATS_AT_ONCE} seats can be added at once. Add the rest after these are saved.`]
-  return [...input.lines.flatMap((line, i) => lineProblems(line, `Line ${i + 1}`)), ...batchProblems(input, bodySeats)]
+  return [...input.lines.flatMap((line, i) => lineProblems(line, `Line ${i + 1}`)), ...sharedProblems(input)]
 }
 
 // New seats get random ids, so re-running the seed, which writes its own ids, never replaces them.
@@ -115,7 +102,7 @@ export function seatEdits(seat: Seat, input: SeatInput): Write[] {
   return changes ? [{ on: 'seats', type: 'update', id: seat.id, changes }] : []
 }
 
-// A seat that has had a claim on it, ended or not, stays on file. Only one entered by mistake is removed.
+// Every claim on a seat, ended ones included, which the tracker's rolesBySeat leaves out.
 export const seatClaims = (seat: Pick<Seat, 'id'>, roles: readonly Role[]) => roles.filter((r) => r.seat_id === seat.id)
 
 type ChamberRows = { seats: readonly Seat[]; questions: readonly Question[]; offices: readonly Office[] }

@@ -13,8 +13,12 @@ function ChamberField({ body, start }: { body: Body; start: string | null }) {
     <Field
       label="Chamber"
       id="s-chamber"
-      optional={chambers.length === 0}
-      hint={chambers.length ? `Choose ${chambers.join(' or ')}, or type a new one. Each chamber gets a seat chart of its own.` : 'Left empty, the body is drawn as one chart. Name a chamber to give it a chart of its own.'}
+      optional
+      hint={
+        chambers.length
+          ? `Choose ${chambers.join(' or ')}, or type a new one. Each chamber gets a seat chart of its own, and seats in none share one.`
+          : 'Left empty, the body is drawn as one chart. Name a chamber to give it a chart of its own.'
+      }
     >
       <input id="s-chamber" name="chamber" list="s-chambers" maxLength={SEAT_LIMITS.chamber} defaultValue={start ?? ''} autoComplete="off" className="field" />
       <datalist id="s-chambers">
@@ -44,13 +48,12 @@ function VoteAndElection({ start }: { start: { is_voting: boolean; next_election
 
 // Fields keep stable `name`s: `readSeatsForm` reads them from the FormData on submit.
 export function SeatsForm({ body, onSaved }: { body: Body; onSaved: (made: Seat[]) => void }) {
-  const { tracker } = useTracker()
   const save = useSave()
 
   function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const input = readSeatsForm(new FormData(e.currentTarget))
-    if (!save.check(seatsProblems(input, tracker.seats.filter((s) => s.body_id === body.id)))) return
+    if (!save.check(seatsProblems(input))) return
     const made = newSeats(input, body.id)
     save.save(seatInserts(made), () => onSaved(made))
   }
@@ -74,14 +77,13 @@ export function SeatsForm({ body, onSaved }: { body: Body; onSaved: (made: Seat[
 
 // Fields keep stable `name`s: `readSeatForm` reads them from the FormData on submit.
 export function SeatForm({ seat, body }: { seat: Seat; body: Body }) {
-  const { tracker } = useTracker()
   const save = useSave()
   const start = seatInputOf(seat)
 
   function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const input = readSeatForm(new FormData(e.currentTarget))
-    if (!save.check(seatProblems(input, tracker.seats.filter((s) => s.body_id === body.id && s.id !== seat.id)))) return
+    if (!save.check(seatProblems(input))) return
     save.save(seatEdits(seat, input))
   }
 

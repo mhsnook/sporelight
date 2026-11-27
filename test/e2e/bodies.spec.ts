@@ -81,13 +81,7 @@ test('an editor adds a body with two chambers and its seats, puts someone in a s
 
   await addSeats(page, 'A1, North\nA2, South\nA3', 'Assembly')
   await addSeats(page, 'Delegate', 'Assembly', { voting: false })
-  // Once the body has chambers, a seat with none is refused, since no chart would draw it.
-  await page.getByRole('link', { name: 'Add seats' }).click()
-  await page.getByRole('textbox', { name: 'Seats', exact: true }).fill('S1\nS2')
-  await page.getByRole('button', { name: 'Add the seats' }).click()
-  await expect(page.getByRole('alert')).toContainText('The other seats in this body are each in a chamber')
-  await page.getByLabel(/^Chamber/).fill('Senate')
-  await page.getByRole('button', { name: 'Add the seats' }).click()
+  await addSeats(page, 'S1\nS2', 'Senate')
   const seatList = page.getByRole('region', { name: 'Seats' })
   await expect(seatList.getByRole('listitem')).toHaveCount(6)
   const seats = seatsOf(body.id)
@@ -150,7 +144,7 @@ test('an editor adds a body with two chambers and its seats, puts someone in a s
   await expect(page.getByRole('button', { name: 'Remove this body' })).toHaveCount(0)
 })
 
-test('a body made on the site with no chambers draws one chart, and a seat nobody has held can be removed', async ({ page, request }) => {
+test('a body made on the site with no chambers draws one chart, a seat put in a chamber gets a chart of its own, and a seat nobody has held can be removed', async ({ page, request }) => {
   const stamp = Date.now()
   const name = `Millbrook Board ${stamp}`
   await signInAsEditor(page)
@@ -182,6 +176,16 @@ test('a body made on the site with no chambers draws one chart, and a seat nobod
   const figure = page.locator('figure')
   await expect(figure).toHaveCount(1)
   await expect(figure.getByRole('img')).toHaveAttribute('aria-label', `${name}. No record yet: 4. 3 is a majority.`)
+
+  // One seat put in a chamber is drawn apart, and the seats in none stay on a chart under the body's name.
+  await page.goto(`/seats/${seats.find((s) => s.label === 'W4')!.id}`)
+  await page.getByLabel(/^Chamber/).fill('North')
+  await page.getByRole('button', { name: 'Save changes' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Saved.' })).toBeVisible()
+  await page.goto(`/q/${slug}`)
+  await expect(figure).toHaveCount(2)
+  await expect(figure.filter({ has: page.getByRole('heading', { name }) }).getByRole('img')).toHaveAttribute('aria-label', `${name}. No record yet: 3. 2 is a majority.`)
+  await expect(figure.filter({ has: page.getByRole('heading', { name: 'North' }) }).getByRole('img')).toHaveAttribute('aria-label', 'North. No record yet: 1. 1 is a majority.')
 })
 
 test('a body with nothing hanging from it can be removed', async ({ page }) => {

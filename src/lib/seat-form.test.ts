@@ -63,35 +63,27 @@ describe('seat problems', () => {
   const one: SeatInput = { chamber: null, region: null, label: 'Ward 1', is_voting: true, next_election_on: null }
   const many: SeatsInput = { chamber: 'Senate', is_voting: true, next_election_on: null, lines: [{ label: 'S1', region: null }] }
 
-  it('has nothing to say about a seat with a label in a body with no chambers', () => {
-    expect(seatProblems(one, [seat('other')])).toEqual([])
-    expect(seatsProblems(many, [seat('other', { chamber: 'House' })])).toEqual([])
+  it('has nothing to say about a seat with a label, in a chamber or not', () => {
+    expect(seatProblems(one)).toEqual([])
+    expect(seatsProblems(many)).toEqual([])
   })
 
   it('refuses a seat with no label, and dates that are not dates', () => {
-    expect(seatProblems({ ...one, label: '', next_election_on: 'May' }, [])).toEqual(['The seat needs a label.', 'The day of the next election is not a date.'])
+    expect(seatProblems({ ...one, label: '', next_election_on: 'May' })).toEqual(['The seat needs a label.', 'The day of the next election is not a date.'])
   })
 
-  it('refuses a seat with no chamber in a body whose other seats have one, which no chart would draw', () => {
-    expect(seatProblems(one, [seat('h', { chamber: 'House' })])).toEqual([expect.stringContaining('The other seats in this body are each in a chamber')])
-    expect(seatsProblems({ ...many, chamber: null }, [seat('h', { chamber: 'House' })])).toEqual([expect.stringContaining('The other seats in this body are each in a chamber')])
-    expect(seatsProblems(many, [seat('w1'), seat('w2')])).toEqual([expect.stringContaining("The body's other seats have no chamber")])
-    expect(seatsProblems(many, [])).toEqual([])
-    // The first seat put in a chamber starts the change from none, one seat at a time.
-    expect(seatProblems({ ...one, chamber: 'House' }, [seat('other')])).toEqual([])
-  })
 
   it('names the line a problem is on', () => {
-    expect(seatsProblems({ ...many, lines: [{ label: 'S1', region: null }, { label: '', region: 'North' }, { label: 'x'.repeat(81), region: null }] }, [])).toEqual([
+    expect(seatsProblems({ ...many, lines: [{ label: 'S1', region: null }, { label: '', region: 'North' }, { label: 'x'.repeat(81), region: null }] })).toEqual([
       'Line 2 has a region but no label.',
       'Line 3: the label is longer than 80 characters.',
     ])
   })
 
   it('refuses an empty list, and more seats than one write can carry', () => {
-    expect(seatsProblems({ ...many, lines: [] }, [])).toEqual(['Add at least one seat, one label per line.'])
+    expect(seatsProblems({ ...many, lines: [] })).toEqual(['Add at least one seat, one label per line.'])
     const lines = Array.from({ length: SEATS_AT_ONCE + 1 }, (_, i) => ({ label: `S${i}`, region: null }))
-    expect(seatsProblems({ ...many, lines }, [])).toEqual([expect.stringContaining(`At most ${SEATS_AT_ONCE} seats`)])
+    expect(seatsProblems({ ...many, lines })).toEqual([expect.stringContaining(`At most ${SEATS_AT_ONCE} seats`)])
   })
 })
 

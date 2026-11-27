@@ -71,7 +71,8 @@ function Board() {
   const scoped = chamber ? rows.filter((r) => r.seat.chamber === chamber) : rows
   const visible = scoped.filter(matches)
   const counts = tally(scoped.map((r) => r.incumbent.standing))
-  const charts = chambers.length > 0 ? chambers.filter((c) => !chamber || c === chamber) : [null]
+  // Seats in no chamber are drawn together under the body's name, beside any named chambers.
+  const charts = chamber ? [chamber] : [...chambers, ...(rows.some((r) => r.seat.chamber === null) ? [null] : [])]
   const groups = STANDINGS.map((standing) => ({
     standing,
     rows: visible.filter((r) => r.incumbent.standing === standing).sort((a, b) => a.incumbent.decider.sort_name.localeCompare(b.incumbent.decider.sort_name)),
@@ -90,7 +91,7 @@ function Board() {
           <Hemicycle
             key={c ?? 'all'}
             title={c ?? body?.name ?? 'Seats'}
-            rows={c ? rows.filter((r) => r.seat.chamber === c) : rows}
+            rows={rows.filter((r) => r.seat.chamber === c)}
             question={question}
             isLit={matches}
           />

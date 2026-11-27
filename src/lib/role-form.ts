@@ -3,6 +3,7 @@ import type { Tracker } from './build-tracker.ts'
 import type { Write } from './review-plan.ts'
 import { changedFields, isDay, orNull, textField } from './form-input.ts'
 import { personProblems, readPersonForm, type PersonInput } from './person-form.ts'
+import { countPhrases } from './position.ts'
 
 export type Contest = (typeof CONTESTS)[number]
 
@@ -125,10 +126,13 @@ export const holderNames = (seat: Pick<Seat, 'id'>, tracker: Pick<Tracker, 'role
 export const chambersIn = (seats: readonly Seat[], bodyId: string) => [...new Set(seats.filter((s) => s.body_id === bodyId && s.chamber).map((s) => s.chamber!))].sort()
 export const regionsIn = (seats: readonly Seat[], bodyId: string, chamber: string | null) =>
   [...new Set(seats.filter((s) => s.body_id === bodyId && (chamber === null || s.chamber === chamber) && s.region).map((s) => s.region!))].sort()
+// Seat labels in reading order, so "Ward 10" follows "Ward 9". One collator, since localeCompare with options builds one per call.
+export const byLabel = new Intl.Collator(undefined, { numeric: true }).compare
+
 export const seatsIn = (seats: readonly Seat[], filter: SeatFilter) =>
   seats
     .filter((s) => s.body_id === filter.body_id && (filter.chamber === null || s.chamber === filter.chamber) && (filter.region === null || s.region === filter.region))
-    .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }))
+    .sort((a, b) => byLabel(a.label, b.label))
 
 type BodyQuestions = Pick<Tracker, 'seatById' | 'questions' | 'appliesIn'>
 
@@ -169,5 +173,5 @@ export function roleDependents(
     [tracker.officeHolders.filter((h) => h.decider_id === who && officesHere.has(h.office_id)).length, 'office held in this body', 'offices held in this body'],
     [loaded.comments.filter((c) => threads.has(c.thread_id)).length, 'comment', 'comments'],
   ]
-  return counts.filter(([n]) => n > 0).map(([n, one, many]) => (n === 1 ? `1 ${one}` : `${n} ${many}`))
+  return countPhrases(counts)
 }

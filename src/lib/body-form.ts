@@ -1,6 +1,7 @@
 import type { Body, Office, Question, QuestionBody, Seat } from '../../shared/schema.ts'
 import type { Write } from './review-plan.ts'
 import { changedFields, chooseSlug, isDay, orNull, textField } from './form-input.ts'
+import { countPhrases } from './position.ts'
 
 // What the body form holds once read. Text is trimmed, and an empty optional field is null.
 export type BodyInput = {
@@ -89,5 +90,5 @@ export function bodyDependents(body: Pick<Body, 'id'>, rows: BodyRows): string[]
     [rows.questionBodies.filter((l) => l.body_id === body.id).length, 'question put to it from another body', 'questions put to it from other bodies'],
     [rows.offices.filter((o) => o.body_id === body.id).length, 'office', 'offices'],
   ]
-  return counts.filter(([n]) => n > 0).map(([n, one, many]) => (n === 1 ? `1 ${one}` : `${n} ${many}`))
+  return countPhrases(counts)
 }

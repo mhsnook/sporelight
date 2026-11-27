@@ -92,6 +92,10 @@ export const KIND_CHOICE: Record<ActKind, string> = {
 }
 
 const dateFmt = new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })
+export const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
+// Counts of things as phrases, leaving out what there are none of: "2 seats, 1 office".
+export const countPhrases = (counts: [number, string, string][]) => counts.filter(([n]) => n > 0).map(([n, one, many]) => plural(n, one, many))
+
 export const formatDate = (iso: string) => dateFmt.format(new Date(iso))
 // An act's date, or that it has not been found yet.
 export const actDate = (occurredOn: string | null) => (occurredOn ? formatDate(occurredOn) : 'Date not found')
