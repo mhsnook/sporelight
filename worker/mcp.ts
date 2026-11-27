@@ -3,6 +3,8 @@ import { getServerByName } from 'partyserver'
 import { z } from 'zod'
 import { displayNameSchema, proposalInputSchema, type Person, type Question } from '../shared/schema.ts'
 import { STANDINGS } from '../src/lib/position.ts'
+import { TIER_LABEL } from '../src/lib/reviewers.ts'
+import type { ReviewerTier } from '../shared/standing.ts'
 import { isHeld, type Contender, type RecordEntry, type Tracker as TrackerView } from '../src/lib/build-tracker.ts'
 import { auth, KeyRefused, signedInPerson } from './auth.ts'
 import { currentTracker } from './record.ts'
@@ -31,6 +33,8 @@ const evidenceInput = z.object({
 })
 
 export const FIND_LIMIT = 25
+
+const READING_FROM: Record<ReviewerTier, string> = { editor: 'editors', person: 'members', agent: 'agents' }
 
 const today = () => new Date().toISOString().slice(0, 10)
 const json = (value: unknown) => ({ content: [{ type: 'text' as const, text: JSON.stringify(value, null, 1) }], structuredContent: value as Record<string, unknown> })
@@ -149,7 +153,8 @@ function serverFor(env: Env, req: Request) {
   server.registerTool(
     'get_record',
     {
-      description: 'The acts behind one person’s position on one question, newest first, with the sources that report each. `checked` is false for a reading only readers or agents have given.',
+      description:
+        'The acts behind one person’s position on one question, newest first, with the sources that report each. `checked` is false for a reading only readers or agents have given. `reading_from` is the group whose reviews the reading comes from: editors count first, then signed-in members, then agents such as the news reader. `reviews` lists every review of the act on the question, those that count first; `confirms` is the id of the review one was made by confirming, and `not_counted_because` is `outranked` (a higher group has reviewed it) or `said_nothing` (it says the act says nothing there while others in its group gave a reading).',
       inputSchema: z.object({
         question: z.string().describe('A question id or slug.'),
         person: z.string().describe('A decider’s id or slug from find_deciders or get_positions.'),
@@ -162,6 +167,28 @@ function serverFor(env: Env, req: Request) {
       const d = t.deciderById.get(wantedPerson) ?? t.deciderBySlug.get(wantedPerson)
       if (!q) return refusal(`No question "${wantedQuestion}".`)
       if (!d) return refusal(`No person "${wantedPerson}".`)
+      const people = new Map(t.people.map((p) => [p.id, p]))
+      const reviewers = (e: RecordEntry) => {
+        const of = t.reviewersOf(e.act.id, e.reading.question_id)
+        if (!of) return { reading_from: null, reviews: [] }
+        return {
+          reading_from: READING_FROM[of.from],
+          reviews: of.rows.map((row) => {
+            const person = people.get(row.review.reviewer_id)
+            return {
+              id: row.review.id,
+              reviewer: person?.display_name ?? null,
+              reviewer_kind: person ? TIER_LABEL[row.tier] : null,
+              position: row.position,
+              weight: row.weight,
+              given_on_sub_question: row.via?.title ?? null,
+              confirms: row.confirms?.id ?? null,
+              counts: row.notCounted === null,
+              not_counted_because: row.notCounted?.why ?? null,
+            }
+          }),
+        }
+      }
       const entry = (e: RecordEntry) => ({
         kind: e.act.kind,
         occurred_on: e.act.occurred_on,
@@ -170,6 +197,7 @@ function serverFor(env: Env, req: Request) {
         weight: e.reading.weight,
         via_sub_question: e.via?.title ?? null,
         checked: e.checked,
+        ...reviewers(e),
         no_longer_holds: e.lapse,
         sources: e.reports.map((r) => ({ url: r.source.url, title: r.source.title, archived: r.source.archive_url })),
       })

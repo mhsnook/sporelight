@@ -4,12 +4,13 @@ import type { Body, Question } from '../../shared/schema.ts'
 import { useLiveQuery } from '@tanstack/react-db'
 import { db } from './db.ts'
 import { buildTracker, type Tracker } from './build-tracker.ts'
+import type { ReviewerPerson } from './reviewers.ts'
 
 export { isHeld, type Contender, type Listing, type RelatedQuestion, type HeldSeat, type KeyPerson, type RecordEntry, type SeatRow, type Tenure, type Tracker } from './build-tracker.ts'
 
 export const today = () => new Date().toISOString().slice(0, 10)
 
-const TrackerContext = createContext<{ tracker: Tracker; isReady: boolean } | null>(null)
+const TrackerContext = createContext<{ tracker: Tracker; isReady: boolean; people: ReadonlyMap<string, ReviewerPerson> } | null>(null)
 
 // Every public collection is synced whole and joined here in memory, so every
 // page reads from the same local copy and updates the moment a row changes.
@@ -32,10 +33,12 @@ export function TrackerProvider({ asOf, children }: { asOf?: string; children: R
   const reports = useLiveQuery((q) => q.from({ row: db.reports }))
   const reviews = useLiveQuery((q) => q.from({ row: db.reviews }))
   const sameActs = useLiveQuery((q) => q.from({ row: db.same_acts }))
-  const people = useLiveQuery((q) => q.from({ row: db.people }).select(({ row }) => ({ id: row.id, role: row.role, kind: row.kind })))
+  const people = useLiveQuery((q) => q.from({ row: db.people }).select(({ row }) => ({ id: row.id, role: row.role, kind: row.kind, display_name: row.display_name })))
   // Keyed on everyone's tier, so a new display name or a deactivation does not rebuild the tracker.
   const tierKey = people.data.map((p) => `${p.id}:${p.role}:${p.kind}`).sort().join(' ')
-  const reviewers = useMemo(() => people.data, [tierKey])
+  const reviewers = useMemo(() => people.data.map(({ id, role, kind }) => ({ id, role, kind })), [tierKey])
+  // Names are kept beside the tracker, for the list of who reviewed an act.
+  const peopleById = useMemo(() => new Map(people.data.map((p) => [p.id, p])), [people.data])
 
   const day = asOf ?? today()
   const tracker = useMemo(
@@ -64,7 +67,7 @@ export function TrackerProvider({ asOf, children }: { asOf?: string; children: R
   )
   const isReady = [bodies, deciders, seats, roles, questions, questionBodies, questionDeciders, offices, officeHolders, questionOffices, questionRelations, setPositions, sources, acts, reports, reviews, sameActs, people].every((q) => q.isReady)
 
-  return <TrackerContext value={{ tracker, isReady }}>{children}</TrackerContext>
+  return <TrackerContext value={{ tracker, isReady, people: peopleById }}>{children}</TrackerContext>
 }
 
 export function useTracker() {

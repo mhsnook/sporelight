@@ -4,10 +4,10 @@ import { useSession } from '../lib/auth.ts'
 import { db } from '../lib/db.ts'
 import { newReview, reviewToConfirm, type Answers } from '../lib/own-review.ts'
 import { DIRECTION_LABEL, WEIGHT_HINT, WEIGHT_LABEL } from '../lib/position.ts'
+import { answersLabel } from '../lib/reviewers.ts'
 import { useTracker } from '../lib/tracker.tsx'
 
 const sameAnswers = (r: Pick<Review, 'position' | 'weight'>, a: Answers) => r.position === a.position && r.weight === a.weight
-const answersOf = (r: Pick<Review, 'position' | 'weight'>) => (r.position && r.weight ? `${DIRECTION_LABEL[r.position]} · ${WEIGHT_LABEL[r.weight]}` : 'says nothing on this question')
 
 // Saving can move the act between the record and the list of acts said to say
 // nothing, which remounts this component, so a failed save's message is kept
@@ -64,7 +64,7 @@ export function OwnReview({ act, question }: { act: Act; question: Question }) {
       ) : mine ? (
         <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted">
           <span>
-            Your review{on}: <span className="font-medium text-ink">{answersOf(mine)}</span>
+            Your review{on}: <span className="font-medium text-ink">{answersLabel(mine)}</span>
           </span>
           <button type="button" className="link" onClick={() => setEditing(true)}>
             Change
@@ -77,7 +77,7 @@ export function OwnReview({ act, question }: { act: Act; question: Question }) {
         <p className="flex flex-wrap items-center gap-x-3 gap-y-1">
           {toConfirm && toConfirm.position && toConfirm.weight && (
             <button type="button" className="btn btn-sm" onClick={() => save({ position: toConfirm.position!, weight: toConfirm.weight! }, toConfirm)}>
-              Confirm: {answersOf(toConfirm)}
+              Confirm: {answersLabel(toConfirm)}
             </button>
           )}
           <button type="button" className="link" onClick={() => setEditing(true)}>

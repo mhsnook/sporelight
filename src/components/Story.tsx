@@ -5,6 +5,7 @@ import type { Story, StoryItem, WaitingStory } from '../lib/feed.ts'
 import { KIND_LABEL, SPECTRUM, STANDING_COLOR, timeAgo, actDate, formatDate, hostOf, publishedLine, sourceLabel, standingLabel } from '../lib/position.ts'
 import { Token } from './bits.tsx'
 import { ActWords, ArchivedCopy, WeightTag } from './RecordItem.tsx'
+import { ReviewedBy } from './ReviewedBy.tsx'
 
 // Replies shown before a reader opens the rest of a story.
 const FOLDED = 3
@@ -53,8 +54,8 @@ function PersonLink({ slug, decider, hash, className = 'font-bold hover:underlin
   )
 }
 
-// What one reading, published or claimed, shows on one question. `lead` goes first: a token, or "Claimed:".
-function ReadingLine({ decider, position, question, via, weight, lead }: { decider: StoryItem['decider']; position: Position; question: Question; via?: Question; weight: Weight | null; lead: ReactNode }) {
+// What one reading, published or claimed, shows on one question. `lead` goes first: a token, or "Claimed:". `children` go last.
+function ReadingLine({ decider, position, question, via, weight, lead, children }: { decider: StoryItem['decider']; position: Position; question: Question; via?: Question; weight: Weight | null; lead: ReactNode; children?: ReactNode }) {
   return (
     <li className="flex flex-wrap items-center gap-x-1.5">
       {lead}
@@ -69,6 +70,7 @@ function ReadingLine({ decider, position, question, via, weight, lead }: { decid
           <WeightTag weight={weight} />
         </span>
       )}
+      {children}
     </li>
   )
 }
@@ -161,7 +163,9 @@ export function StoryCard({ story }: { story: Story }) {
                     via={via}
                     weight={reading.weight}
                     lead={<Token standing={reading.position} className="size-3" />}
-                  />
+                  >
+                    <ReviewedBy actId={item.act.id} questionId={reading.question_id} className="open:basis-full" />
+                  </ReadingLine>
                 ))}
               </ul>
             </div>

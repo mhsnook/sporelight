@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { isWebAddress, type Act, type Question, type Source, type Weight } from '../../shared/schema.ts'
 import { ArchiveControls } from './ArchiveControls.tsx'
+import { ReviewedBy } from './ReviewedBy.tsx'
 import { useSession } from '../lib/auth.ts'
 import type { RecordEntry } from '../lib/tracker.tsx'
 import { KIND_LABEL, POSITION_LABEL, STANDING_BG, actDate, formatDate, publishedLine, sourceLabel } from '../lib/position.ts'
@@ -47,6 +48,7 @@ export function RecordItem({ entry, question, children }: { entry: RecordEntry; 
           </li>
         ))}
       </ul>
+      <ReviewedBy actId={act.id} questionId={reading.question_id} className="mt-2" />
       {children}
     </li>
   )

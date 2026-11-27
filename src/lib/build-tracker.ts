@@ -1,4 +1,4 @@
-import type { Act, Body, Decider, Office, OfficeHolder, Person, Position, Question, QuestionBody, QuestionDecider, QuestionOffice, QuestionRelation, Reading, Report, Review, Role, SameAct, Seat, SetPosition, Source } from '../../shared/schema.ts'
+import type { Act, Body, Decider, Direction, Office, OfficeHolder, Person, Position, Question, QuestionBody, QuestionDecider, QuestionOffice, QuestionRelation, Reading, Report, Review, Role, SameAct, Seat, SetPosition, Source, Weight } from '../../shared/schema.ts'
 import { carriesUp, inEffect, isOpenOn, pairId, stillAhead, type Certainty } from '../../shared/schema.ts'
 import { REVIEWER_TIERS, calculatePosition, footingOf, isAcross, summarize, type Footing, type ReviewerTier } from '../../shared/standing.ts'
 import type { Standing } from './position.ts'
@@ -69,7 +69,11 @@ export type KeyPerson = { ask: Question; key: string; roleLabel: string | null; 
 // A stretch of time someone holds an office.
 export type Tenure = { office: Office; holder: OfficeHolder }
 
-export type TrackerData = {
+// What the tracker needs of a reviewer's row: the tier their reviews count in.
+export type Reviewer = Pick<Person, 'id' | 'role' | 'kind'>
+
+// `P` is the shape of `people`. A browser passes only what decides a tier, so a new display name does not rebuild the tracker.
+export type TrackerData<P extends Reviewer = Reviewer> = {
   bodies: Body[]
   deciders: Decider[]
   seats: Seat[]
@@ -88,7 +92,7 @@ export type TrackerData = {
   reviews: Review[]
   sameActs: SameAct[]
   // Who wrote each review, for the tier it counts in.
-  people: Pick<Person, 'id' | 'role' | 'kind'>[]
+  people: P[]
 }
 
 // The record as readers see it: an act an editor found to be the same as
@@ -146,24 +150,29 @@ export type TieredReview = { review: Review; tier: ReviewerTier }
 
 // The tier a reviewer's reviews count in, from their row: an editor's role, then
 // whether they are an agent. A reviewer with no row counts in the lowest tier.
-export function reviewerTiers(people: TrackerData['people']): (reviewerId: string) => ReviewerTier {
+export function reviewerTiers(people: readonly Reviewer[]): (reviewerId: string) => ReviewerTier {
   const tiers = new Map(people.map((p): [string, ReviewerTier] => [p.id, p.role === 'editor' ? 'editor' : p.kind]))
   return (reviewerId) => tiers.get(reviewerId) ?? REVIEWER_TIERS[REVIEWER_TIERS.length - 1]
 }
 
-// What the reviews come to for each act on each question. A review of support
-// on a sub-question that implies something on its parent also counts there, by
-// the same reviewer, unless they reviewed the act on the parent directly. Too
-// loose a review does not carry upward, and neither does one outranked on the
-// sub-question, where it does not count either.
-export function readingsFrom(reviews: Review[], questionById: ReadonlyMap<string, Question>, tierOf: (reviewerId: string) => ReviewerTier): Reading[] {
+// One review as it counts toward the reading of an act on a question: given
+// there, or given on a sub-question that implies something there.
+type Counted = { review: Review; act_id: string; question_id: string; via: Question | null; tier: ReviewerTier; position: Direction | null; weight: Weight | null }
+type ReadingGroup = { counted: Counted[]; summary: ReturnType<typeof summarize> }
+
+// The reviews that count toward each act's reading on each question, and what
+// they come to. A review of support on a sub-question that implies something on
+// its parent also counts there, by the same reviewer, unless they reviewed the
+// act on the parent directly. Too loose a review does not carry upward, and
+// neither does one outranked on the sub-question, where it does not count either.
+function readingGroups(reviews: Review[], questionById: ReadonlyMap<string, Question>, tierOf: (reviewerId: string) => ReviewerTier): Map<string, ReadingGroup> {
   const readDirectly = new Set(reviews.map((r) => `${r.reviewer_id} ${r.act_id} ${r.question_id}`))
   const rank = (reviewerId: string) => REVIEWER_TIERS.indexOf(tierOf(reviewerId))
   const topRank = new Map<string, number>()
   for (const r of reviews) topRank.set(`${r.act_id} ${r.question_id}`, Math.min(topRank.get(`${r.act_id} ${r.question_id}`) ?? Infinity, rank(r.reviewer_id)))
-  const counted = reviews.flatMap((r) => {
+  const counted = reviews.flatMap((r): Counted[] => {
     const tier = tierOf(r.reviewer_id)
-    const own = { act_id: r.act_id, question_id: r.question_id, via: null as Question | null, tier, position: r.position, weight: r.weight }
+    const own: Counted = { review: r, act_id: r.act_id, question_id: r.question_id, via: null, tier, position: r.position, weight: r.weight }
     const q = questionById.get(r.question_id)
     const implies =
       q?.parent_id &&
@@ -175,8 +184,16 @@ export function readingsFrom(reviews: Review[], questionById: ReadonlyMap<string
       !readDirectly.has(`${r.reviewer_id} ${r.act_id} ${q.parent_id}`)
     return implies ? [own, { ...own, question_id: q.parent_id!, via: q, position: q.implies_on_parent! }] : [own]
   })
-  return [...groupBy(counted, (c) => `${c.act_id} ${c.question_id}`)].flatMap(([id, group]): Reading[] => {
-    const summary = summarize(group)
+  return new Map([...groupBy(counted, (c) => `${c.act_id} ${c.question_id}`)].map(([id, group]) => [id, { counted: group, summary: summarize(group) }]))
+}
+
+// What the reviews come to for each act on each question. See `readingGroups`.
+export function readingsFrom(reviews: Review[], questionById: ReadonlyMap<string, Question>, tierOf: (reviewerId: string) => ReviewerTier): Reading[] {
+  return readingsOf(readingGroups(reviews, questionById, tierOf))
+}
+
+function readingsOf(groups: Map<string, ReadingGroup>): Reading[] {
+  return [...groups].flatMap(([id, { counted: group, summary }]): Reading[] => {
     if (!summary) return []
     // Implied when everything the summary went by was implied; named by the first such sub-question in question order.
     const used = group.filter((c) => c.tier === summary.tier && c.position !== null)
@@ -185,10 +202,33 @@ export function readingsFrom(reviews: Review[], questionById: ReadonlyMap<string
   })
 }
 
+// Why a review behind a reading does not count toward it: a higher tier has
+// reviewed the act, or it says the act says nothing while others in its tier
+// gave a reading, which leaves it out of their average.
+export type NotCounted = { why: 'outranked'; by: ReviewerTier } | { why: 'said_nothing' }
+
+// One review behind a reading, as the list of who reviewed an act shows it.
+export type ReviewerRow = {
+  review: Review
+  tier: ReviewerTier
+  // The sub-question the review was given on, when it counts on this question through it.
+  via: Question | undefined
+  // What it says on this question: its own answer, or what the sub-question implies here.
+  position: Direction | null
+  weight: Weight | null
+  // The review this one was made by confirming. `review` is undefined once that review is removed.
+  confirms: { id: string; review: Review | undefined } | null
+  notCounted: NotCounted | null
+}
+
+// Whose reviews a shown reading comes from: the tier it was worked out in, and
+// every review of the act on the question, those that count first.
+export type Reviewers = { from: ReviewerTier; rows: ReviewerRow[] }
+
 // `asOf` is the day the bodies are viewed on. Seats and offices are filled by
 // whoever holds them that day, so a day after a body's next term starts shows
 // its incoming members and the asks put to its incoming office holders.
-export function buildTracker(c: TrackerData, asOf: string) {
+export function buildTracker<P extends Reviewer = Reviewer>(c: TrackerData<P>, asOf: string) {
   const deciderById = indexBy(c.deciders, (d) => d.id)
   const deciderBySlug = indexBy(c.deciders, (d) => d.slug)
   const questionById = indexBy(c.questions, (q) => q.id)
@@ -200,7 +240,8 @@ export function buildTracker(c: TrackerData, asOf: string) {
   // Every act on file, so a proposal or a plan can find one shown as another; a shown act as it is shown.
   const actById = indexBy([...c.acts, ...shown.acts], (a) => a.id)
   const tierOf = reviewerTiers(c.people)
-  const readings = readingsFrom(shown.reviews, questionById, tierOf)
+  const groups = readingGroups(shown.reviews, questionById, tierOf)
+  const readings = readingsOf(groups)
   const editorsReviews = groupBy(
     shown.reviews.filter((r) => tierOf(r.reviewer_id) === 'editor'),
     (r) => `${r.act_id} ${r.question_id}`,
@@ -216,6 +257,25 @@ export function buildTracker(c: TrackerData, asOf: string) {
   const readOn = new Set(readings.map((r) => `${r.act_id} ${r.question_id}`))
   const countedReviews = groupBy(shown.reviews, (r) => `${r.act_id} ${r.question_id}`)
   const reviewsOn = (actId: string, questionId: string): TieredReview[] => (countedReviews.get(`${actId} ${questionId}`) ?? []).map((review) => ({ review, tier: tierOf(review.reviewer_id) }))
+  const reviewById = indexBy(c.reviews, (r) => r.id)
+  // Whose reviews the reading of an act as shown on a question comes from, or undefined when it has no reading.
+  const reviewersOf = (actId: string, questionId: string): Reviewers | undefined => {
+    const group = groups.get(`${actId} ${questionId}`)
+    if (!group?.summary) return undefined
+    const from = group.summary.tier
+    const rows = group.counted.map(({ review, tier, via, position, weight }): ReviewerRow => ({
+      review,
+      tier,
+      via: via ?? undefined,
+      position,
+      weight,
+      confirms: review.based_on ? { id: review.based_on, review: reviewById.get(review.based_on) } : null,
+      notCounted: tier !== from ? { why: 'outranked', by: from } : position === null ? { why: 'said_nothing' } : null,
+    }))
+    const rank = (r: ReviewerRow) => REVIEWER_TIERS.indexOf(r.tier)
+    rows.sort((a, b) => Number(a.notCounted !== null) - Number(b.notCounted !== null) || rank(a) - rank(b) || a.review.created_at.localeCompare(b.review.created_at) || a.review.id.localeCompare(b.review.id))
+    return { from, rows }
+  }
   const seatsByBody = groupBy(c.seats, (s) => s.body_id)
   const SURENESS: Record<Certainty, number> = { certain: 0, likely: 1, possible: 2 }
   // Surest first, so anything that takes the first holder takes the surest.
@@ -495,6 +555,7 @@ export function buildTracker(c: TrackerData, asOf: string) {
     reportIn,
     reviewBy,
     reviewsOn,
+    reviewersOf,
     saidNothingOn,
     editorsVerdict,
     deciderById,
@@ -543,4 +604,4 @@ export function buildTracker(c: TrackerData, asOf: string) {
   }
 }
 
-export type Tracker = ReturnType<typeof buildTracker>
+export type Tracker<P extends Reviewer = Reviewer> = ReturnType<typeof buildTracker<P>>

@@ -1,5 +1,5 @@
 import { D1Adapter } from 'party-db/server'
-import { peopleCollection, publicCollections } from '../shared/schema.ts'
+import { peopleCollection, publicCollections, type Person } from '../shared/schema.ts'
 import { buildTracker, type Tracker, type TrackerData } from '../src/lib/build-tracker.ts'
 
 const ALL_TABLES = new Set(publicCollections.map((c) => c.name))
@@ -7,7 +7,7 @@ const ALL_TABLES = new Set(publicCollections.map((c) => c.name))
 // The published tables, read the way a browser receives them, for buildTracker.
 // A table left out of `tables` comes back empty. People are always read, since
 // without them every review would count in the lowest tier.
-export async function loadRecord(db: D1Database, tables: ReadonlySet<string> = ALL_TABLES): Promise<TrackerData> {
+export async function loadRecord(db: D1Database, tables: ReadonlySet<string> = ALL_TABLES): Promise<TrackerData<Person>> {
   const adapter = new D1Adapter(db, [...publicCollections.filter((c) => tables.has(c.name)), peopleCollection])
   await adapter.init()
   const rows = new Map((await adapter.snapshot()).map((batch) => [batch.channel, batch.ops.map((op) => op.value)]))
@@ -30,17 +30,17 @@ export async function loadRecord(db: D1Database, tables: ReadonlySet<string> = A
     reports: of('reports'),
     reviews: of('reviews'),
     sameActs: of('same_acts'),
-    people: of('people'),
+    people: of<Person>('people'),
   }
 }
 
-type Built = { seq: number; day: string; tracker: Tracker }
+type Built = { seq: number; day: string; tracker: Tracker<Person> }
 const built = new WeakMap<D1Database, Built>()
 
 // The record built as the pages build it, kept in this isolate between requests
 // and rebuilt only when party-db's log has moved on, or the day has. Writes that
 // skip the log, such as `pnpm db:seed`, are not seen until the next logged write.
-export async function currentTracker(db: D1Database, day: string): Promise<Tracker> {
+export async function currentTracker(db: D1Database, day: string): Promise<Tracker<Person>> {
   // party-db makes _oplog on its first start; until then nothing is kept.
   const seq = await db
     .prepare(`SELECT COALESCE(MAX(seq), 0) AS seq FROM _oplog`)

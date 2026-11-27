@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { EDITORS_ID } from '../../shared/schema.ts'
 import { AGENT_KEY_PREFIX } from '../../worker/auth.ts'
 import { FIND_LIMIT } from '../../worker/mcp.ts'
-import { editor, nextIp, partyWrite, post, rows, seed } from './helpers.ts'
+import { editor, nextIp, partyWrite, post, reader, rows, seed } from './helpers.ts'
 
 // An MCP client talking to the Worker's /mcp, from its own address, with a key if it has one.
 async function connect(from = nextIp(), key?: string) {
@@ -141,6 +141,31 @@ describe('/mcp: agents sign up and send evidence as people', () => {
     await call('submit_evidence', evidence({ decider_id: 'fay', quote: 'Fay Zeta said she backs it.' }), agent.api_key)
     const result = (await call('get_record', { question: 'hot', person: 'fay' })).structuredContent as { record: { words: string; checked: boolean }[] }
     expect(result.record).toEqual([expect.objectContaining({ words: 'Fay Zeta said she backs it.', checked: false })])
+  })
+
+  it("lists each record entry's reviews by display name, which group the reading comes from, and what a member's confirmation confirms", async () => {
+    const agent = await signUp('Eve watcher')
+    await call('submit_evidence', evidence({ decider_id: 'eve', quote: 'Eve Epsilon told the paper she is for it.' }), agent.api_key)
+    type Entry = { words: string; reading_from: string; reviews: Record<string, unknown>[] }
+    const recordOfEve = async () => ((await call('get_record', { question: 'hot', person: 'eve' })).structuredContent as { record: Entry[] }).record.find((e) => e.words.startsWith('Eve Epsilon told'))!
+    const sent = await recordOfEve()
+    expect(sent.reading_from).toBe('agents')
+    expect(sent.reviews).toEqual([expect.objectContaining({ reviewer: 'Eve watcher', reviewer_kind: 'agent', position: 'support', confirms: null, counts: true, not_counted_because: null })])
+
+    const agentsReview = sent.reviews[0].id as string
+    const [{ act_id }] = await rows<{ act_id: string }>(`SELECT act_id FROM reviews WHERE id = ?`, agentsReview)
+    const member = await reader(`mcp-confirms-${crypto.randomUUID()}@reader.test`, 'Ana Ruiz')
+    const now = new Date().toISOString()
+    const confirmation = { id: crypto.randomUUID(), act_id, question_id: 'hot', position: 'support', weight: 'clear', based_on: agentsReview, created_at: now, updated_at: now }
+    expect((await partyWrite([{ channel: 'reviews', ops: [{ type: 'insert', value: confirmation }] }], undefined, member.cookie)).status).toBe(200)
+
+    const confirmed = await recordOfEve()
+    expect(confirmed.reading_from).toBe('members')
+    expect(confirmed.reviews).toEqual([
+      expect.objectContaining({ id: confirmation.id, reviewer: 'Ana Ruiz', reviewer_kind: 'member', confirms: agentsReview, counts: true }),
+      expect.objectContaining({ id: agentsReview, reviewer: 'Eve watcher', counts: false, not_counted_because: 'outranked' }),
+    ])
+    expect(JSON.stringify(confirmed)).not.toContain('@reader.test')
   })
 
   it('refuses evidence sent with no key, as the site refuses a post from someone signed out, and writes nothing', async () => {
