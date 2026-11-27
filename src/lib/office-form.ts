@@ -95,6 +95,20 @@ export function sourceFor(url: string | null, sources: readonly Source[], now: s
   }
 }
 
+// The source a saved holding cites. One with no address cannot be shown in the
+// form's field, so an empty field keeps it rather than clearing it.
+export function holdingSource(
+  input: HoldingInput,
+  holder: OfficeHolder | null,
+  sources: readonly Source[],
+  now: string,
+  newId?: () => string,
+): { source: Source; isNew: boolean } | null {
+  const stored = holder?.source_id ? sources.find((s) => s.id === holder.source_id) : undefined
+  if (input.source_url === null && stored && stored.url === null) return { source: stored, isNew: false }
+  return sourceFor(input.source_url, sources, now, newId)
+}
+
 // The person and the source go in before the holding that points at them. A new holding gets a random id.
 export function holdingInserts(
   input: HoldingInput,

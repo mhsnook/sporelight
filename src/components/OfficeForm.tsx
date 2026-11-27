@@ -1,7 +1,7 @@
 import { Link } from '@tanstack/react-router'
 import { useMemo, type FormEvent } from 'react'
 import { inEffect, type Body, type Certainty, type Decider, type Office, type OfficeHolder } from '../../shared/schema.ts'
-import { OFFICE_LIMITS, holdingEdits, holdingInputOf, holdingInserts, holdingProblems, newOffice, officeEdits, officeInputOf, officeProblems, readHoldingForm, readOfficeForm, sourceFor } from '../lib/office-form.ts'
+import { OFFICE_LIMITS, holdingEdits, holdingInputOf, holdingInserts, holdingProblems, holdingSource, newOffice, officeEdits, officeInputOf, officeProblems, readHoldingForm, readOfficeForm } from '../lib/office-form.ts'
 import { newPerson } from '../lib/person-form.ts'
 import { chambersIn, holderProblems, personChoices, readRoleHolder } from '../lib/role-form.ts'
 import { useTracker } from '../lib/tracker.tsx'
@@ -14,7 +14,8 @@ export function OfficeForm({ body, editing, onSaved }: { body: Body | undefined;
   const { tracker } = useTracker()
   const save = useSave()
   const start = officeInputOf(editing ?? null)
-  const chambers = body ? chambersIn(tracker.seats, body.id) : []
+  // An office's own chamber stays a choice even when no seat names it, or saving would clear it.
+  const chambers = body ? [...new Set([...chambersIn(tracker.seats, body.id), ...(editing?.chamber ? [editing.chamber] : [])])].sort() : []
 
   function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -65,6 +66,8 @@ export function HoldingForm({ office, editing, onSaved }: { office: Office; edit
   const save = useSave()
   const choices = useMemo(() => personChoices(tracker.deciders), [tracker.deciders])
   const start = holdingInputOf(editing?.holder ?? null, tracker.sourceById)
+  const cited = editing?.holder.source_id ? tracker.sourceById.get(editing.holder.source_id) : undefined
+  const unaddressed = cited && cited.url === null ? cited : undefined
 
   function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -73,7 +76,7 @@ export function HoldingForm({ office, editing, onSaved }: { office: Office; edit
     const who = editing ? ({ kind: 'existing', decider: editing.person } as const) : readRoleHolder(f, choices)
     // The holder's kind is already among the problems found; it is checked again to narrow the type.
     if (!save.check([...holderProblems(who), ...holdingProblems(input, !editing)]) || who.kind === 'unknown') return
-    const source = sourceFor(input.source_url, tracker.sources, new Date().toISOString())
+    const source = holdingSource(input, editing?.holder ?? null, tracker.sources, new Date().toISOString())
     if (editing) return save.save(holdingEdits(editing.holder, input, source))
     const decider = who.kind === 'new' ? newPerson(who.person, tracker.deciders) : who.decider
     const { holder, writes } = holdingInserts(input, office.id, decider, { person: who.kind === 'new' ? decider : undefined, source })
@@ -103,7 +106,16 @@ export function HoldingForm({ office, editing, onSaved }: { office: Office; edit
             <input id="h-ends-on" name="ends_on" type="date" defaultValue={start.ends_on ?? ''} className="field" />
           </Field>
         </div>
-        <Field label="Source" id="h-source" optional hint="The page that says they hold it. It is linked beside the office on their page.">
+        <Field
+          label="Source"
+          id="h-source"
+          optional
+          hint={
+            unaddressed
+              ? `It cites ${unaddressed.title ?? 'a document'} with no public address, which is kept while this is empty.`
+              : 'The page that says they hold it. It is linked beside the office on their page.'
+          }
+        >
           <input id="h-source" name="source_url" type="url" defaultValue={start.source_url ?? ''} placeholder="https://" className="field" />
         </Field>
       </Section>
@@ -118,7 +130,7 @@ export function OfficeList({ offices }: { offices: Office[] }) {
   if (offices.length === 0) return <p className="text-sm">None yet.</p>
   const holdersOf = (office: Office) =>
     tracker.officeHolders
-      .filter((h) => h.office_id === office.id && inEffect(h, tracker.asOf))
+      .filter((h) => h.office_id === office.id && h.certainty !== 'possible' && inEffect(h, tracker.asOf))
       .flatMap((h) => tracker.deciderById.get(h.decider_id)?.name ?? [])
       .join(', ')
   return (

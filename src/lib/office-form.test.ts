@@ -6,6 +6,7 @@ import {
   holdingLabel,
   holdingInserts,
   holdingProblems,
+  holdingSource,
   newOffice,
   officeDependents,
   officeEdits,
@@ -107,6 +108,14 @@ describe('holdings', () => {
     expect(holdingEdits(stored, start, sourceFor(start.source_url, sources, NOW))).toEqual([])
     expect(holdingEdits(stored, { ...start, certainty: 'likely', source_url: null }, null)).toEqual([{ on: 'office_holders', type: 'update', id: stored.id, changes: { certainty: 'likely', source_id: null } }])
     expect(holdingEdits(stored, { ...start, source_url: 'https://b.example' }, sourceFor('https://b.example', sources, NOW, () => 'b')).map((w) => w.on)).toEqual(['sources', 'office_holders'])
+    const noAddress = sourceRow('emailed', { url: null })
+    const citing = { ...stored, source_id: 'emailed' }
+    const kept = holdingSource(holdingInputOf(citing, new Map([['emailed', noAddress]])), citing, [noAddress], NOW)
+    expect(kept).toEqual({ source: noAddress, isNew: false })
+    expect(holdingEdits(citing, { ...holdingInputOf(citing, new Map([['emailed', noAddress]])), certainty: 'likely' }, kept)).toEqual([
+      { on: 'office_holders', type: 'update', id: stored.id, changes: { certainty: 'likely' } },
+    ])
+    expect(holdingSource({ ...start, source_url: null }, stored, sources, NOW)).toBeNull()
     expect(endHolding(stored, '2026-11-21')).toEqual({ on: 'office_holders', type: 'update', id: stored.id, changes: { ends_on: '2026-11-21' } })
   })
 })
