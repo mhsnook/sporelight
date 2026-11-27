@@ -530,6 +530,18 @@ describe('the seed', () => {
     ])
   })
 
+  it("keeps a holder an editor added to a seeded office when the asks file is replayed, and puts the seeded holding's dates back", () => {
+    const db = database()
+    db.exec(seed)
+    const [seeded] = all(db, `SELECT id, ends_on FROM office_holders WHERE office_id = 'us-senate-finance-chair' AND starts_on IS NULL`)
+    db.exec(`UPDATE office_holders SET ends_on = '2026-12-01' WHERE id = '${seeded.id}';
+      INSERT INTO office_holders (id, office_id, decider_id, starts_on, ends_on, source_id, certainty) VALUES ('4d3c2b1a-0f9e-4d8c-b7a6-5f4e3d2c1b0a', 'us-senate-finance-chair', 'W000779', '2026-12-01', NULL, NULL, 'certain');`)
+    db.exec(readFileSync(new URL('seed/out/us-congress-asks.sql', root), 'utf8'))
+    expect(all(db, `SELECT ends_on FROM office_holders WHERE id = '${seeded.id}'`)).toEqual([{ ends_on: seeded.ends_on }])
+    expect(all(db, `SELECT decider_id FROM office_holders WHERE id = '4d3c2b1a-0f9e-4d8c-b7a6-5f4e3d2c1b0a'`)).toEqual([{ decider_id: 'W000779' }])
+    expect(all(db, `PRAGMA foreign_key_check`)).toEqual([])
+  })
+
   describe('members-elect', () => {
     // Whoever certainly or likely holds each seat on a day. Those who only may
     // hold it are left out, as on the pages.

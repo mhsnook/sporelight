@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { CONTESTS, type Certainty, type Decider, type Role, type Seat } from '../../shared/schema.ts'
-import { newPerson, personInputOf } from '../lib/person-form.ts'
+import { newPerson } from '../lib/person-form.ts'
 import {
   ROLE_LIMITS,
   chambersIn,
@@ -20,7 +20,7 @@ import {
 } from '../lib/role-form.ts'
 import { useTracker } from '../lib/tracker.tsx'
 import { Choice, Field, Problems, SaveBar, Section, useSave } from './form.tsx'
-import { PersonFields } from './PersonForm.tsx'
+import { PersonPicker } from './PersonForm.tsx'
 
 const CERTAINTY_CHOICE: Record<Certainty, string> = {
   certain: 'Certain: holds the seat, or is sure to from the start date',
@@ -53,7 +53,6 @@ export function RoleForm({ seat, person, start, editing, startHint, onSaved }: R
   const [chamber, setChamber] = useState<string | null>(seat?.chamber ?? null)
   const [region, setRegion] = useState<string | null>(seat?.region ?? null)
   const [seatId, setSeatId] = useState(seat?.id ?? '')
-  const [holder, setHolder] = useState<'existing' | 'new'>('existing')
   const [certainty, setCertainty] = useState(start.certainty)
   const save = useSave()
 
@@ -92,33 +91,7 @@ export function RoleForm({ seat, person, start, editing, startHint, onSaved }: R
     <form onSubmit={onSubmit} onChange={save.edited} noValidate className="space-y-6" aria-label={editing ? 'Edit the role' : 'The new role'}>
       <Problems save={save} />
 
-      {!person && (
-        <Section title="Who">
-          <fieldset>
-            <legend className="sr-only">Someone on file, or someone new</legend>
-            <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-sm">
-              <Choice name="holder" value="existing" checked={holder === 'existing'} onChange={() => setHolder('existing')}>
-                Someone on file
-              </Choice>
-              <Choice name="holder" value="new" checked={holder === 'new'} onChange={() => setHolder('new')}>
-                Someone new
-              </Choice>
-            </div>
-          </fieldset>
-          {holder === 'existing' ? (
-            <Field label="Name" id="r-person" hint="Start typing and choose from the list.">
-              <input id="r-person" name="person" list="r-people" autoComplete="off" className="field" />
-              <datalist id="r-people">
-                {choices.map((c) => (
-                  <option key={c.decider.id} value={c.text} />
-                ))}
-              </datalist>
-            </Field>
-          ) : (
-            <PersonFields start={personInputOf(null)} isNew prefix="new_" />
-          )}
-        </Section>
-      )}
+      {!person && <PersonPicker choices={choices} />}
 
       <Section title="The seat">
         {seat ? (

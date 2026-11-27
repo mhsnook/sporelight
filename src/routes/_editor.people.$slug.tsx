@@ -1,6 +1,7 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useTracker } from '../lib/tracker.tsx'
-import { claimLabel } from '../lib/position.ts'
+import { claimLabel, formatDate } from '../lib/position.ts'
+import { holdingLabel } from '../lib/office-form.ts'
 import { NotFound, Syncing } from '../components/bits.tsx'
 import { PersonForm } from '../components/PersonForm.tsx'
 import { Section } from '../components/form.tsx'
@@ -15,6 +16,10 @@ function EditPerson() {
   if (!decider) return <NotFound what="person" />
 
   const roles = [...(tracker.everyRoleByDecider.get(decider.id) ?? [])].sort((a, b) => (a.starts_on ?? '').localeCompare(b.starts_on ?? '') || a.id.localeCompare(b.id))
+  const holdings = tracker.officeHolders.flatMap((holder) => {
+    const office = holder.decider_id === decider.id ? tracker.offices.find((o) => o.id === holder.office_id) : undefined
+    return office ? [{ holder, office }] : []
+  })
   const bodyIds = [...new Set(roles.flatMap((r) => tracker.seatById.get(r.seat_id)?.body_id ?? []))]
   // Their public page is under a question, so each body they sit in links to its first question.
   const pages = bodyIds.flatMap((id) => {
@@ -76,6 +81,26 @@ function EditPerson() {
         <Link to="/roles/new" search={{ person: decider.slug }} className="btn btn-sm">
           Give them a role on a seat
         </Link>
+      </Section>
+
+      <Section id="offices" title="Offices" hint="Each office they hold, held or are to hold. An office is given from its own page.">
+        {holdings.length === 0 && <p className="text-sm">None.</p>}
+        {holdings.length > 0 && (
+          <ul className="divide-y divide-line border-y border-line">
+            {holdings.map(({ holder, office }) => (
+              <li key={holder.id} className="flex items-start justify-between gap-3 py-2 text-sm">
+                <span>
+                  <span className="font-medium">{office.label}</span>
+                  <span className="text-muted"> · {office.body_id ? tracker.bodyById.get(office.body_id)?.name : 'held at large'}</span>
+                  <span className="block text-xs text-muted first-letter:uppercase">{holdingLabel(holder, tracker.asOf, formatDate)}</span>
+                </span>
+                <Link to="/holdings/$holdingId" params={{ holdingId: holder.id }} className="link shrink-0">
+                  Edit <span className="sr-only">their holding of {office.label}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
       </Section>
     </div>
   )

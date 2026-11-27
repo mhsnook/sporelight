@@ -10,6 +10,7 @@ import { textField } from '../lib/form-input.ts'
 import { useTracker } from '../lib/tracker.tsx'
 import { NotFound, Syncing } from '../components/bits.tsx'
 import { BodyForm } from '../components/BodyForm.tsx'
+import { OfficeList } from '../components/OfficeForm.tsx'
 import { Field, Section, notSaved } from '../components/form.tsx'
 
 // Enough to find a seat by its label; the search narrows the rest.
@@ -39,6 +40,7 @@ function EditBody() {
       <BodyForm key={body.id} editing={body} />
       <Chambers body={body} />
       <Seats body={body} />
+      <Offices body={body} />
       <Questions body={body} />
       <DeleteBody body={body} />
     </div>
@@ -195,6 +197,19 @@ function Seats({ body }: { body: Body }) {
       )}
       <Link to="/bodies/$slug/seats/new" params={{ slug: body.slug }} className="btn btn-sm">
         Add seats
+      </Link>
+    </Section>
+  )
+}
+
+function Offices({ body }: { body: Body }) {
+  const { tracker } = useTracker()
+  const offices = tracker.offices.filter((o) => o.body_id === body.id).sort((a, b) => a.sort - b.sort || a.label.localeCompare(b.label))
+  return (
+    <Section id="offices" title="Offices" hint="Key roles in the body, such as a committee chair. An ask put to an office goes to whoever holds it on the day viewed.">
+      <OfficeList offices={offices} />
+      <Link to="/offices/new" search={{ in: body.slug }} className="btn btn-sm">
+        Add an office
       </Link>
     </Section>
   )

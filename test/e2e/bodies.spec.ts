@@ -191,3 +191,86 @@ test('a body with nothing hanging from it can be removed', async ({ page }) => {
   await expect(page.getByRole('heading', { level: 1, name: 'Bodies' })).toBeVisible()
   await expect.poll(() => query(`SELECT id FROM bodies WHERE id = '${body.id}'`)).toEqual([])
 })
+
+test('an editor gives a body an office and a holder, puts an ask to it, and the ask follows a change of holder', async ({ page, request }) => {
+  const stamp = Date.now()
+  const name = `Cedar Falls Council ${stamp}`
+  const day = TODAY.toISOString().slice(0, 10)
+  await signInAsEditor(page)
+
+  const body = await addBody(page, name)
+  await addSeats(page, 'C1\nC2\nC3', 'Council')
+  await fillSeats(request, seatsOf(body.id), stamp)
+  const first = `Member C1 ${stamp}`
+  const next = `Member C2 ${stamp}`
+  const slug = await addQuestion(page, name, `Cedar boardwalk ${stamp}`)
+
+  // An office of the body, with someone on file in it.
+  await page.goto(`/bodies/${body.slug}`)
+  await page.getByRole('region', { name: 'Offices' }).getByRole('link', { name: 'Add an office' }).click()
+  await expect(page.getByRole('heading', { level: 1, name: `A new office in ${name}` })).toBeVisible()
+  await page.getByRole('button', { name: 'Add the office' }).click()
+  await expect(page.getByRole('alert')).toContainText('The office needs a name.')
+  await page.getByLabel('Name', { exact: true }).fill('Council president')
+  await page.getByLabel('Chamber').selectOption('Council')
+  await page.getByRole('button', { name: 'Add the office' }).click()
+  await expect(page.getByRole('heading', { level: 1, name: 'Council president' })).toBeVisible()
+  const [office] = query<{ id: string; body_id: string; chamber: string }>(`SELECT id, body_id, chamber FROM offices WHERE label = 'Council president' AND body_id = '${body.id}'`)
+  expect(office).toMatchObject({ body_id: body.id, chamber: 'Council' })
+  expect(office.id).toMatch(RANDOM_ID)
+
+  await page.getByRole('link', { name: 'Give someone this office' }).click()
+  await expect(page.getByRole('heading', { level: 1, name: 'A holder for Council president' })).toBeVisible()
+  await page.getByLabel('Name', { exact: true }).fill(first)
+  await page.getByRole('button', { name: 'Add the holding' }).click()
+  const holders = page.getByRole('region', { name: 'Who holds it' })
+  await expect(holders.getByRole('listitem')).toHaveText([new RegExp(`${first}\\s*holds it`)])
+
+  // An ask put to the office, from the question's edit page.
+  await page.goto(`/q/${slug}/edit`)
+  await page.getByRole('link', { name: 'Add an ask' }).click()
+  await expect(page.getByRole('heading', { level: 1, name: 'A new ask' })).toBeVisible()
+  await page.getByLabel('The question, as asked').fill('Will they schedule a vote on the boardwalk?')
+  await page.getByLabel('Short name').fill(`Cedar vote ${stamp}`)
+  await page.getByRole('checkbox', { name: /Council president/ }).check()
+  await page.getByRole('button', { name: 'Add the ask' }).click()
+  await expect(page.getByRole('region', { name: 'Measures and asks' }).getByRole('listitem')).toHaveText([new RegExp(`Ask\\s*Cedar vote ${stamp}`)])
+
+  const keyPeople = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Key people' }) })
+  await page.goto(`/q/${slug}`)
+  await expect(keyPeople.getByRole('link')).toHaveCount(1)
+  await expect(keyPeople.getByRole('link')).toContainText(first)
+  await expect(keyPeople.getByRole('link')).toContainText('Council president')
+
+  // The holder leaves today and the next starts today, with a source.
+  await page.goto(`/offices/${office.id}`)
+  await holders.getByRole('link', { name: `Edit the holding of ${first}` }).click()
+  await expect(page.getByRole('heading', { level: 1, name: `${first} as Council president` })).toBeVisible()
+  await page.getByRole('button', { name: 'End the holding' }).click()
+  await expect(page.getByText('Ends on Nov 19, 2026.')).toBeVisible()
+  await page.getByRole('link', { name: '← Council president' }).click()
+  await page.getByRole('link', { name: 'Give someone this office' }).click()
+  await expect(page.getByRole('heading', { level: 1, name: 'A holder for Council president' })).toBeVisible()
+  await page.getByLabel('Name', { exact: true }).fill(next)
+  await page.getByLabel(/^Starts on/).fill(day)
+  await page.getByLabel(/^Source/).fill(`https://example.org/cedar-falls/${stamp}`)
+  await page.getByRole('button', { name: 'Add the holding' }).click()
+  await expect(holders.getByRole('listitem')).toHaveCount(2)
+  await expect
+    .poll(() => query(`SELECT d.name, h.starts_on, h.ends_on, s.url FROM office_holders h JOIN deciders d ON d.id = h.decider_id LEFT JOIN sources s ON s.id = h.source_id WHERE h.office_id = '${office.id}' ORDER BY d.name`))
+    .toEqual([
+      { name: first, starts_on: null, ends_on: day, url: null },
+      { name: next, starts_on: day, ends_on: null, url: `https://example.org/cedar-falls/${stamp}` },
+    ])
+
+  // The ask now goes to the new holder, and their page links the source.
+  await page.goto(`/q/${slug}`)
+  await expect(keyPeople.getByRole('link')).toHaveCount(1)
+  await expect(keyPeople.getByRole('link')).toContainText(next)
+  await keyPeople.getByRole('link').click()
+  await expect(page.getByRole('link', { name: /Council president/ })).toHaveAttribute('href', `https://example.org/cedar-falls/${stamp}`)
+
+  // The office has holders and an ask, so it stays.
+  await page.goto(`/offices/${office.id}`)
+  await expect(page.getByRole('region', { name: 'Removing' })).toContainText('This office cannot be removed while it has 2 holders, 1 ask put to it.')
+})

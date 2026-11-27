@@ -18,8 +18,10 @@ import { Route as SetupRouteImport } from './routes/setup'
 import { Route as EditorAdminRouteImport } from './routes/_editor.admin'
 import { Route as EditorBodiesIndexRouteImport } from './routes/_editor.bodies.index'
 import { Route as EditorBodiesNewRouteImport } from './routes/_editor.bodies.new'
+import { Route as EditorHoldingsHoldingIdRouteImport } from './routes/_editor.holdings.$holdingId'
 import { Route as EditorNewsReviewRouteImport } from './routes/_editor.news.review'
 import { Route as EditorNewsRunsRouteImport } from './routes/_editor.news.runs'
+import { Route as EditorOfficesNewRouteImport } from './routes/_editor.offices.new'
 import { Route as EditorPeopleIndexRouteImport } from './routes/_editor.people.index'
 import { Route as EditorPeopleSlugRouteImport } from './routes/_editor.people.$slug'
 import { Route as EditorPeopleNewRouteImport } from './routes/_editor.people.new'
@@ -30,8 +32,10 @@ import { Route as EditorSeatsSeatIdRouteImport } from './routes/_editor.seats.$s
 import { Route as QSlugIndexRouteImport } from './routes/q.$slug.index'
 import { Route as QSlugDeciderRouteImport } from './routes/q.$slug.$decider'
 import { Route as EditorBodiesSlugIndexRouteImport } from './routes/_editor.bodies.$slug.index'
+import { Route as EditorOfficesOfficeIdIndexRouteImport } from './routes/_editor.offices.$officeId.index'
 import { Route as EditorQSlugEditRouteImport } from './routes/_editor.q.$slug.edit'
 import { Route as EditorBodiesSlugSeatsNewRouteImport } from './routes/_editor.bodies.$slug.seats.new'
+import { Route as EditorOfficesOfficeIdHoldersNewRouteImport } from './routes/_editor.offices.$officeId.holders.new'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -77,6 +81,11 @@ const EditorBodiesNewRoute = EditorBodiesNewRouteImport.update({
   path: '/bodies/new',
   getParentRoute: () => EditorRoute,
 } as any)
+const EditorHoldingsHoldingIdRoute = EditorHoldingsHoldingIdRouteImport.update({
+  id: '/holdings/$holdingId',
+  path: '/holdings/$holdingId',
+  getParentRoute: () => EditorRoute,
+} as any)
 const EditorNewsReviewRoute = EditorNewsReviewRouteImport.update({
   id: '/news/review',
   path: '/news/review',
@@ -85,6 +94,11 @@ const EditorNewsReviewRoute = EditorNewsReviewRouteImport.update({
 const EditorNewsRunsRoute = EditorNewsRunsRouteImport.update({
   id: '/news/runs',
   path: '/news/runs',
+  getParentRoute: () => EditorRoute,
+} as any)
+const EditorOfficesNewRoute = EditorOfficesNewRouteImport.update({
+  id: '/offices/new',
+  path: '/offices/new',
   getParentRoute: () => EditorRoute,
 } as any)
 const EditorPeopleIndexRoute = EditorPeopleIndexRouteImport.update({
@@ -137,6 +151,12 @@ const EditorBodiesSlugIndexRoute = EditorBodiesSlugIndexRouteImport.update({
   path: '/bodies/$slug/',
   getParentRoute: () => EditorRoute,
 } as any)
+const EditorOfficesOfficeIdIndexRoute =
+  EditorOfficesOfficeIdIndexRouteImport.update({
+    id: '/offices/$officeId/',
+    path: '/offices/$officeId/',
+    getParentRoute: () => EditorRoute,
+  } as any)
 const EditorQSlugEditRoute = EditorQSlugEditRouteImport.update({
   id: '/q/$slug/edit',
   path: '/q/$slug/edit',
@@ -148,6 +168,12 @@ const EditorBodiesSlugSeatsNewRoute =
     path: '/bodies/$slug/seats/new',
     getParentRoute: () => EditorRoute,
   } as any)
+const EditorOfficesOfficeIdHoldersNewRoute =
+  EditorOfficesOfficeIdHoldersNewRouteImport.update({
+    id: '/offices/$officeId/holders/new',
+    path: '/offices/$officeId/holders/new',
+    getParentRoute: () => EditorRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -157,8 +183,10 @@ export interface FileRoutesByFullPath {
   '/setup': typeof SetupRoute
   '/admin': typeof EditorAdminRoute
   '/bodies/new': typeof EditorBodiesNewRoute
+  '/holdings/$holdingId': typeof EditorHoldingsHoldingIdRoute
   '/news/review': typeof EditorNewsReviewRoute
   '/news/runs': typeof EditorNewsRunsRoute
+  '/offices/new': typeof EditorOfficesNewRoute
   '/people/$slug': typeof EditorPeopleSlugRoute
   '/people/new': typeof EditorPeopleNewRoute
   '/questions/new': typeof EditorQuestionsNewRoute
@@ -171,7 +199,9 @@ export interface FileRoutesByFullPath {
   '/q/$slug/': typeof QSlugIndexRoute
   '/q/$slug/edit': typeof EditorQSlugEditRoute
   '/bodies/$slug/': typeof EditorBodiesSlugIndexRoute
+  '/offices/$officeId/': typeof EditorOfficesOfficeIdIndexRoute
   '/bodies/$slug/seats/new': typeof EditorBodiesSlugSeatsNewRoute
+  '/offices/$officeId/holders/new': typeof EditorOfficesOfficeIdHoldersNewRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -181,8 +211,10 @@ export interface FileRoutesByTo {
   '/setup': typeof SetupRoute
   '/admin': typeof EditorAdminRoute
   '/bodies/new': typeof EditorBodiesNewRoute
+  '/holdings/$holdingId': typeof EditorHoldingsHoldingIdRoute
   '/news/review': typeof EditorNewsReviewRoute
   '/news/runs': typeof EditorNewsRunsRoute
+  '/offices/new': typeof EditorOfficesNewRoute
   '/people/$slug': typeof EditorPeopleSlugRoute
   '/people/new': typeof EditorPeopleNewRoute
   '/questions/new': typeof EditorQuestionsNewRoute
@@ -195,7 +227,9 @@ export interface FileRoutesByTo {
   '/q/$slug': typeof QSlugIndexRoute
   '/q/$slug/edit': typeof EditorQSlugEditRoute
   '/bodies/$slug': typeof EditorBodiesSlugIndexRoute
+  '/offices/$officeId': typeof EditorOfficesOfficeIdIndexRoute
   '/bodies/$slug/seats/new': typeof EditorBodiesSlugSeatsNewRoute
+  '/offices/$officeId/holders/new': typeof EditorOfficesOfficeIdHoldersNewRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -207,8 +241,10 @@ export interface FileRoutesById {
   '/setup': typeof SetupRoute
   '/_editor/admin': typeof EditorAdminRoute
   '/_editor/bodies/new': typeof EditorBodiesNewRoute
+  '/_editor/holdings/$holdingId': typeof EditorHoldingsHoldingIdRoute
   '/_editor/news/review': typeof EditorNewsReviewRoute
   '/_editor/news/runs': typeof EditorNewsRunsRoute
+  '/_editor/offices/new': typeof EditorOfficesNewRoute
   '/_editor/people/$slug': typeof EditorPeopleSlugRoute
   '/_editor/people/new': typeof EditorPeopleNewRoute
   '/_editor/questions/new': typeof EditorQuestionsNewRoute
@@ -221,7 +257,9 @@ export interface FileRoutesById {
   '/q/$slug/': typeof QSlugIndexRoute
   '/_editor/q/$slug/edit': typeof EditorQSlugEditRoute
   '/_editor/bodies/$slug/': typeof EditorBodiesSlugIndexRoute
+  '/_editor/offices/$officeId/': typeof EditorOfficesOfficeIdIndexRoute
   '/_editor/bodies/$slug/seats/new': typeof EditorBodiesSlugSeatsNewRoute
+  '/_editor/offices/$officeId/holders/new': typeof EditorOfficesOfficeIdHoldersNewRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -233,8 +271,10 @@ export interface FileRouteTypes {
     | '/setup'
     | '/admin'
     | '/bodies/new'
+    | '/holdings/$holdingId'
     | '/news/review'
     | '/news/runs'
+    | '/offices/new'
     | '/people/$slug'
     | '/people/new'
     | '/questions/new'
@@ -247,7 +287,9 @@ export interface FileRouteTypes {
     | '/q/$slug/'
     | '/q/$slug/edit'
     | '/bodies/$slug/'
+    | '/offices/$officeId/'
     | '/bodies/$slug/seats/new'
+    | '/offices/$officeId/holders/new'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -257,8 +299,10 @@ export interface FileRouteTypes {
     | '/setup'
     | '/admin'
     | '/bodies/new'
+    | '/holdings/$holdingId'
     | '/news/review'
     | '/news/runs'
+    | '/offices/new'
     | '/people/$slug'
     | '/people/new'
     | '/questions/new'
@@ -271,7 +315,9 @@ export interface FileRouteTypes {
     | '/q/$slug'
     | '/q/$slug/edit'
     | '/bodies/$slug'
+    | '/offices/$officeId'
     | '/bodies/$slug/seats/new'
+    | '/offices/$officeId/holders/new'
   id:
     | '__root__'
     | '/'
@@ -282,8 +328,10 @@ export interface FileRouteTypes {
     | '/setup'
     | '/_editor/admin'
     | '/_editor/bodies/new'
+    | '/_editor/holdings/$holdingId'
     | '/_editor/news/review'
     | '/_editor/news/runs'
+    | '/_editor/offices/new'
     | '/_editor/people/$slug'
     | '/_editor/people/new'
     | '/_editor/questions/new'
@@ -296,7 +344,9 @@ export interface FileRouteTypes {
     | '/q/$slug/'
     | '/_editor/q/$slug/edit'
     | '/_editor/bodies/$slug/'
+    | '/_editor/offices/$officeId/'
     | '/_editor/bodies/$slug/seats/new'
+    | '/_editor/offices/$officeId/holders/new'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -375,6 +425,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EditorBodiesNewRouteImport
       parentRoute: typeof EditorRoute
     }
+    '/_editor/holdings/$holdingId': {
+      id: '/_editor/holdings/$holdingId'
+      path: '/holdings/$holdingId'
+      fullPath: '/holdings/$holdingId'
+      preLoaderRoute: typeof EditorHoldingsHoldingIdRouteImport
+      parentRoute: typeof EditorRoute
+    }
     '/_editor/news/review': {
       id: '/_editor/news/review'
       path: '/news/review'
@@ -387,6 +444,13 @@ declare module '@tanstack/react-router' {
       path: '/news/runs'
       fullPath: '/news/runs'
       preLoaderRoute: typeof EditorNewsRunsRouteImport
+      parentRoute: typeof EditorRoute
+    }
+    '/_editor/offices/new': {
+      id: '/_editor/offices/new'
+      path: '/offices/new'
+      fullPath: '/offices/new'
+      preLoaderRoute: typeof EditorOfficesNewRouteImport
       parentRoute: typeof EditorRoute
     }
     '/_editor/people/': {
@@ -459,6 +523,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EditorBodiesSlugIndexRouteImport
       parentRoute: typeof EditorRoute
     }
+    '/_editor/offices/$officeId/': {
+      id: '/_editor/offices/$officeId/'
+      path: '/offices/$officeId'
+      fullPath: '/offices/$officeId/'
+      preLoaderRoute: typeof EditorOfficesOfficeIdIndexRouteImport
+      parentRoute: typeof EditorRoute
+    }
     '/_editor/q/$slug/edit': {
       id: '/_editor/q/$slug/edit'
       path: '/q/$slug/edit'
@@ -473,14 +544,23 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EditorBodiesSlugSeatsNewRouteImport
       parentRoute: typeof EditorRoute
     }
+    '/_editor/offices/$officeId/holders/new': {
+      id: '/_editor/offices/$officeId/holders/new'
+      path: '/offices/$officeId/holders/new'
+      fullPath: '/offices/$officeId/holders/new'
+      preLoaderRoute: typeof EditorOfficesOfficeIdHoldersNewRouteImport
+      parentRoute: typeof EditorRoute
+    }
   }
 }
 
 interface EditorRouteChildren {
   EditorAdminRoute: typeof EditorAdminRoute
   EditorBodiesNewRoute: typeof EditorBodiesNewRoute
+  EditorHoldingsHoldingIdRoute: typeof EditorHoldingsHoldingIdRoute
   EditorNewsReviewRoute: typeof EditorNewsReviewRoute
   EditorNewsRunsRoute: typeof EditorNewsRunsRoute
+  EditorOfficesNewRoute: typeof EditorOfficesNewRoute
   EditorPeopleSlugRoute: typeof EditorPeopleSlugRoute
   EditorPeopleNewRoute: typeof EditorPeopleNewRoute
   EditorQuestionsNewRoute: typeof EditorQuestionsNewRoute
@@ -491,14 +571,18 @@ interface EditorRouteChildren {
   EditorPeopleIndexRoute: typeof EditorPeopleIndexRoute
   EditorQSlugEditRoute: typeof EditorQSlugEditRoute
   EditorBodiesSlugIndexRoute: typeof EditorBodiesSlugIndexRoute
+  EditorOfficesOfficeIdIndexRoute: typeof EditorOfficesOfficeIdIndexRoute
   EditorBodiesSlugSeatsNewRoute: typeof EditorBodiesSlugSeatsNewRoute
+  EditorOfficesOfficeIdHoldersNewRoute: typeof EditorOfficesOfficeIdHoldersNewRoute
 }
 
 const EditorRouteChildren: EditorRouteChildren = {
   EditorAdminRoute: EditorAdminRoute,
   EditorBodiesNewRoute: EditorBodiesNewRoute,
+  EditorHoldingsHoldingIdRoute: EditorHoldingsHoldingIdRoute,
   EditorNewsReviewRoute: EditorNewsReviewRoute,
   EditorNewsRunsRoute: EditorNewsRunsRoute,
+  EditorOfficesNewRoute: EditorOfficesNewRoute,
   EditorPeopleSlugRoute: EditorPeopleSlugRoute,
   EditorPeopleNewRoute: EditorPeopleNewRoute,
   EditorQuestionsNewRoute: EditorQuestionsNewRoute,
@@ -509,7 +593,9 @@ const EditorRouteChildren: EditorRouteChildren = {
   EditorPeopleIndexRoute: EditorPeopleIndexRoute,
   EditorQSlugEditRoute: EditorQSlugEditRoute,
   EditorBodiesSlugIndexRoute: EditorBodiesSlugIndexRoute,
+  EditorOfficesOfficeIdIndexRoute: EditorOfficesOfficeIdIndexRoute,
   EditorBodiesSlugSeatsNewRoute: EditorBodiesSlugSeatsNewRoute,
+  EditorOfficesOfficeIdHoldersNewRoute: EditorOfficesOfficeIdHoldersNewRoute,
 }
 
 const EditorRouteWithChildren =

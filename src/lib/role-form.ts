@@ -1,7 +1,7 @@
 import { CERTAINTIES, CONTESTS, pairId, type Body, type Certainty, type Comment, type Decider, type ProposalItem, type ProposalMention, type Role, type Seat } from '../../shared/schema.ts'
 import type { Tracker } from './build-tracker.ts'
 import type { Write } from './review-plan.ts'
-import { changedFields, isDay, orNull, textField } from './form-input.ts'
+import { changedFields, dateProblems, orNull, textField } from './form-input.ts'
 import { personProblems, readPersonForm, type PersonInput } from './person-form.ts'
 
 export type Contest = (typeof CONTESTS)[number]
@@ -54,10 +54,7 @@ export function readRoleHolder(f: FormData, choices: readonly { text: string; de
 export function roleProblems(input: RoleInput, isNew: boolean): string[] {
   const problems: string[] = []
   if (input.affiliation && input.affiliation.length > ROLE_LIMITS.affiliation) problems.push(`The affiliation is longer than ${ROLE_LIMITS.affiliation} characters.`)
-  if (input.starts_on !== null && !isDay(input.starts_on)) problems.push('The start date is not a date.')
-  if (input.ends_on !== null && !isDay(input.ends_on)) problems.push('The end date is not a date.')
-  // On an edit, an end before the start is how a claim ends before it takes effect, as when a candidate withdraws.
-  if (isNew && input.starts_on && input.ends_on && isDay(input.starts_on) && isDay(input.ends_on) && input.ends_on <= input.starts_on) problems.push('The end date is not after the start date.')
+  problems.push(...dateProblems(input.starts_on, input.ends_on, isNew))
   if (input.certainty === 'certain' && input.contest) problems.push('A certain claim does not depend on a contest. Leave the contest empty, or make the claim likely or possible.')
   return problems
 }

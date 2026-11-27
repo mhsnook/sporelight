@@ -1,8 +1,8 @@
-import type { FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import type { Decider } from '../../shared/schema.ts'
 import { PERSON_LIMITS, newPerson, personEdits, personInputOf, personProblems, readPersonForm, type PersonInput } from '../lib/person-form.ts'
 import { useTracker } from '../lib/tracker.tsx'
-import { Field, Problems, SaveBar, Section, useSave } from './form.tsx'
+import { Choice, Field, Problems, SaveBar, Section, useSave } from './form.tsx'
 
 // Fields keep stable `name`s: `readPersonForm` reads them from the FormData on submit.
 export function PersonForm({ editing, onSaved }: { editing?: Decider; onSaved?: (saved: Decider) => void }) {
@@ -44,5 +44,38 @@ export function PersonFields({ start, isNew, prefix = '' }: { start: PersonInput
         <input id={id('url')} name={`${prefix}url`} type="url" defaultValue={start.url ?? ''} placeholder="https://" className="field" />
       </Field>
     </>
+  )
+}
+
+// Who a new role or office holding is for: someone on file, picked by name, or someone added with it.
+// `readRoleHolder` reads its fields from the FormData on submit.
+export function PersonPicker({ choices }: { choices: readonly { text: string; decider: Decider }[] }) {
+  const [holder, setHolder] = useState<'existing' | 'new'>('existing')
+  return (
+    <Section title="Who">
+      <fieldset>
+        <legend className="sr-only">Someone on file, or someone new</legend>
+        <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-sm">
+          <Choice name="holder" value="existing" checked={holder === 'existing'} onChange={() => setHolder('existing')}>
+            Someone on file
+          </Choice>
+          <Choice name="holder" value="new" checked={holder === 'new'} onChange={() => setHolder('new')}>
+            Someone new
+          </Choice>
+        </div>
+      </fieldset>
+      {holder === 'existing' ? (
+        <Field label="Name" id="r-person" hint="Start typing and choose from the list.">
+          <input id="r-person" name="person" list="r-people" autoComplete="off" className="field" />
+          <datalist id="r-people">
+            {choices.map((c) => (
+              <option key={c.decider.id} value={c.text} />
+            ))}
+          </datalist>
+        </Field>
+      ) : (
+        <PersonFields start={personInputOf(null)} isNew prefix="new_" />
+      )}
+    </Section>
   )
 }

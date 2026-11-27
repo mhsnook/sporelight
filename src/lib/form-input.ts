@@ -10,6 +10,16 @@ export const allFields = (f: FormData, name: string) => f.getAll(name).map((v) =
 
 export const isDay = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value))
 
+// The dates of a claim on a seat or an office. On an edit, an end before the
+// start is how a claim ends before it takes effect, as when a candidate withdraws.
+export function dateProblems(starts_on: string | null, ends_on: string | null, isNew: boolean): string[] {
+  const problems: string[] = []
+  if (starts_on !== null && !isDay(starts_on)) problems.push('The start date is not a date.')
+  if (ends_on !== null && !isDay(ends_on)) problems.push('The end date is not a date.')
+  if (isNew && starts_on && ends_on && isDay(starts_on) && isDay(ends_on) && ends_on <= starts_on) problems.push('The end date is not after the start date.')
+  return problems
+}
+
 // The fields of `wanted` that differ from the stored row, or null when none do.
 export function changedFields<T extends object, K extends keyof T>(row: T, wanted: Pick<T, K>, keys: readonly K[]): Partial<T> | null {
   const changes: Partial<T> = {}
