@@ -60,8 +60,8 @@ describe('GET /feed.xml', () => {
     expect(storyIds(xml)).toEqual(['src-2', 'src-1'])
     expect(xml).toContain('<updated>2026-11-11T09:00:00.000Z</updated>')
     expect(xml).toContain('<title>Ann &lt;signs&gt; on (2 people)</title>')
-    expect(xml).toContain('<link rel="related" type="text/html" title="Ann Alpha" href="http://sporelight.test/q/hot-bill/ann-alpha"/>')
-    expect(xml).toContain('<link rel="related" type="text/html" title="Bob Beta" href="http://sporelight.test/q/hot/bob-beta"/>')
+    expect(xml).toContain('<link rel="related" type="text/html" title="Ann Alpha" href="http://sporelight.test/p/ann-alpha"/>')
+    expect(xml).toContain('<link rel="related" type="text/html" title="Bob Beta" href="http://sporelight.test/p/bob-beta"/>')
   })
 
   it('carries nothing that is waiting for review or was rejected', async () => {

@@ -24,8 +24,11 @@ export type AtomMeta = {
   page: string
 }
 
-const personPage = (origin: string, item: StoryItem) =>
+// Their record on the question the act is first read on.
+const recordPage = (origin: string, item: StoryItem) =>
   `${origin}/q/${encodeURIComponent(item.readings[0].question.slug)}/${encodeURIComponent(item.decider.slug)}`
+
+const personPage = (origin: string, item: StoryItem) => `${origin}/p/${encodeURIComponent(item.decider.slug)}`
 
 const sourceTitle = (story: Story) => sourceLabel(story.source)
 
@@ -42,7 +45,7 @@ function storyText(story: Story, origin: string): string {
         ({ reading, question, via }) =>
           `${question.short_title}: ${standingLabel(reading.position, question)}${via ? ` (through ${via.short_title})` : ''}${reading.weight === 'passing' ? ' (a signal)' : reading.weight === 'presumed' ? ' (presumed, no quote of their own)' : ''}`,
       ),
-      personPage(origin, item),
+      recordPage(origin, item),
     ].join('\n')
   })
   return [...people, `Source: ${sourceTitle(story)}${story.source.url && story.source.title ? ` ${story.source.url}` : ''} (${publishedText(story)})${isWebAddress(story.source.archive_url) ? ` (archived: ${story.source.archive_url})` : ''}`, ...(story.isDemo ? ['Demo data, not real.'] : [])].join('\n\n')
@@ -57,7 +60,7 @@ export function atomFeed(stories: Story[], meta: AtomMeta): string {
       '  <entry>',
       `    <id>urn:sporelight:story:${x(encodeURIComponent(story.source.id))}:${x(story.at)}</id>`,
       `    <title>${x(`${sourceTitle(story)} (${story.source.published_on ? `${publishedText(story)}; ` : ''}${people} ${people === 1 ? 'person' : 'people'})`)}</title>`,
-      `    <link rel="alternate" type="text/html" href="${x(story.source.url ?? personPage(meta.origin, story.items[0]))}"/>`,
+      `    <link rel="alternate" type="text/html" href="${x(story.source.url ?? recordPage(meta.origin, story.items[0]))}"/>`,
       ...story.items.map((item) => `    <link rel="related" type="text/html" title="${x(item.decider.name)}" href="${x(personPage(meta.origin, item))}"/>`),
       `    <published>${x(story.at)}</published>`,
       `    <updated>${x(story.at)}</updated>`,

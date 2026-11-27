@@ -16,6 +16,7 @@ import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as QuestionsRouteImport } from './routes/questions'
 import { Route as SetupRouteImport } from './routes/setup'
 import { Route as EditorAdminRouteImport } from './routes/_editor.admin'
+import { Route as PSlugRouteImport } from './routes/p.$slug'
 import { Route as EditorNewsReviewRouteImport } from './routes/_editor.news.review'
 import { Route as EditorNewsRunsRouteImport } from './routes/_editor.news.runs'
 import { Route as EditorPeopleIndexRouteImport } from './routes/_editor.people.index'
@@ -61,6 +62,11 @@ const EditorAdminRoute = EditorAdminRouteImport.update({
   id: '/admin',
   path: '/admin',
   getParentRoute: () => EditorRoute,
+} as any)
+const PSlugRoute = PSlugRouteImport.update({
+  id: '/p/$slug',
+  path: '/p/$slug',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const EditorNewsReviewRoute = EditorNewsReviewRouteImport.update({
   id: '/news/review',
@@ -125,6 +131,7 @@ export interface FileRoutesByFullPath {
   '/questions': typeof QuestionsRoute
   '/setup': typeof SetupRoute
   '/admin': typeof EditorAdminRoute
+  '/p/$slug': typeof PSlugRoute
   '/news/review': typeof EditorNewsReviewRoute
   '/news/runs': typeof EditorNewsRunsRoute
   '/people/$slug': typeof EditorPeopleSlugRoute
@@ -144,6 +151,7 @@ export interface FileRoutesByTo {
   '/questions': typeof QuestionsRoute
   '/setup': typeof SetupRoute
   '/admin': typeof EditorAdminRoute
+  '/p/$slug': typeof PSlugRoute
   '/news/review': typeof EditorNewsReviewRoute
   '/news/runs': typeof EditorNewsRunsRoute
   '/people/$slug': typeof EditorPeopleSlugRoute
@@ -165,6 +173,7 @@ export interface FileRoutesById {
   '/questions': typeof QuestionsRoute
   '/setup': typeof SetupRoute
   '/_editor/admin': typeof EditorAdminRoute
+  '/p/$slug': typeof PSlugRoute
   '/_editor/news/review': typeof EditorNewsReviewRoute
   '/_editor/news/runs': typeof EditorNewsRunsRoute
   '/_editor/people/$slug': typeof EditorPeopleSlugRoute
@@ -186,6 +195,7 @@ export interface FileRouteTypes {
     | '/questions'
     | '/setup'
     | '/admin'
+    | '/p/$slug'
     | '/news/review'
     | '/news/runs'
     | '/people/$slug'
@@ -205,6 +215,7 @@ export interface FileRouteTypes {
     | '/questions'
     | '/setup'
     | '/admin'
+    | '/p/$slug'
     | '/news/review'
     | '/news/runs'
     | '/people/$slug'
@@ -225,6 +236,7 @@ export interface FileRouteTypes {
     | '/questions'
     | '/setup'
     | '/_editor/admin'
+    | '/p/$slug'
     | '/_editor/news/review'
     | '/_editor/news/runs'
     | '/_editor/people/$slug'
@@ -245,6 +257,7 @@ export interface RootRouteChildren {
   ProfileRoute: typeof ProfileRoute
   QuestionsRoute: typeof QuestionsRoute
   SetupRoute: typeof SetupRoute
+  PSlugRoute: typeof PSlugRoute
   QSlugDeciderRoute: typeof QSlugDeciderRoute
   QSlugIndexRoute: typeof QSlugIndexRoute
 }
@@ -299,6 +312,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/admin'
       preLoaderRoute: typeof EditorAdminRouteImport
       parentRoute: typeof EditorRoute
+    }
+    '/p/$slug': {
+      id: '/p/$slug'
+      path: '/p/$slug'
+      fullPath: '/p/$slug'
+      preLoaderRoute: typeof PSlugRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/_editor/news/review': {
       id: '/_editor/news/review'
@@ -416,6 +436,7 @@ const rootRouteChildren: RootRouteChildren = {
   ProfileRoute: ProfileRoute,
   QuestionsRoute: QuestionsRoute,
   SetupRoute: SetupRoute,
+  PSlugRoute: PSlugRoute,
   QSlugDeciderRoute: QSlugDeciderRoute,
   QSlugIndexRoute: QSlugIndexRoute,
 }

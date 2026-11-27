@@ -5,7 +5,7 @@ import { useLiveQuery } from '@tanstack/react-db'
 import { db } from './db.ts'
 import { buildTracker, type Tracker } from './build-tracker.ts'
 
-export { isHeld, type Contender, type Listing, type RelatedQuestion, type HeldSeat, type KeyPerson, type RecordEntry, type SeatRow, type Tenure, type Tracker } from './build-tracker.ts'
+export { isHeld, type ActAcross, type Contender, type Listing, type PutTo, type RelatedQuestion, type HeldSeat, type KeyPerson, type RecordEntry, type SeatRow, type Tenure, type Tracker } from './build-tracker.ts'
 
 export const today = () => new Date().toISOString().slice(0, 10)
 

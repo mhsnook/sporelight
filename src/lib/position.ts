@@ -158,3 +158,10 @@ export function claimTag(role: Claim, day: string): string {
   return role.certainty === 'certain' ? when : `${role.certainty === 'likely' ? 'likely' : 'possibly'} ${when}`
 }
 
+
+// When a seat or office that is not someone's on a day is or was theirs: "from Jan 3, 2027", "until Jan 3, 2027", or null while it is.
+export function spanOf(held: { starts_on: string | null; ends_on: string | null }, day: string): string | null {
+  if (held.starts_on && held.starts_on > day) return `from ${formatDate(held.starts_on)}`
+  if (held.ends_on && held.ends_on <= day) return `until ${formatDate(held.ends_on)}`
+  return null
+}

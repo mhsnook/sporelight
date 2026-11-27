@@ -15,14 +15,6 @@ function EditPerson() {
   if (!decider) return <NotFound what="person" />
 
   const roles = [...(tracker.everyRoleByDecider.get(decider.id) ?? [])].sort((a, b) => (a.starts_on ?? '').localeCompare(b.starts_on ?? '') || a.id.localeCompare(b.id))
-  const bodyIds = [...new Set(roles.flatMap((r) => tracker.seatById.get(r.seat_id)?.body_id ?? []))]
-  // Their public page is under a question, so each body they sit in links to its first question.
-  const pages = bodyIds.flatMap((id) => {
-    const question = tracker.questionsIn(id)[0]
-    const body = tracker.bodyById.get(id)
-    return question && body ? [{ question, body }] : []
-  })
-
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div className="space-y-2">
@@ -30,13 +22,11 @@ function EditPerson() {
           ← People
         </Link>
         <h1 className="h-page">{decider.name}</h1>
-        {pages.map(({ question, body }) => (
-          <p key={question.id}>
-            <Link to="/q/$slug/$decider" params={{ slug: question.slug, decider: decider.slug }} search={{ body: body.slug }} className="link">
-              {question.short_title} · {body.name}
-            </Link>
-          </p>
-        ))}
+        <p>
+          <Link to="/p/$slug" params={{ slug: decider.slug }} className="link">
+            Public page
+          </Link>
+        </p>
       </div>
 
       <PersonForm key={decider.id} editing={decider} />
