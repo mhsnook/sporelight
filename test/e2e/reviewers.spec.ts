@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { NEWS_READER_ID } from '../../shared/schema.ts'
 import { query } from './db.ts'
-import { TODAY, partyWrite } from './fixtures.ts'
+import { partyWrite } from './fixtures.ts'
 
 let cleanup: (() => Promise<unknown>) | undefined
 test.afterEach(async () => {
@@ -66,9 +66,9 @@ test("an act's short line says whose reviews its reading comes from, and opens t
 })
 
 test("a story's reading line says which editor reviewed it, and opens to the review", async ({ page, request }) => {
-  await page.clock.setFixedTime(TODAY)
   const stamp = Date.now()
-  const at = TODAY.toISOString()
+  // Newer than what other flows add, so the story is on the feed's first page.
+  const at = new Date().toISOString()
   const title = `Harbor Ledger: one councillor on fares (${stamp})`
   const actId = `act-story-${stamp}`
   const write = await partyWrite(request, [
@@ -80,7 +80,7 @@ test("a story's reading line says which editor reviewed it, and opens to the rev
   ])
   expect(write.ok()).toBe(true)
 
-  await page.goto('/news?question=free-ferry')
+  await page.goto('/news?question=free-ferry&recordOnly=true')
   const story = page.getByRole('article', { name: title })
   const reviewedBy = story.getByTestId('reviewed-by')
   await expect(reviewedBy).toHaveCount(1)
