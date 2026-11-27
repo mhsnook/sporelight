@@ -15,6 +15,12 @@ The README describes what the app is and how to run it. This file is how changes
 - Say what was run and what passed, and name what has never run for real (anything that needs Cloudflare credentials, a real model, or a real news site).
 - An agent's GitHub token cannot push changes to `.github/workflows/`. Leave those to the owner and say so.
 
+## Issues, epics and milestones
+
+- Keep the open work small enough to hold in mind: one or two milestones open at a time, and two to four epics being worked on. One epic can have several issues going at once, so the count of open items grows quickly.
+- Split and close an issue that has grown past what motivated it. Close the part that is done as completed, in the milestone it served, with a comment listing the pull requests that delivered it. Move what is left into a new issue or epic that copies its substance, not only a link, and say in the closing comment where it went. Do this whenever an issue is mostly done and still open: at the end of a piece of work, a week, or a milestone.
+- A milestone's own description says what is later. An issue whose rest is later is split, not taken out of the milestone.
+
 ## Code
 
 - A comment earns its place in one of two ways:
