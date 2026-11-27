@@ -265,8 +265,9 @@ const member = (bioguide: string, where: string) => {
   if (!members.has(bioguide)) throw new Error(`${where} names ${bioguide}, who is not in the roster`)
   return bioguide
 }
-// Also set by the roster's own file. Repeated so this file works alone.
-lines.push(`UPDATE bodies SET next_term_on = ${sql(congressAsks.next_term.on)}, next_term_label = ${sql(congressAsks.next_term.label)} WHERE id = ${sql(US)};`)
+// Also set by the roster's own file. Repeated so this file works alone, and only
+// where none is set, so replaying this file keeps a next term an editor set.
+lines.push(`UPDATE bodies SET next_term_on = ${sql(congressAsks.next_term.on)}, next_term_label = ${sql(congressAsks.next_term.label)} WHERE id = ${sql(US)} AND next_term_on IS NULL;`)
 congressAsks.offices.forEach((o: any, i: number) => {
   insert('offices', { id: o.id, body_id: US, chamber: o.chamber, label: o.label, sort: i })
   for (const h of o.holders) {

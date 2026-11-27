@@ -502,6 +502,7 @@ export function buildTracker(c: TrackerData, asOf: string) {
     questionById,
     questionBySlug,
     seatById,
+    seatsByBody,
     setPositionById,
     sourceById,
     actById,

@@ -4,6 +4,7 @@ import { newPerson, personInputOf } from '../lib/person-form.ts'
 import {
   ROLE_LIMITS,
   chambersIn,
+  holderNames,
   holderProblems,
   newRole,
   personChoices,
@@ -64,11 +65,6 @@ export function RoleForm({ seat, person, start, editing, startHint, onSaved }: R
   const seatChoices = narrowed ? seatsIn(tracker.seats, { body_id: bodyId, chamber, region }) : []
   const chosenSeat = seat ?? tracker.seatById.get(seatId)
   const affiliations = [...new Set(tracker.roles.filter((r) => r.affiliation && tracker.seatById.get(r.seat_id)?.body_id === (chosenSeat?.body_id ?? bodyId)).map((r) => r.affiliation!))].sort()
-  const holdersOf = (s: Seat) =>
-    (tracker.rolesBySeat.get(s.id) ?? [])
-      .filter((r) => r.certainty !== 'possible')
-      .flatMap((r) => tracker.deciderById.get(r.decider_id)?.name ?? [])
-      .join(', ')
 
   function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -129,7 +125,7 @@ export function RoleForm({ seat, person, start, editing, startHint, onSaved }: R
           <p className="text-sm">
             <span className="font-bold">{seat.label}</span>
             {seat.chamber && `, ${seat.chamber}`} · {tracker.bodyById.get(seat.body_id)?.name}
-            {holdersOf(seat) && <span className="text-muted"> · held by {holdersOf(seat)}</span>}
+            {holderNames(seat, tracker) && <span className="text-muted"> · held by {holderNames(seat, tracker)}</span>}
           </p>
         ) : (
           <>
@@ -173,7 +169,7 @@ export function RoleForm({ seat, person, start, editing, startHint, onSaved }: R
               <select id="r-seat" name="seat_id" className="field" value={seatId} disabled={!narrowed} onChange={(e) => setSeatId(e.target.value)}>
                 <option value="">Choose a seat</option>
                 {seatChoices.map((s) => {
-                  const held = holdersOf(s)
+                  const held = holderNames(s, tracker)
                   return (
                     <option key={s.id} value={s.id}>
                       {s.label}

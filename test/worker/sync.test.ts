@@ -78,6 +78,22 @@ describe('writes through the party endpoint', () => {
     expect(await rows(`SELECT id, name FROM bodies WHERE id = 'new-body'`)).toEqual([{ id: 'new-body', name: 'New Body' }])
   })
 
+  it('refuses to delete a body a seat is in, or a seat a role is on, and deletes each once nothing points at it', async () => {
+    const write = (channel: string, type: string, value: Record<string, unknown>) => partyWrite([{ channel, ops: [{ type, value }] }], undefined, editorOne.cookie)
+    expect((await write('bodies', 'insert', { ...body, id: 'held-body', slug: 'held-body' })).status).toBe(200)
+    expect((await write('seats', 'insert', { id: 'held-seat', body_id: 'held-body', chamber: null, region: null, label: 'Ward 1', is_voting: true, next_election_on: null })).status).toBe(200)
+    expect((await write('roles', 'insert', { id: 'held-role', seat_id: 'held-seat', decider_id: 'ann', contest: null, affiliation: null, starts_on: null, ends_on: null, certainty: 'certain' })).status).toBe(200)
+
+    expect((await write('bodies', 'delete', { id: 'held-body' })).status).not.toBe(200)
+    expect((await write('seats', 'delete', { id: 'held-seat' })).status).not.toBe(200)
+    expect(await rows(`SELECT id FROM seats WHERE id = 'held-seat'`)).toEqual([{ id: 'held-seat' }])
+
+    expect((await write('roles', 'delete', { id: 'held-role' })).status).toBe(200)
+    expect((await write('seats', 'delete', { id: 'held-seat' })).status).toBe(200)
+    expect((await write('bodies', 'delete', { id: 'held-body' })).status).toBe(200)
+    expect(await rows(`SELECT id FROM bodies WHERE id = 'held-body'`)).toEqual([])
+  })
+
   const setPosition = { id: 'cold:ann', question_id: 'cold', decider_id: 'ann', position: 'lean_support', reason: 'Told the caucus she will vote yes.', set_at: '2026-11-19T00:00:00.000Z' }
 
   it('takes a set position from an editor, lets the editor change it and take it back, and refuses a member each time', async () => {

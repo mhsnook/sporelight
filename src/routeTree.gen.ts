@@ -16,6 +16,8 @@ import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as QuestionsRouteImport } from './routes/questions'
 import { Route as SetupRouteImport } from './routes/setup'
 import { Route as EditorAdminRouteImport } from './routes/_editor.admin'
+import { Route as EditorBodiesIndexRouteImport } from './routes/_editor.bodies.index'
+import { Route as EditorBodiesNewRouteImport } from './routes/_editor.bodies.new'
 import { Route as EditorNewsReviewRouteImport } from './routes/_editor.news.review'
 import { Route as EditorNewsRunsRouteImport } from './routes/_editor.news.runs'
 import { Route as EditorPeopleIndexRouteImport } from './routes/_editor.people.index'
@@ -24,9 +26,12 @@ import { Route as EditorPeopleNewRouteImport } from './routes/_editor.people.new
 import { Route as EditorQuestionsNewRouteImport } from './routes/_editor.questions.new'
 import { Route as EditorRolesRoleIdRouteImport } from './routes/_editor.roles.$roleId'
 import { Route as EditorRolesNewRouteImport } from './routes/_editor.roles.new'
+import { Route as EditorSeatsSeatIdRouteImport } from './routes/_editor.seats.$seatId'
 import { Route as QSlugIndexRouteImport } from './routes/q.$slug.index'
 import { Route as QSlugDeciderRouteImport } from './routes/q.$slug.$decider'
+import { Route as EditorBodiesSlugIndexRouteImport } from './routes/_editor.bodies.$slug.index'
 import { Route as EditorQSlugEditRouteImport } from './routes/_editor.q.$slug.edit'
+import { Route as EditorBodiesSlugSeatsNewRouteImport } from './routes/_editor.bodies.$slug.seats.new'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -60,6 +65,16 @@ const SetupRoute = SetupRouteImport.update({
 const EditorAdminRoute = EditorAdminRouteImport.update({
   id: '/admin',
   path: '/admin',
+  getParentRoute: () => EditorRoute,
+} as any)
+const EditorBodiesIndexRoute = EditorBodiesIndexRouteImport.update({
+  id: '/bodies/',
+  path: '/bodies/',
+  getParentRoute: () => EditorRoute,
+} as any)
+const EditorBodiesNewRoute = EditorBodiesNewRouteImport.update({
+  id: '/bodies/new',
+  path: '/bodies/new',
   getParentRoute: () => EditorRoute,
 } as any)
 const EditorNewsReviewRoute = EditorNewsReviewRouteImport.update({
@@ -102,6 +117,11 @@ const EditorRolesNewRoute = EditorRolesNewRouteImport.update({
   path: '/roles/new',
   getParentRoute: () => EditorRoute,
 } as any)
+const EditorSeatsSeatIdRoute = EditorSeatsSeatIdRouteImport.update({
+  id: '/seats/$seatId',
+  path: '/seats/$seatId',
+  getParentRoute: () => EditorRoute,
+} as any)
 const QSlugIndexRoute = QSlugIndexRouteImport.update({
   id: '/q/$slug/',
   path: '/q/$slug/',
@@ -112,11 +132,22 @@ const QSlugDeciderRoute = QSlugDeciderRouteImport.update({
   path: '/q/$slug/$decider',
   getParentRoute: () => rootRouteImport,
 } as any)
+const EditorBodiesSlugIndexRoute = EditorBodiesSlugIndexRouteImport.update({
+  id: '/bodies/$slug/',
+  path: '/bodies/$slug/',
+  getParentRoute: () => EditorRoute,
+} as any)
 const EditorQSlugEditRoute = EditorQSlugEditRouteImport.update({
   id: '/q/$slug/edit',
   path: '/q/$slug/edit',
   getParentRoute: () => EditorRoute,
 } as any)
+const EditorBodiesSlugSeatsNewRoute =
+  EditorBodiesSlugSeatsNewRouteImport.update({
+    id: '/bodies/$slug/seats/new',
+    path: '/bodies/$slug/seats/new',
+    getParentRoute: () => EditorRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -125,6 +156,7 @@ export interface FileRoutesByFullPath {
   '/questions': typeof QuestionsRoute
   '/setup': typeof SetupRoute
   '/admin': typeof EditorAdminRoute
+  '/bodies/new': typeof EditorBodiesNewRoute
   '/news/review': typeof EditorNewsReviewRoute
   '/news/runs': typeof EditorNewsRunsRoute
   '/people/$slug': typeof EditorPeopleSlugRoute
@@ -132,10 +164,14 @@ export interface FileRoutesByFullPath {
   '/questions/new': typeof EditorQuestionsNewRoute
   '/roles/$roleId': typeof EditorRolesRoleIdRoute
   '/roles/new': typeof EditorRolesNewRoute
+  '/seats/$seatId': typeof EditorSeatsSeatIdRoute
   '/q/$slug/$decider': typeof QSlugDeciderRoute
+  '/bodies/': typeof EditorBodiesIndexRoute
   '/people/': typeof EditorPeopleIndexRoute
   '/q/$slug/': typeof QSlugIndexRoute
   '/q/$slug/edit': typeof EditorQSlugEditRoute
+  '/bodies/$slug/': typeof EditorBodiesSlugIndexRoute
+  '/bodies/$slug/seats/new': typeof EditorBodiesSlugSeatsNewRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -144,6 +180,7 @@ export interface FileRoutesByTo {
   '/questions': typeof QuestionsRoute
   '/setup': typeof SetupRoute
   '/admin': typeof EditorAdminRoute
+  '/bodies/new': typeof EditorBodiesNewRoute
   '/news/review': typeof EditorNewsReviewRoute
   '/news/runs': typeof EditorNewsRunsRoute
   '/people/$slug': typeof EditorPeopleSlugRoute
@@ -151,10 +188,14 @@ export interface FileRoutesByTo {
   '/questions/new': typeof EditorQuestionsNewRoute
   '/roles/$roleId': typeof EditorRolesRoleIdRoute
   '/roles/new': typeof EditorRolesNewRoute
+  '/seats/$seatId': typeof EditorSeatsSeatIdRoute
   '/q/$slug/$decider': typeof QSlugDeciderRoute
+  '/bodies': typeof EditorBodiesIndexRoute
   '/people': typeof EditorPeopleIndexRoute
   '/q/$slug': typeof QSlugIndexRoute
   '/q/$slug/edit': typeof EditorQSlugEditRoute
+  '/bodies/$slug': typeof EditorBodiesSlugIndexRoute
+  '/bodies/$slug/seats/new': typeof EditorBodiesSlugSeatsNewRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -165,6 +206,7 @@ export interface FileRoutesById {
   '/questions': typeof QuestionsRoute
   '/setup': typeof SetupRoute
   '/_editor/admin': typeof EditorAdminRoute
+  '/_editor/bodies/new': typeof EditorBodiesNewRoute
   '/_editor/news/review': typeof EditorNewsReviewRoute
   '/_editor/news/runs': typeof EditorNewsRunsRoute
   '/_editor/people/$slug': typeof EditorPeopleSlugRoute
@@ -172,10 +214,14 @@ export interface FileRoutesById {
   '/_editor/questions/new': typeof EditorQuestionsNewRoute
   '/_editor/roles/$roleId': typeof EditorRolesRoleIdRoute
   '/_editor/roles/new': typeof EditorRolesNewRoute
+  '/_editor/seats/$seatId': typeof EditorSeatsSeatIdRoute
   '/q/$slug/$decider': typeof QSlugDeciderRoute
+  '/_editor/bodies/': typeof EditorBodiesIndexRoute
   '/_editor/people/': typeof EditorPeopleIndexRoute
   '/q/$slug/': typeof QSlugIndexRoute
   '/_editor/q/$slug/edit': typeof EditorQSlugEditRoute
+  '/_editor/bodies/$slug/': typeof EditorBodiesSlugIndexRoute
+  '/_editor/bodies/$slug/seats/new': typeof EditorBodiesSlugSeatsNewRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -186,6 +232,7 @@ export interface FileRouteTypes {
     | '/questions'
     | '/setup'
     | '/admin'
+    | '/bodies/new'
     | '/news/review'
     | '/news/runs'
     | '/people/$slug'
@@ -193,10 +240,14 @@ export interface FileRouteTypes {
     | '/questions/new'
     | '/roles/$roleId'
     | '/roles/new'
+    | '/seats/$seatId'
     | '/q/$slug/$decider'
+    | '/bodies/'
     | '/people/'
     | '/q/$slug/'
     | '/q/$slug/edit'
+    | '/bodies/$slug/'
+    | '/bodies/$slug/seats/new'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -205,6 +256,7 @@ export interface FileRouteTypes {
     | '/questions'
     | '/setup'
     | '/admin'
+    | '/bodies/new'
     | '/news/review'
     | '/news/runs'
     | '/people/$slug'
@@ -212,10 +264,14 @@ export interface FileRouteTypes {
     | '/questions/new'
     | '/roles/$roleId'
     | '/roles/new'
+    | '/seats/$seatId'
     | '/q/$slug/$decider'
+    | '/bodies'
     | '/people'
     | '/q/$slug'
     | '/q/$slug/edit'
+    | '/bodies/$slug'
+    | '/bodies/$slug/seats/new'
   id:
     | '__root__'
     | '/'
@@ -225,6 +281,7 @@ export interface FileRouteTypes {
     | '/questions'
     | '/setup'
     | '/_editor/admin'
+    | '/_editor/bodies/new'
     | '/_editor/news/review'
     | '/_editor/news/runs'
     | '/_editor/people/$slug'
@@ -232,10 +289,14 @@ export interface FileRouteTypes {
     | '/_editor/questions/new'
     | '/_editor/roles/$roleId'
     | '/_editor/roles/new'
+    | '/_editor/seats/$seatId'
     | '/q/$slug/$decider'
+    | '/_editor/bodies/'
     | '/_editor/people/'
     | '/q/$slug/'
     | '/_editor/q/$slug/edit'
+    | '/_editor/bodies/$slug/'
+    | '/_editor/bodies/$slug/seats/new'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -300,6 +361,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EditorAdminRouteImport
       parentRoute: typeof EditorRoute
     }
+    '/_editor/bodies/': {
+      id: '/_editor/bodies/'
+      path: '/bodies'
+      fullPath: '/bodies/'
+      preLoaderRoute: typeof EditorBodiesIndexRouteImport
+      parentRoute: typeof EditorRoute
+    }
+    '/_editor/bodies/new': {
+      id: '/_editor/bodies/new'
+      path: '/bodies/new'
+      fullPath: '/bodies/new'
+      preLoaderRoute: typeof EditorBodiesNewRouteImport
+      parentRoute: typeof EditorRoute
+    }
     '/_editor/news/review': {
       id: '/_editor/news/review'
       path: '/news/review'
@@ -356,6 +431,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EditorRolesNewRouteImport
       parentRoute: typeof EditorRoute
     }
+    '/_editor/seats/$seatId': {
+      id: '/_editor/seats/$seatId'
+      path: '/seats/$seatId'
+      fullPath: '/seats/$seatId'
+      preLoaderRoute: typeof EditorSeatsSeatIdRouteImport
+      parentRoute: typeof EditorRoute
+    }
     '/q/$slug/': {
       id: '/q/$slug/'
       path: '/q/$slug'
@@ -370,6 +452,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof QSlugDeciderRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_editor/bodies/$slug/': {
+      id: '/_editor/bodies/$slug/'
+      path: '/bodies/$slug'
+      fullPath: '/bodies/$slug/'
+      preLoaderRoute: typeof EditorBodiesSlugIndexRouteImport
+      parentRoute: typeof EditorRoute
+    }
     '/_editor/q/$slug/edit': {
       id: '/_editor/q/$slug/edit'
       path: '/q/$slug/edit'
@@ -377,11 +466,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EditorQSlugEditRouteImport
       parentRoute: typeof EditorRoute
     }
+    '/_editor/bodies/$slug/seats/new': {
+      id: '/_editor/bodies/$slug/seats/new'
+      path: '/bodies/$slug/seats/new'
+      fullPath: '/bodies/$slug/seats/new'
+      preLoaderRoute: typeof EditorBodiesSlugSeatsNewRouteImport
+      parentRoute: typeof EditorRoute
+    }
   }
 }
 
 interface EditorRouteChildren {
   EditorAdminRoute: typeof EditorAdminRoute
+  EditorBodiesNewRoute: typeof EditorBodiesNewRoute
   EditorNewsReviewRoute: typeof EditorNewsReviewRoute
   EditorNewsRunsRoute: typeof EditorNewsRunsRoute
   EditorPeopleSlugRoute: typeof EditorPeopleSlugRoute
@@ -389,12 +486,17 @@ interface EditorRouteChildren {
   EditorQuestionsNewRoute: typeof EditorQuestionsNewRoute
   EditorRolesRoleIdRoute: typeof EditorRolesRoleIdRoute
   EditorRolesNewRoute: typeof EditorRolesNewRoute
+  EditorSeatsSeatIdRoute: typeof EditorSeatsSeatIdRoute
+  EditorBodiesIndexRoute: typeof EditorBodiesIndexRoute
   EditorPeopleIndexRoute: typeof EditorPeopleIndexRoute
   EditorQSlugEditRoute: typeof EditorQSlugEditRoute
+  EditorBodiesSlugIndexRoute: typeof EditorBodiesSlugIndexRoute
+  EditorBodiesSlugSeatsNewRoute: typeof EditorBodiesSlugSeatsNewRoute
 }
 
 const EditorRouteChildren: EditorRouteChildren = {
   EditorAdminRoute: EditorAdminRoute,
+  EditorBodiesNewRoute: EditorBodiesNewRoute,
   EditorNewsReviewRoute: EditorNewsReviewRoute,
   EditorNewsRunsRoute: EditorNewsRunsRoute,
   EditorPeopleSlugRoute: EditorPeopleSlugRoute,
@@ -402,8 +504,12 @@ const EditorRouteChildren: EditorRouteChildren = {
   EditorQuestionsNewRoute: EditorQuestionsNewRoute,
   EditorRolesRoleIdRoute: EditorRolesRoleIdRoute,
   EditorRolesNewRoute: EditorRolesNewRoute,
+  EditorSeatsSeatIdRoute: EditorSeatsSeatIdRoute,
+  EditorBodiesIndexRoute: EditorBodiesIndexRoute,
   EditorPeopleIndexRoute: EditorPeopleIndexRoute,
   EditorQSlugEditRoute: EditorQSlugEditRoute,
+  EditorBodiesSlugIndexRoute: EditorBodiesSlugIndexRoute,
+  EditorBodiesSlugSeatsNewRoute: EditorBodiesSlugSeatsNewRoute,
 }
 
 const EditorRouteWithChildren =

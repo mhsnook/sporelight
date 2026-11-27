@@ -1,6 +1,6 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useMemo } from 'react'
-import type { Question, Seat } from '../../shared/schema.ts'
+import type { Body, Question, Seat } from '../../shared/schema.ts'
 import { NEEDS_ATTENTION } from '../../shared/standing.ts'
 import { isHeld, useTracker, useViewedBody, type HeldSeat } from '../lib/tracker.tsx'
 import { SPECTRUM, STANDINGS, STANDING_BG, claimTag, formatDate, standingLabel, type Standing } from '../lib/position.ts'
@@ -71,7 +71,8 @@ function Board() {
   const scoped = chamber ? rows.filter((r) => r.seat.chamber === chamber) : rows
   const visible = scoped.filter(matches)
   const counts = tally(scoped.map((r) => r.incumbent.standing))
-  const charts = chambers.length > 0 ? chambers.filter((c) => !chamber || c === chamber) : [null]
+  // Seats in no chamber are drawn together under the body's name, beside any named chambers.
+  const charts = chamber ? [chamber] : [...chambers, ...(rows.some((r) => r.seat.chamber === null) ? [null] : [])]
   const groups = STANDINGS.map((standing) => ({
     standing,
     rows: visible.filter((r) => r.incumbent.standing === standing).sort((a, b) => a.incumbent.decider.sort_name.localeCompare(b.incumbent.decider.sort_name)),
@@ -81,7 +82,7 @@ function Board() {
     <div className="space-y-6">
       <QuestionHeader question={question} />
       <ClosedNote question={question} />
-      <EditorTools question={question} />
+      <EditorTools question={question} body={body} />
 
       <KeyPeople people={tracker.keyPeople(question, body.id)} />
 
@@ -90,7 +91,7 @@ function Board() {
           <Hemicycle
             key={c ?? 'all'}
             title={c ?? body?.name ?? 'Seats'}
-            rows={c ? rows.filter((r) => r.seat.chamber === c) : rows}
+            rows={rows.filter((r) => r.seat.chamber === c)}
             question={question}
             isLit={matches}
           />
@@ -261,7 +262,7 @@ function Ask({ question, bodyId }: { question: Question; bodyId: string }) {
         ))}
       </ul>
       <div className="flex flex-wrap items-center gap-4">
-        <EditorTools question={question} />
+        <EditorTools question={question} body={tracker.bodyById.get(bodyId)} />
         {parent && (
           <Link to="/q/$slug" params={{ slug: parent.slug }} className="link text-sm">
             ← {parent.title}
@@ -272,7 +273,7 @@ function Ask({ question, bodyId }: { question: Question; bodyId: string }) {
   )
 }
 
-function EditorTools({ question }: { question: Question }) {
+function EditorTools({ question, body }: { question: Question; body: Body | undefined }) {
   const { tracker } = useTracker()
   if (!useIsEditor()) return null
   return (
@@ -281,6 +282,11 @@ function EditorTools({ question }: { question: Question }) {
         Edit this {nounOf(question, tracker.isAsk(question))}
       </Link>
       <CloseQuestion question={question} />
+      {body && (
+        <Link to="/bodies/$slug" params={{ slug: body.slug }} className="btn btn-editor">
+          Edit {body.name}
+        </Link>
+      )}
     </div>
   )
 }
