@@ -17,7 +17,9 @@ The README describes what the app is and how to run it. This file is how changes
 
 ## Issues, epics and milestones
 
-- Keep the open work small enough to hold in mind: one or two milestones open at a time, and two to four epics being worked on. One epic can have several issues going at once, so the count of open items grows quickly.
+- Keep the work in progress small enough to hold in mind: one or two milestones being worked on, and two to four epics. One epic can have several issues going at once, so the count of open items grows quickly.
+- A milestone being worked on has a due date; a later one can be open with none, and gets one when work on it starts. GitHub lists milestones by due date, so the ones being worked on come first.
+- An epic being worked on has the `active` label, which comes off when work on it stops.
 - Split and close an issue that has grown past what motivated it. Close the part that is done as completed, in the milestone it served, with a comment listing the pull requests that delivered it. Move what is left into a new issue or epic that copies its substance, not only a link, and say in the closing comment where it went. Do this whenever an issue is mostly done and still open: at the end of a piece of work, a week, or a milestone.
 - A milestone's own description says what is later. An issue whose rest is later is split, not taken out of the milestone.
 
