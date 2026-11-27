@@ -53,7 +53,9 @@ function People() {
         {matching.slice(0, SHOWN).map((d) => (
           <li key={d.id} className="flex items-start justify-between gap-3 py-2 text-sm">
             <span>
-              <span className="font-medium">{d.name}</span>
+              <Link to="/p/$slug" params={{ slug: d.slug }} className="font-medium hover:underline">
+                {d.name}
+              </Link>
               <span className="block text-xs text-muted">{seatsOf(d.id) || 'No seat'}</span>
             </span>
             <Link to="/people/$slug" params={{ slug: d.slug }} className="link shrink-0">

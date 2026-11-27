@@ -1,6 +1,6 @@
-import type { Certainty, Question } from '../../shared/schema.ts'
+import type { Certainty, Question, Role, Seat } from '../../shared/schema.ts'
 import { FOOTING_HINT, FOOTING_LABEL, type Footing } from '../../shared/standing.ts'
-import { SPECTRUM, STANDING_BG, STANDING_COLOR, standingLabel, type Standing } from '../lib/position.ts'
+import { SPECTRUM, STANDING_BG, STANDING_COLOR, claimLabel, formatDate, standingLabel, type Standing } from '../lib/position.ts'
 
 export function Logo() {
   return (
@@ -122,5 +122,19 @@ export function CertaintyTag({ certainty }: { certainty: Certainty }) {
     >
       {certainty === 'likely' ? 'Likely' : 'Possible'}
     </span>
+  )
+}
+
+// A seat and someone's claim on it on a day, leaving out the plain "holds the seat".
+export function SeatLine({ role, seat, day }: { role: Role; seat: Seat; day: string }) {
+  const claim = claimLabel(role, day)
+  return (
+    <>
+      {seat.label}
+      {seat.chamber && `, ${seat.chamber}`}
+      {role.affiliation && ` · ${role.affiliation}`}
+      {seat.next_election_on && ` · next election ${formatDate(seat.next_election_on)}`}
+      {claim !== 'holds the seat' && ` · ${claim}`}
+    </>
   )
 }

@@ -83,7 +83,7 @@ describe('/mcp: reading the record', () => {
 
   it('finds deciders by part of a name', async () => {
     const found = (await call('find_deciders', { name: 'alph' })).structuredContent as { deciders: { id: string; seats: { body: string }[] }[]; more: number }
-    expect(found).toEqual({ deciders: [expect.objectContaining({ id: 'ann', seats: [expect.objectContaining({ body: 'Congress' })] })], more: 0 })
+    expect(found).toEqual({ deciders: [expect.objectContaining({ id: 'ann', seats: [expect.objectContaining({ body: 'Congress' })], url: expect.stringMatching(/\/p\/ann-alpha$/) })], more: 0 })
   })
 
   it('returns at most FIND_LIMIT deciders, and says how many more matched', async () => {

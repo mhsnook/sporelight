@@ -109,6 +109,9 @@ export const inEffect = (row: { starts_on: string | null; ends_on: string | null
 export const stillAhead = (row: { starts_on: string | null; ends_on: string | null }, day: string) =>
   row.starts_on !== null && row.starts_on > day && (row.ends_on === null || day < row.ends_on)
 
+// Whether a dated row ended before it began, as a candidate's claim does when they withdraw.
+export const neverHeld = (row: { starts_on: string | null; ends_on: string | null }) => row.starts_on !== null && row.ends_on !== null && row.ends_on <= row.starts_on
+
 // A key role, such as a committee chair. It outlives its holders.
 export const officeSchema = z.object({
   id: z.string(),

@@ -41,7 +41,7 @@ function serverFor(env: Env, req: Request) {
   const tracker = () => currentTracker(env.DB, today())
   const findQuestion = (t: TrackerView, idOrSlug: string) => t.questionById.get(idOrSlug) ?? t.questionBySlug.get(idOrSlug)
   const questionPage = (t: TrackerView, q: Question) => `${origin}/q/${t.rootOf(q).slug}`
-  const personPage = (t: TrackerView, q: Question, slug: string) => `${origin}/q/${t.rootOf(q).slug}/${slug}`
+  const recordPage = (t: TrackerView, q: Question, slug: string) => `${origin}/q/${t.rootOf(q).slug}/${slug}`
 
   // Who sent this request: a person or an agent with a key in x-api-key, or
   // nobody. A key Better Auth refuses comes back as the reason, for the agent.
@@ -85,7 +85,7 @@ function serverFor(env: Env, req: Request) {
     'find_deciders',
     {
       description:
-        'Decision-makers whose name contains the given text: the people questions are put to, not the site’s readers. Each comes with their claims on seats today; certainty is certain or likely for a holder, possible for someone who may yet hold the seat. Returns at most 25, and says how many more matched.',
+        'Decision-makers whose name contains the given text: the people questions are put to, not the site’s readers. Each comes with their claims on seats today, and the address of their page, which lists every question put to them; certainty is certain or likely for a holder, possible for someone who may yet hold the seat. Returns at most 25, and says how many more matched.',
       inputSchema: z.object({ name: z.string().trim().min(2).describe('Part of a name, such as a surname.') }),
       annotations: { readOnlyHint: true },
     },
@@ -102,6 +102,7 @@ function serverFor(env: Env, req: Request) {
           const body = seat && t.bodyById.get(seat.body_id)
           return seat && body ? [{ body: body.name, seat: seat.label, affiliation: role.affiliation, certainty: role.certainty }] : []
         }),
+        url: `${origin}/p/${encodeURIComponent(d.slug)}`,
       }))
       return json({ deciders, more: matches.length - deciders.length })
     },
@@ -134,7 +135,7 @@ function serverFor(env: Env, req: Request) {
         set_by_editors: c.set ? { position: c.set.position, reason: c.set.reason } : null,
         footing: c.footing,
         acts_on_record: c.record.length,
-        url: personPage(t, q, c.decider.slug),
+        url: recordPage(t, q, c.decider.slug),
       })
       const bodies = t.bodiesOf(q).filter((b) => !bodySlug || b.slug === bodySlug)
       if (!bodies.length) return refusal(`"${q.title}" is not put to a body "${bodySlug}".`)
@@ -179,7 +180,7 @@ function serverFor(env: Env, req: Request) {
         person: d.name,
         standing: listing.standing,
         record: t.recordFor(q, d.id).map(entry),
-        url: personPage(t, q, d.slug),
+        url: recordPage(t, q, d.slug),
       })
     },
   )

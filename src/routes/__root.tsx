@@ -10,9 +10,11 @@ import { SignIn, SignInDialog } from '../components/SignIn.tsx'
 // `as` is the day every body is viewed on, and `body` the one a question put
 // to several is viewed through. Both are kept across links, so a reader stays
 // in the view they chose until they switch back.
+export type SiteSearch = { as?: string; body?: string }
+
 export const Route = createRootRoute({
   component: Root,
-  validateSearch: (s: Record<string, unknown>): { as?: string; body?: string } => ({
+  validateSearch: (s: Record<string, unknown>): SiteSearch => ({
     as: typeof s.as === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s.as) ? s.as : undefined,
     body: typeof s.body === 'string' && s.body ? s.body : undefined,
   }),

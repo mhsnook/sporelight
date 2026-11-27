@@ -7,22 +7,13 @@ import { KIND_LABEL, POSITION_LABEL, STANDING_BG, actDate, formatDate, published
 
 export function RecordItem({ entry, question, children }: { entry: RecordEntry; question?: Question; children?: ReactNode }) {
   const { act, reading, via, reports, lapse } = entry
-  const signedIn = useSession().id !== undefined
   return (
     <li className="rounded-xl border-2 border-ink bg-surface p-4">
       <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
-        {act.occurred_on ? (
-          <time dateTime={act.occurred_on} className="font-semibold text-ink">
-            {formatDate(act.occurred_on)}
-          </time>
-        ) : (
-          <span className="font-semibold text-ink">{actDate(null)} · not counted until dated</span>
-        )}
-        <span>·</span>
-        <span>{KIND_LABEL[act.kind]}</span>
+        <ActDateAndKind act={act} />
         {via && via.id !== question?.id && <span className="rounded bg-paper px-1.5 py-0.5">{via.short_title}</span>}
         <WeightTag weight={reading.weight} />
-        {!entry.checked && <span className="rounded border border-dashed border-line px-1.5 py-0.5">Not checked by an editor</span>}
+        {!entry.checked && <UncheckedTag />}
         {lapse === 'withdrawn' && act.withdrawn_on && <span className="rounded bg-paper px-1.5 py-0.5">Withdrawn {formatDate(act.withdrawn_on)}</span>}
         {lapse === 'closed' && via && <span className="rounded bg-paper px-1.5 py-0.5">{via.short_title} has closed</span>}
         <span className="ml-auto flex items-center gap-1.5">
@@ -31,25 +22,52 @@ export function RecordItem({ entry, question, children }: { entry: RecordEntry; 
         </span>
       </div>
       <ActWords kind={act.kind} words={act.body} />
-      <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
-        {reports.map(({ report, source }) => (
-          <li key={report.id}>
-            {source.url ? (
-              <a href={source.url} target="_blank" rel="noreferrer" className="link">
-                {sourceLabel(source)} ↗
-              </a>
-            ) : (
-              <span className="text-muted">{sourceLabel(source)}</span>
-            )}
-            {source.published_on && <span className="text-xs text-muted"> · {publishedLine(source)}</span>}
-            <ArchivedCopy source={source} />
-            {signedIn && <ArchiveControls source={source} />}
-          </li>
-        ))}
-      </ul>
+      <SourceList reports={reports} />
       {children}
     </li>
   )
+}
+
+export function ActDateAndKind({ act }: { act: Act }) {
+  return (
+    <>
+      {act.occurred_on ? (
+        <time dateTime={act.occurred_on} className="font-semibold text-ink">
+          {formatDate(act.occurred_on)}
+        </time>
+      ) : (
+        <span className="font-semibold text-ink">{actDate(null)} · not counted until dated</span>
+      )}
+      <span>·</span>
+      <span>{KIND_LABEL[act.kind]}</span>
+    </>
+  )
+}
+
+export function SourceList({ reports }: { reports: RecordEntry['reports'] }) {
+  const signedIn = useSession().id !== undefined
+  return (
+    <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+      {reports.map(({ report, source }) => (
+        <li key={report.id}>
+          {source.url ? (
+            <a href={source.url} target="_blank" rel="noreferrer" className="link">
+              {sourceLabel(source)} ↗
+            </a>
+          ) : (
+            <span className="text-muted">{sourceLabel(source)}</span>
+          )}
+          {source.published_on && <span className="text-xs text-muted"> · {publishedLine(source)}</span>}
+          <ArchivedCopy source={source} />
+          {signedIn && <ArchiveControls source={source} />}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+export function UncheckedTag() {
+  return <span className="rounded border border-dashed border-line px-1.5 py-0.5">Not checked by an editor</span>
 }
 
 // Marks a reading that is less than the person saying where they stand: a signal, or someone else's account of them.

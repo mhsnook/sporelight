@@ -4,7 +4,7 @@ import type { Decider, Position, Proposal, Question, SetPosition, Source, Weight
 import type { Story, StoryItem, WaitingStory } from '../lib/feed.ts'
 import { KIND_LABEL, SPECTRUM, STANDING_COLOR, timeAgo, actDate, formatDate, hostOf, publishedLine, sourceLabel, standingLabel } from '../lib/position.ts'
 import { Token } from './bits.tsx'
-import { ActWords, ArchivedCopy, WeightTag } from './RecordItem.tsx'
+import { ActWords, ArchivedCopy, UncheckedTag, WeightTag } from './RecordItem.tsx'
 
 // Replies shown before a reader opens the rest of a story.
 const FOLDED = 3
@@ -45,16 +45,16 @@ function SourceLink({ source }: { source: Pick<Source, 'title' | 'url'> }) {
 }
 
 // A person's page on one question.
-function PersonLink({ slug, decider, hash, className = 'font-bold hover:underline', children }: { slug: string; decider: StoryItem['decider']; hash?: string; className?: string; children?: ReactNode }) {
+function PersonLink({ slug, decider, hash, className, children }: { slug: string; decider: StoryItem['decider']; hash?: string; className: string; children: ReactNode }) {
   return (
     <Link to="/q/$slug/$decider" params={{ slug, decider: decider.slug }} hash={hash} className={className}>
-      {children ?? decider.name}
+      {children}
     </Link>
   )
 }
 
 // What one reading, published or claimed, shows on one question. `lead` goes first: a token, or "Claimed:".
-function ReadingLine({ decider, position, question, via, weight, lead }: { decider: StoryItem['decider']; position: Position; question: Question; via?: Question; weight: Weight | null; lead: ReactNode }) {
+export function ReadingLine({ decider, position, question, via, weight, lead, checked = true }: { decider: StoryItem['decider']; position: Position; question: Question; via?: Question; weight: Weight | null; lead: ReactNode; checked?: boolean }) {
   return (
     <li className="flex flex-wrap items-center gap-x-1.5">
       {lead}
@@ -67,6 +67,11 @@ function ReadingLine({ decider, position, question, via, weight, lead }: { decid
       {(weight === 'passing' || weight === 'presumed') && (
         <span className="text-xs text-muted">
           <WeightTag weight={weight} />
+        </span>
+      )}
+      {!checked && (
+        <span className="text-xs text-muted">
+          <UncheckedTag />
         </span>
       )}
     </li>
@@ -143,7 +148,9 @@ export function StoryCard({ story }: { story: Story }) {
             <Token standing={item.readings[0].reading.position} className="mt-0.5 size-6" />
             <div className="min-w-0 flex-1 space-y-1">
               <p className="flex flex-wrap items-baseline gap-x-2">
-                <PersonLink slug={item.readings[0].question.slug} decider={item.decider} />
+                <Link to="/p/$slug" params={{ slug: item.decider.slug }} className="font-bold hover:underline">
+                  {item.decider.name}
+                </Link>
                 <span className="text-xs text-muted">
                   {KIND_LABEL[item.act.kind]} · {item.act.occurred_on ? <time dateTime={item.act.occurred_on}>{formatDate(item.act.occurred_on)}</time> : actDate(null)}
                   {item.act.withdrawn_on && ` · withdrawn ${formatDate(item.act.withdrawn_on)}`}
@@ -229,7 +236,9 @@ export function WaitingStoryCard({ story, linked = false }: { story: WaitingStor
               return (
                 <li key={key} className="space-y-1 py-3">
                   <p className="flex flex-wrap items-baseline gap-x-2">
-                    <PersonLink slug={claims[0].question.slug} decider={decider} />
+                    <Link to="/p/$slug" params={{ slug: decider.slug }} className="font-bold hover:underline">
+                      {decider.name}
+                    </Link>
                     <span className="text-xs text-muted">
                       {KIND_LABEL[kind]}
                       {occurred_on && ` · ${formatDate(occurred_on)}`}

@@ -3,7 +3,7 @@ import { useState } from 'react'
 import type { Certainty } from '../../shared/schema.ts'
 import { FOOTING_HINT } from '../../shared/standing.ts'
 import { useTracker, useViewedBody, type Tenure } from '../lib/tracker.tsx'
-import { FootingTag, NotFound, StandingPill, Syncing } from '../components/bits.tsx'
+import { FootingTag, NotFound, SeatLine, StandingPill, Syncing } from '../components/bits.tsx'
 import { QuestionHeader } from '../components/QuestionHeader.tsx'
 import { ActWords, RecordItem } from '../components/RecordItem.tsx'
 import { OwnReview } from '../components/OwnReview.tsx'
@@ -12,7 +12,7 @@ import { Discussion } from '../components/Discussion.tsx'
 import { Modal } from '../components/Modal.tsx'
 import { AskStatus, CloseQuestion, ClosedNote } from '../components/Asks.tsx'
 import { MergeAct, WithdrawAct } from '../components/MergeAct.tsx'
-import { KIND_LABEL, actDate, claimLabel, formatDate, standingLabel } from '../lib/position.ts'
+import { KIND_LABEL, actDate, claimLabel, formatDate, spanOf, standingLabel } from '../lib/position.ts'
 import { useIsEditor, useSession } from '../lib/auth.ts'
 import { openSignIn } from '../components/SignIn.tsx'
 
@@ -43,8 +43,10 @@ function DeciderOnQuestion() {
   const held = tracker.tenuresHeldBy(decider.id, body.id)
   const unsure = (c: Certainty) => (c === 'certain' ? '' : c === 'likely' ? ' (likely)' : ' (possible)')
   const sourceOf = (t: Tenure) => (t.holder.source_id ? tracker.sourceById.get(t.holder.source_id) : undefined)
-  const span = (t: { starts_on: string | null; ends_on: string | null }) =>
-    t.starts_on && t.starts_on > tracker.asOf ? ` from ${formatDate(t.starts_on)}` : t.ends_on && t.ends_on <= tracker.asOf ? ` until ${formatDate(t.ends_on)}` : ''
+  const span = (t: { starts_on: string | null; ends_on: string | null }) => {
+    const when = spanOf(t, tracker.asOf)
+    return when ? ` ${when}` : ''
+  }
   const roleLabels = [
     ...new Set([
       ...held.filter((t) => !sourceOf(t)).map((t) => t.office.label + unsure(t.holder.certainty)),
@@ -52,8 +54,6 @@ function DeciderOnQuestion() {
       ...tenures.filter((t) => span(t.holder)).map((t) => t.office.label + span(t.holder)),
     ]),
   ]
-  const claim = claimLabel(me.role, tracker.asOf)
-  const holds = claim === 'holds the seat' ? '' : claim
   // Everyone else with a claim on this seat, now or later.
   const rivals = [...(tracker.rolesBySeat.get(seat.id) ?? []), ...(tracker.upcomingBySeat.get(seat.id) ?? [])]
     .filter((r) => r.decider_id !== decider.id)
@@ -69,13 +69,13 @@ function DeciderOnQuestion() {
       <section className="card p-5 sm:p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h2 className="text-2xl font-semibold">{decider.name}</h2>
+            <h2 className="text-2xl font-semibold">
+              <Link to="/p/$slug" params={{ slug: decider.slug }} className="hover:underline">
+                {decider.name}
+              </Link>
+            </h2>
             <p className="text-sm text-muted">
-              {seat.label}
-              {seat.chamber && `, ${seat.chamber}`}
-              {me.role.affiliation && ` · ${me.role.affiliation}`}
-              {seat.next_election_on && ` · next election ${formatDate(seat.next_election_on)}`}
-              {holds && ` · ${holds}`}
+              <SeatLine role={me.role} seat={seat} day={tracker.asOf} />
             </p>
             {roleLabels.length > 0 && <p className="text-sm font-medium">{roleLabels.join(' · ')}</p>}
             {held.flatMap((t) => {
@@ -232,6 +232,9 @@ function DeciderOnQuestion() {
               </ul>
             </section>
           )}
+          <Link to="/p/$slug" params={{ slug: decider.slug }} className="block text-sm link">
+            Every question put to {decider.name}
+          </Link>
           {decider.url && (
             <a href={decider.url} target="_blank" rel="noreferrer" className="block text-sm link">
               Official site ↗

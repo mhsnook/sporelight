@@ -1,4 +1,4 @@
-import type { ActKind, Direction, Position, Question, Role, Source, UnreadReason, Weight } from '../../shared/schema.ts'
+import { neverHeld, type ActKind, type Direction, type Position, type Question, type Role, type Source, type UnreadReason, type Weight } from '../../shared/schema.ts'
 
 export type Standing = Position | 'unknown'
 
@@ -136,8 +136,7 @@ const CONTEST: Record<NonNullable<Role['contest']>, string> = { primary: 'primar
 export function claimLabel(role: Claim, day: string): string {
   const pending = role.contest ? `, ${CONTEST[role.contest]} pending` : ', not settled'
   if (role.ends_on !== null && role.ends_on <= day) {
-    const neverHeld = role.starts_on !== null && role.ends_on <= role.starts_on
-    return neverHeld ? `no longer in line for the seat since ${formatDate(role.ends_on)}` : `held the seat until ${formatDate(role.ends_on)}`
+    return neverHeld(role) ? `no longer in line for the seat since ${formatDate(role.ends_on)}` : `held the seat until ${formatDate(role.ends_on)}`
   }
   if (role.starts_on !== null && role.starts_on > day) {
     const from = formatDate(role.starts_on)
@@ -158,3 +157,10 @@ export function claimTag(role: Claim, day: string): string {
   return role.certainty === 'certain' ? when : `${role.certainty === 'likely' ? 'likely' : 'possibly'} ${when}`
 }
 
+
+// When a seat or office that is not someone's on a day was or will be theirs, or null while it is.
+export function spanOf(held: { starts_on: string | null; ends_on: string | null }, day: string): string | null {
+  if (held.ends_on && held.ends_on <= day) return `${neverHeld(held) ? 'no longer in line since' : 'until'} ${formatDate(held.ends_on)}`
+  if (held.starts_on && held.starts_on > day) return `from ${formatDate(held.starts_on)}`
+  return null
+}

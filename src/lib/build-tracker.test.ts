@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { claimLabel, claimTag } from './position.ts'
+import { claimLabel, claimTag, spanOf } from './position.ts'
 import { EDITORS_ID, type Direction, type SameAct, type Weight } from '../../shared/schema.ts'
-import { asShown, readingsFrom, reviewerTiers, type RecordEntry } from './build-tracker.ts'
+import { asShown, readingsFrom, reviewerTiers, type PutTo, type RecordEntry } from './build-tracker.ts'
 import { act, decider, holder, link, office, question, review, relation, report, role, seat, setPosition, source, track } from './fixtures.ts'
 
 const policy = question('policy')
@@ -696,5 +696,253 @@ describe('editorsVerdict', () => {
     const t = track({ ...rows, reviews: [review('a', 'bill', 'support', 'concrete')] })
     expect(t.recordFor(policy, 'ann').map((e) => [e.act.id, e.via?.id, e.checked])).toEqual([['a', 'bill', true]])
     expect(track({ ...rows, reviews: [review('a', 'bill', 'support', 'concrete', 'model')] }).recordFor(policy, 'ann')[0].checked).toBe(false)
+  })
+})
+
+describe('the questions put to one person', () => {
+  const TERM = '2027-01-03'
+  const council = { id: 'council', slug: 'council', name: 'Council', jurisdiction: null, description: null, is_demo: false, sort: 0, next_term_on: TERM, next_term_label: 'Next council' }
+  const board = { ...council, id: 'board', slug: 'board', name: 'Board', sort: 1, next_term_on: null, next_term_label: null }
+  const elsewhere = { ...council, id: 'elsewhere', slug: 'elsewhere', name: 'Elsewhere', sort: 2, next_term_on: null, next_term_label: null }
+  const fares = question('fares', { body_id: 'council', sort: 1 })
+  const pledge = question('pledge', { body_id: 'council', kind: 'formal_act', sort: 2 })
+  const upperOnly = question('upper-only', { body_id: 'council', chamber: 'Upper', sort: 3 })
+  const harbour = question('harbour', { body_id: 'elsewhere' })
+  const shelved = question('shelved', { body_id: 'council', archived_at: '2026-06-01T00:00:00.000Z' })
+  const ordinance = question('ordinance', { body_id: 'council', parent_id: 'fares', kind: 'formal_act', sort: 1 })
+  const upperBill = question('upper-bill', { body_id: 'council', parent_id: 'fares', kind: 'formal_act', chamber: 'Upper', sort: 2 })
+  const budget = question('budget', { body_id: 'council', parent_id: 'fares', closed_on: TERM, status: 'lapsed', sort: 3 })
+  const markup = question('markup', { body_id: 'council', parent_id: 'fares', sort: 4 })
+  const note = question('note', { body_id: 'council', parent_id: 'fares', sort: 5, status: 'resolved', closed_on: '2026-10-30' })
+  const rows = {
+    bodies: [council, board, elsewhere],
+    deciders: [decider('ann'), decider('bob'), decider('cy'), decider('dee'), decider('new')],
+    seats: [seat('w1', { body_id: 'council', chamber: 'Lower' }), seat('w2', { body_id: 'council', chamber: 'Lower' }), seat('b1', { body_id: 'board' }), seat('e1', { body_id: 'elsewhere' })],
+    roles: [
+      role('w1', 'ann'),
+      role('b1', 'ann'),
+      role('w2', 'bob', { ends_on: TERM }),
+      role('w2', 'new', { starts_on: TERM, certainty: 'likely', contest: 'recount' }),
+      role('e1', 'cy'),
+    ],
+    questions: [fares, pledge, upperOnly, harbour, shelved, ordinance, upperBill, budget, markup, note],
+    questionBodies: [{ id: 'pledge:board', question_id: 'pledge', body_id: 'board' }],
+    questionDeciders: [link('note', 'ann', 'Budget chair')],
+    offices: [office('chair', { body_id: 'council', label: 'Committee chair' })],
+    officeHolders: [holder('chair', 'bob', null, TERM), holder('chair', 'ann', TERM, null, 'likely')],
+    questionOffices: [{ id: 'markup:chair', question_id: 'markup', office_id: 'chair' }],
+    sources: [source('paper')],
+    acts: [
+      act('ann-speech', 'ann', { occurred_on: '2026-03-01' }),
+      act('ann-signs', 'ann', { kind: 'commits', occurred_on: '2026-05-01' }),
+      act('ann-pledges', 'ann', { kind: 'commits', occurred_on: '2026-04-01' }),
+      act('ann-undated', 'ann', { occurred_on: null }),
+      act('cy-says', 'cy', { occurred_on: '2026-06-01' }),
+    ],
+    reports: [report('paper', 'ann-speech'), report('paper', 'ann-signs')],
+    reviews: [
+      review('ann-speech', 'fares', 'support'),
+      review('ann-signs', 'ordinance', 'support', 'concrete'),
+      review('ann-pledges', 'pledge', 'support', 'concrete', 'a-reader'),
+      review('ann-undated', 'fares', 'mixed'),
+      review('cy-says', 'harbour', 'oppose'),
+    ],
+    people: [
+      { id: EDITORS_ID, role: 'editor' as const, kind: 'person' as const },
+      { id: 'a-reader', role: 'member' as const, kind: 'person' as const },
+    ],
+  }
+  const now = track(rows)
+  const next = track(rows, TERM)
+  const ids = (list: { question: { id: string } }[]) => list.map((p) => p.question.id)
+  // What the person page says of the seat or office that puts a question to them.
+  const reachNote = (t: ReturnType<typeof track>, p: PutTo) => [spanOf(p.claim, t.asOf), p.claim.certainty]
+
+  it('lists every open question put to them by body, once each, with where they stand and the footing', () => {
+    const { current } = now.questionsOf('ann')
+    expect(current.map((g) => [g.body.id, ids(g.questions)])).toEqual([['council', ['fares', 'pledge']]])
+    const [faresRow, pledgeRow] = current[0].questions
+    expect([faresRow.contender.standing, faresRow.contender.footing]).toEqual(['support', 'sparse'])
+    expect([pledgeRow.contender.standing, pledgeRow.contender.footing]).toEqual(['support', 'on_record'])
+  })
+
+  it('leaves out questions put to another body or chamber, and archived ones', () => {
+    const listed = ids(now.questionsOf('ann').current.flatMap((g) => g.questions))
+    expect(listed).not.toContain('harbour')
+    expect(listed).not.toContain('upper-only')
+    expect(listed).not.toContain('shelved')
+    expect(now.questionsOf('cy').current.map((g) => [g.body.id, ids(g.questions)])).toEqual([['elsewhere', ['harbour']]])
+  })
+
+  it('puts the open measures in their chamber and the open asks put to them beneath each question', () => {
+    const [faresRow] = now.questionsOf('ann').current[0].questions
+    expect(faresRow.under.map((p) => [p.question.id, p.contender.standing, p.roleLabel])).toEqual([
+      ['ordinance', 'support', null],
+      ['budget', 'unknown', null],
+      ['markup', 'unknown', 'Committee chair'],
+    ])
+    expect(reachNote(now, faresRow.under.find((p) => p.question.id === 'markup')!)).toEqual(['from Jan 3, 2027', 'likely'])
+  })
+
+  it('lists apart, under the question they belong to, an ask that has closed and one of an office they no longer hold', () => {
+    expect(now.questionsOf('ann').former.map((p) => [p.question.id, p.parent?.id, p.roleLabel])).toEqual([['note', 'fares', 'Budget chair']])
+    expect(next.questionsOf('bob').former.map((p) => [p.question.id, p.parent?.id, spanOf(p.claim, next.asOf)])).toEqual([
+      ['fares', undefined, 'until Jan 3, 2027'],
+      ['pledge', undefined, 'until Jan 3, 2027'],
+    ])
+    const bobNow = now.questionsOf('bob').current[0].questions.find((q) => q.question.id === 'fares')!
+    const bobMarkup = bobNow.under.find((p) => p.question.id === 'markup')!
+    expect([bobMarkup.roleLabel, ...reachNote(now, bobMarkup)]).toEqual(['Committee chair', null, 'certain'])
+  })
+
+  it('follows the day viewed: a measure past its closing date moves apart, and an office taken up is asked of them', () => {
+    const later = next.questionsOf('ann')
+    expect(ids(later.current[0].questions[0].under)).toEqual(['ordinance', 'markup'])
+    expect(reachNote(next, later.current[0].questions[0].under.find((p) => p.question.id === 'markup')!)).toEqual([null, 'likely'])
+    expect(later.former.map((p) => [p.question.id, p.parent?.id])).toEqual([['budget', 'fares'], ['note', 'fares']])
+  })
+
+  it('marks a seat still to come, and how sure it is', () => {
+    expect(now.questionsOf('new').current[0].questions.map((p) => [p.question.id, ...reachNote(now, p)])).toEqual([
+      ['fares', 'from Jan 3, 2027', 'likely'],
+      ['pledge', 'from Jan 3, 2027', 'likely'],
+    ])
+    expect(reachNote(next, next.questionsOf('new').current[0].questions[0])).toEqual([null, 'likely'])
+  })
+
+  it('leaves out what closed before their seat began, and dates an ask put to them now from now', () => {
+    expect(next.questionsOf('new').former.map((p) => p.question.id)).toEqual([])
+    expect(next.questionsOf('ann').former.map((p) => p.question.id)).toContain('budget')
+    const elect = track({ ...rows, questionDeciders: [...rows.questionDeciders, link('markup', 'new', 'Incoming chair')] })
+    const asked = elect.questionsOf('new').current[0].questions[0].under.find((p) => p.question.id === 'markup')!
+    expect([asked.roleLabel, ...reachNote(elect, asked)]).toEqual(['Incoming chair', null, 'certain'])
+  })
+
+  it('lists a question that has closed apart, with where they stood when it closed', () => {
+    const closed = track({ ...rows, questions: rows.questions.map((q) => (q.id === 'pledge' ? { ...q, status: 'resolved' as const, closed_on: '2026-09-01' } : q)) })
+    const { current, former } = closed.questionsOf('ann')
+    expect(ids(current[0].questions)).toEqual(['fares'])
+    expect(former.map((p) => [p.question.id, p.parent?.id, p.contender.standing])).toEqual([
+      ['note', 'fares', 'unknown'],
+      ['pledge', undefined, 'support'],
+    ])
+  })
+
+  it('reads a decider that is not a person the same way: one seat, one question, standing read off the acts', () => {
+    const states = track({
+      bodies: [{ ...board, id: 'states', slug: 'states', name: 'State legislatures' }],
+      deciders: [decider('virginia')],
+      seats: [seat('VA', { body_id: 'states' })],
+      roles: [role('VA', 'virginia')],
+      questions: [question('era', { body_id: 'states', kind: 'formal_act' })],
+      acts: [act('ratifies', 'virginia', { kind: 'does', occurred_on: '2020-01-27' })],
+      reviews: [review('ratifies', 'era', 'support', 'concrete')],
+    })
+    const { current, former } = states.questionsOf('virginia')
+    expect(current.map((g) => [g.body.id, g.questions.map((p) => [p.question.id, p.contender.standing, p.contender.footing, p.under.length])])).toEqual([['states', [['era', 'support', 'on_record', 0]]]])
+    expect(former).toEqual([])
+  })
+
+  it('lists an ask once when it is put to them both through an office and by name', () => {
+    const both = track({ ...rows, questionDeciders: [...rows.questionDeciders, link('markup', 'ann', 'Committee chair')] }, TERM)
+    expect(ids(both.questionsOf('ann').current[0].questions[0].under)).toEqual(['ordinance', 'markup'])
+  })
+
+  it('keeps an open ask put to them by name with its question once their seat has ended', () => {
+    const named = track({ ...rows, questionDeciders: [...rows.questionDeciders, link('markup', 'bob', 'Former chair')] }, TERM)
+    expect(named.questionsOf('bob').former.map((p) => [p.question.id, p.parent?.id, p.roleLabel, spanOf(p.claim, named.asOf)])).toEqual([
+      ['fares', undefined, null, 'until Jan 3, 2027'],
+      ['markup', 'fares', 'Former chair', null],
+      ['pledge', undefined, null, 'until Jan 3, 2027'],
+    ])
+  })
+
+  it('lists a closed ask of an office they held before, even when they are due to hold it again', () => {
+    const again = track({
+      ...rows,
+      questions: rows.questions.map((q) => (q.id === 'markup' ? { ...q, status: 'resolved' as const, closed_on: '2026-07-01' } : q)),
+      officeHolders: [holder('chair', 'ann', null, '2026-06-01'), { ...holder('chair', 'ann', TERM), id: 'chair:ann:again' }],
+    })
+    const markupRow = again.questionsOf('ann').former.find((p) => p.question.id === 'markup')!
+    expect([markupRow.parent?.id, markupRow.roleLabel, ...reachNote(again, markupRow)]).toEqual(['fares', 'Committee chair', 'until Jun 1, 2026', 'certain'])
+  })
+
+  it('marks a claim that ended before it began, as a withdrawn candidate’s does', () => {
+    const quit = track({ ...rows, roles: [...rows.roles, role('w2', 'dee', { starts_on: '2027-05-04', ends_on: '2026-11-10', certainty: 'possible', contest: 'general' })] })
+    expect(quit.questionsOf('dee').former.map((p) => [p.question.id, spanOf(p.claim, quit.asOf)])).toEqual([
+      ['fares', 'no longer in line since Nov 10, 2026'],
+      ['pledge', 'no longer in line since Nov 10, 2026'],
+    ])
+  })
+
+  it('is empty for someone with no seat', () => {
+    expect(track({ ...rows, roles: [] }).questionsOf('ann')).toEqual({ current: [], former: [] })
+  })
+
+  it('lists their seats and offices by body, held first, then to come, then ended, and a role at large apart', () => {
+    const withAtLarge = track({ ...rows, offices: [...rows.offices, office('union', { body_id: null, label: 'Union president' })], officeHolders: [...rows.officeHolders, holder('union', 'ann')] })
+    const ann = withAtLarge.seatsAndOfficesOf('ann')
+    expect(ann.bodies.map((b) => [b.body.id, b.seats.map((s) => s.seat.id), b.offices.map((t) => [t.office.label, t.holder.starts_on])])).toEqual([
+      ['council', ['w1'], [['Committee chair', TERM]]],
+      ['board', ['b1'], []],
+    ])
+    expect(ann.atLarge.map((t) => t.office.label)).toEqual(['Union president'])
+    const moving = track({ ...rows, roles: [...rows.roles, role('w2', 'ann', { id: 'ann-later', starts_on: TERM, certainty: 'possible' }), role('w2', 'ann', { id: 'ann-before', ends_on: '2025-01-01' })] })
+    expect(moving.seatsAndOfficesOf('ann').bodies[0].seats.map((s) => s.role.id)).toEqual(['w1:ann', 'ann-later', 'ann-before'])
+  })
+})
+
+describe('the latest acts of one person', () => {
+  const policy = question('policy')
+  const bill = question('bill', { parent_id: 'policy', kind: 'formal_act', implies_on_parent: 'support', sort: 1 })
+  const other = question('other', { sort: 2 })
+  const tracker = track({
+    deciders: [decider('ann'), decider('bob')],
+    questions: [policy, bill, other],
+    acts: [
+      act('signs', 'ann', { kind: 'commits', occurred_on: '2026-05-01' }),
+      act('speech', 'ann', { occurred_on: '2026-03-01' }),
+      act('undated', 'ann', { occurred_on: null }),
+      act('bob-speech', 'bob', { occurred_on: '2026-06-01' }),
+      act('unread', 'ann', { occurred_on: '2026-07-01' }),
+    ],
+    reviews: [
+      review('signs', 'bill', 'support', 'concrete'),
+      review('speech', 'other', 'oppose'),
+      review('speech', 'policy', 'support', 'clear', 'a-reader'),
+      review('undated', 'policy', 'mixed'),
+      review('bob-speech', 'policy', 'oppose'),
+    ],
+    people: [
+      { id: EDITORS_ID, role: 'editor', kind: 'person' },
+      { id: 'a-reader', role: 'member', kind: 'person' },
+    ],
+  })
+  const latest = tracker.latestActsOf('ann')
+
+  it('lists each of their acts with a reading once, newest first, an undated one last', () => {
+    expect(latest.map((a) => a.act.id)).toEqual(['signs', 'speech', 'undated'])
+  })
+
+  it('gives each act its readings on every question, the direct one before one through a sub-question', () => {
+    expect(latest[0].entries.map((e) => [e.question.id, e.reading.position, e.via?.id])).toEqual([
+      ['bill', 'support', undefined],
+      ['policy', 'support', 'bill'],
+    ])
+    expect(latest[1].entries.map((e) => [e.question.id, e.reading.position])).toEqual([
+      ['policy', 'support'],
+      ['other', 'oppose'],
+    ])
+  })
+
+  it('says which readings an editor has checked', () => {
+    expect(latest[1].entries.map((e) => [e.question.id, e.checked])).toEqual([
+      ['policy', false],
+      ['other', true],
+    ])
+  })
+
+  it('is empty for someone with no record', () => {
+    expect(tracker.latestActsOf('nobody')).toEqual([])
   })
 })

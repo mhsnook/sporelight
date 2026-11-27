@@ -58,7 +58,7 @@ export function QuestionHeader({ question, deciderSlug }: { question: Question; 
 
 // Switches between the body as it stands and as it will stand once its next
 // term starts. Seats, key roles and the asks put to them all follow the day.
-function TermToggle({ body }: { body: Body }) {
+export function TermToggle({ body }: { body: Body }) {
   const { tracker } = useTracker()
   const navigate = useNavigate()
   const now = today()
