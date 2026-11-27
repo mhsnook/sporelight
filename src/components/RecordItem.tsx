@@ -30,14 +30,13 @@ export function RecordItem({ entry, question, children }: { entry: RecordEntry; 
         </span>
       </div>
       <ActWords kind={act.kind} words={act.body} />
-      <Reports reports={reports} />
+      <SourceList reports={reports} />
       {children}
     </li>
   )
 }
 
-// Every source that reports an act, with its archived copy.
-export function Reports({ reports }: { reports: RecordEntry['reports'] }) {
+export function SourceList({ reports }: { reports: RecordEntry['reports'] }) {
   const signedIn = useSession().id !== undefined
   return (
     <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">

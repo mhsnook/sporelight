@@ -804,6 +804,13 @@ describe('the questions put to one person', () => {
     expect(next.questionsOf('new').current[0].questions[0]).toMatchObject({ certainty: 'likely', startsOn: null })
   })
 
+  it('leaves out what closed before their seat began, and dates an ask put to them now from now', () => {
+    expect(next.questionsOf('new').former.map((p) => p.question.id)).toEqual([])
+    expect(next.questionsOf('ann').former.map((p) => p.question.id)).toContain('budget')
+    const elect = track({ ...rows, questionDeciders: [...rows.questionDeciders, link('markup', 'new', 'Incoming chair')] })
+    expect(elect.questionsOf('new').current[0].questions[0].under.find((p) => p.question.id === 'markup')).toMatchObject({ roleLabel: 'Incoming chair', startsOn: null })
+  })
+
   it('lists a question that has closed apart, with where they stood when it closed', () => {
     const closed = track({ ...rows, questions: rows.questions.map((q) => (q.id === 'pledge' ? { ...q, status: 'resolved' as const, closed_on: '2026-09-01' } : q)) })
     const { current, former } = closed.questionsOf('ann')

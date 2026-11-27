@@ -45,10 +45,10 @@ function SourceLink({ source }: { source: Pick<Source, 'title' | 'url'> }) {
 }
 
 // A person's page on one question.
-function PersonLink({ slug, decider, hash, className = 'font-bold hover:underline', children }: { slug: string; decider: StoryItem['decider']; hash?: string; className?: string; children?: ReactNode }) {
+function PersonLink({ slug, decider, hash, className, children }: { slug: string; decider: StoryItem['decider']; hash?: string; className: string; children: ReactNode }) {
   return (
     <Link to="/q/$slug/$decider" params={{ slug, decider: decider.slug }} hash={hash} className={className}>
-      {children ?? decider.name}
+      {children}
     </Link>
   )
 }

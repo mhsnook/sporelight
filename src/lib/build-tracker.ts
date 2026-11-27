@@ -403,16 +403,20 @@ export function buildTracker(c: TrackerData, asOf: string) {
   // The question a sub-question sits under, or the question itself.
   const rootOf = (question: Question): Question => (question.parent_id && questionById.get(question.parent_id)) || question
 
-  // A seat a question is put to: in one of its bodies, and in its chamber if it names one.
-  const putToSeat = (question: Question, seat: Seat) => appliesIn(question, seat.body_id) && (!question.chamber || seat.chamber === question.chamber)
+  // Whether a seat is one a question is put to: in one of its bodies, and in its chamber if it names one.
+  const seatsPutTo = (question: Question) => {
+    const bodies = new Set(bodyIdsOf(question))
+    return (seat: Seat) => bodies.has(seat.body_id) && (!question.chamber || seat.chamber === question.chamber)
+  }
 
   // Everyone with a claim, past or to come, on a seat the question is put to.
   function rosterOf(question: Question): Decider[] {
     const seated = new Map<string, Decider>()
+    const putTo = seatsPutTo(question)
     for (const role of c.roles) {
       const seat = seatById.get(role.seat_id)
       const decider = deciderById.get(role.decider_id)
-      if (decider && seat && putToSeat(question, seat)) seated.set(decider.id, decider)
+      if (decider && seat && putTo(seat)) seated.set(decider.id, decider)
     }
     return [...seated.values()].sort((a, b) => a.sort_name.localeCompare(b.sort_name))
   }
@@ -435,10 +439,11 @@ export function buildTracker(c: TrackerData, asOf: string) {
   function claimsOn(question: Question, deciderId: string): Role[] {
     const order = bodyIdsOf(question)
     const bodyRank = (r: Role) => order.indexOf(seatById.get(r.seat_id)!.body_id)
+    const putTo = seatsPutTo(question)
     return (everyRoleByDecider.get(deciderId) ?? [])
       .filter((r) => {
         const seat = seatById.get(r.seat_id)
-        return seat !== undefined && putToSeat(question, seat)
+        return seat !== undefined && putTo(seat)
       })
       .sort((a, b) => byClaim(a, b) || bodyRank(a) - bodyRank(b))
   }
@@ -591,7 +596,10 @@ export function buildTracker(c: TrackerData, asOf: string) {
       }
       // One row per ask: someone can be asked it through an office and by name.
       const asked = asksFor(question, deciderId, body.id).filter((k, i, all) => all.findIndex((other) => other.ask.id === k.ask.id) === i)
-      const askedOf = (k: KeyPerson): PutTo => ({ ...putTo, question: k.ask, contender: k.contender, roleLabel: k.roleLabel, certainty: k.certainty })
+      const askedOf = (k: KeyPerson): PutTo => ({ ...putTo, question: k.ask, contender: k.contender, roleLabel: k.roleLabel, certainty: k.certainty, startsOn: null })
+      // A question that closed before their seat began was never theirs.
+      const closedBeforeThem = (q: Question) => !isOpen(q) && role.starts_on !== null && q.closed_on !== null && q.closed_on <= role.starts_on
+      if (closedBeforeThem(question)) continue
       if (!seated || !isOpen(question)) {
         former.push({ ...putTo, parent: undefined })
         // An open ask still put to them, by name or through an office they still hold, stays listed with its question.
@@ -600,7 +608,10 @@ export function buildTracker(c: TrackerData, asOf: string) {
       }
 
       const under: PutTo[] = []
-      const place = (sub: PutTo) => (isOpen(sub.question) ? under.push(sub) : former.push({ ...sub, parent: question }))
+      const place = (sub: PutTo) => {
+        if (isOpen(sub.question)) under.push(sub)
+        else if (!closedBeforeThem(sub.question)) former.push({ ...sub, parent: question })
+      }
       for (const measure of measuresIn(question, body.id)) {
         if (measure.chamber && measure.chamber !== seat.chamber) continue
         place({ ...putTo, question: measure, contender: contender(measure, role)! })

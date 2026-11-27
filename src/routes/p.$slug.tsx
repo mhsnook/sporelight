@@ -7,7 +7,7 @@ import { useIsEditor } from '../lib/auth.ts'
 import { CertaintyTag, FootingTag, NotFound, StandingPill, Syncing, Token } from '../components/bits.tsx'
 import { AskStatus } from '../components/Asks.tsx'
 import { TermToggle } from '../components/QuestionHeader.tsx'
-import { ActWords, Reports } from '../components/RecordItem.tsx'
+import { ActWords, SourceList } from '../components/RecordItem.tsx'
 import { ReadingLine } from '../components/Story.tsx'
 import type { SiteSearch } from './__root.tsx'
 
@@ -54,14 +54,14 @@ function Person() {
                 )
               })}
               {offices.map((t) => (
-                <Office key={t.holder.id} tenure={t} />
+                <OfficeLine key={t.holder.id} tenure={t} />
               ))}
               <TermToggle body={body} />
             </div>
           ))}
         </div>
         {atLarge.map((t) => (
-          <Office key={t.holder.id} tenure={t} />
+          <OfficeLine key={t.holder.id} tenure={t} />
         ))}
         <p className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
           {decider.url && (
@@ -102,7 +102,7 @@ function Person() {
                               {p.question.short_title}
                             </RecordLink>
                             <p className="text-sm text-muted">{p.question.title}</p>
-                            <Reach putTo={p} />
+                            <PutToNote putTo={p} />
                           </div>
                           <span className="flex shrink-0 flex-wrap items-center gap-2">
                             <StandingPill standing={p.contender.standing} question={p.question} />
@@ -117,7 +117,7 @@ function Person() {
                                   <RecordLink putTo={sub} decider={decider} className="font-medium hover:underline">
                                     {sub.question.title}
                                   </RecordLink>
-                                  <Reach putTo={sub} />
+                                  <PutToNote putTo={sub} />
                                   <AskStatus ask={sub.question} />
                                 </span>
                                 <span className="shrink-0">
@@ -149,7 +149,7 @@ function Person() {
                       <RecordLink putTo={p} decider={decider} className="font-medium hover:underline">
                         {p.parent ? p.question.title : p.question.short_title}
                       </RecordLink>
-                      <Reach putTo={p} />
+                      <PutToNote putTo={p} />
                       <AskStatus ask={p.question} />
                     </span>
                     <span className="shrink-0">
@@ -212,7 +212,7 @@ function LatestActs({ decider }: { decider: Decider }) {
                   />
                 ))}
               </ul>
-              <Reports reports={entries[0].reports} />
+              <SourceList reports={entries[0].reports} />
             </li>
           ))}
         </ol>
@@ -240,8 +240,7 @@ function RecordLink({ putTo, decider, className, children }: { putTo: PutTo; dec
   )
 }
 
-// What puts a question to them, where that is not simply the seat they hold now.
-function Reach({ putTo }: { putTo: PutTo }) {
+function PutToNote({ putTo }: { putTo: PutTo }) {
   const when = putTo.startsOn
     ? `from ${formatDate(putTo.startsOn)}`
     : putTo.endedOn
@@ -257,7 +256,7 @@ function Reach({ putTo }: { putTo: PutTo }) {
   )
 }
 
-function Office({ tenure: t }: { tenure: Tenure }) {
+function OfficeLine({ tenure: t }: { tenure: Tenure }) {
   const { tracker } = useTracker()
   const when = spanOf(t.holder, tracker.asOf)
   const url = t.holder.source_id ? tracker.sourceById.get(t.holder.source_id)?.url : undefined
